@@ -1,4 +1,4 @@
-// Flydigi Apex 6 Pro (GPA6) HID protocol — read-only subset.
+// Flydigi Apex 6 Pro (GPA6) HID protocol — reads plus FULL RAM write (0xA4).
 // Derived from observing space_station.flydigi.com; see PROTOCOL.md.
 
 export const VENDOR_ID = 0x37d7;
@@ -22,10 +22,31 @@ export const CMD = {
   THIRDPARTY_STATUS: 0x10,
   SLOT_STATUS: 0xa1,
   RAM_READ: 0xa3,
+  RAM_WRITE: 0xa4,
   LCD_SETTINGS: 0xac,
 };
 
 export const RAM = { GLOBAL: 0x01, LIGHTING: 0x04, MAPPING: 0x05, RAM_6: 0x06 };
+
+const WRITE_OP = { BEGIN: 0x00, CHUNK: 0x01, COMMIT: 0x02, ABORT: 0x03 };
+const WRITE_CHUNK = 16;
+
+const CRC32_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+
+// CRC-32 (IEEE); used by 0xA3 INFO and 0xA4 BEGIN/COMMIT over the whole RAM buffer.
+export function crc32(bytes) {
+  let c = 0xffffffff;
+  for (const b of bytes) c = CRC32_TABLE[(c ^ b) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
 
 function sum8(bytes, from, to) {
   let s = 0;
@@ -279,6 +300,56 @@ export class Apex6 {
       if (idx > 4096) throw new Error("READ: too many chunks");
     }
     return { activeSlot: first.activeSlot, data: out };
+  }
+
+  // 0xA3 op 1: INFO <ramId> → status, ramId, activeSlot, len u16, crc32 u32
+  async getRamInfo(ramId) {
+    const { payload: p } = await this.requestV2(
+      CMD.RAM_READ,
+      new Uint8Array([1, ramId]),
+      ({ payload: p }) => p[0] === 1 && p[2] === ramId,
+    );
+    return { status: p[1] ?? 255, activeSlot: p[3] ?? 0, len: u16le(p, 4), crc32: u32le(p, 6) };
+  }
+
+  // Replies echo [op, status, ramId, ...]; CHUNK/COMMIT requests carry no ramId but replies do.
+  _write(ramId, op, body, opts) {
+    return this.requestV2(
+      CMD.RAM_WRITE,
+      new Uint8Array([op, ...body]),
+      ({ payload: p }) => p[0] === op && (op === WRITE_OP.ABORT || p[2] === ramId),
+      opts,
+    );
+  }
+
+  // FULL write: BEGIN(ramId, len, crc32) → CHUNK(offset, n, data)… → COMMIT(len, crc32).
+  // The device echoes len + crc32 on COMMIT; a mismatch means the buffer was not accepted.
+  async writeRam(ramId, data, onProgress) {
+    const len = data.length;
+    if (len === 0 || len > 0xffff) throw new Error(`WRITE: bad length ${len}`);
+    const crc = crc32(data);
+    const lenCrc = [len & 0xff, len >> 8, crc & 0xff, (crc >>> 8) & 0xff, (crc >>> 16) & 0xff, crc >>> 24];
+    const chunks = Math.ceil(len / WRITE_CHUNK);
+    try {
+      const begin = (await this._write(ramId, WRITE_OP.BEGIN, [ramId, ...lenCrc])).payload;
+      if (begin[1] !== 0) throw new Error(`WRITE BEGIN status=${begin[1]}`);
+      for (let off = 0, i = 0; off < len; off += WRITE_CHUNK, i++) {
+        const part = data.subarray(off, Math.min(off + WRITE_CHUNK, len));
+        const r = (await this._write(ramId, WRITE_OP.CHUNK, [off & 0xff, off >> 8, part.length, ...part])).payload;
+        if (r[1] !== 0) throw new Error(`WRITE CHUNK @${off} status=${r[1]}`);
+        onProgress?.(i + 1, chunks);
+      }
+    } catch (e) {
+      // Best effort: drop the half-written transfer so the device keeps its old buffer.
+      await this._write(ramId, WRITE_OP.ABORT, [], { timeoutMs: 500, retries: 1 }).catch(() => {});
+      throw e;
+    }
+    const c = (await this._write(ramId, WRITE_OP.COMMIT, lenCrc)).payload;
+    const gotLen = u16le(c, 4), gotCrc = u32le(c, 6);
+    if (gotLen !== len || gotCrc !== crc) {
+      throw new Error(`WRITE COMMIT mismatch: len ${gotLen}/${len} crc ${gotCrc.toString(16)}/${crc.toString(16)} status=${c[1]}`);
+    }
+    return { activeSlot: c[3] ?? 0, len, crc32: crc };
   }
 }
 

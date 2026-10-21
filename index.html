@@ -74,12 +74,21 @@
   .seq { display: flex; gap: 3px; flex-wrap: wrap; }
   .key { border: 1px solid var(--line); border-radius: 5px; padding: 0 6px; font-size: 12px; background: #0b0d10; }
   .pname { font-size: 16px; font-weight: 600; margin: 0 0 8px; }
+  .dzgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px 24px; }
+  .dz { display: grid; grid-template-columns: 72px 1fr 120px; align-items: center; gap: 12px; }
+  .dz input { width: 100%; accent-color: var(--accent); }
+  .dz output { font-variant-numeric: tabular-nums; text-align: right; }
+  .dz output.changed { color: var(--warn); }
+  .row .spacer { flex: 1; }
+  .filebtn { border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; cursor: pointer; }
+  .filebtn.disabled { opacity: .4; cursor: default; }
+  #writestatus.ok { color: var(--ok); } #writestatus.err { color: var(--err); }
 </style>
 </head>
 <body>
 <header>
   <h1>Apex 6 Pro Setup</h1>
-  <span class="tag">ต้นแบบ · อ่านอย่างเดียว</span>
+  <span class="tag">ต้นแบบ · เขียนได้เฉพาะ deadzone</span>
   <span class="spacer"></span>
   <span id="status">ยังไม่ได้เชื่อมต่อ</span>
   <button id="refresh" class="ghost" disabled>รีเฟรช</button>
@@ -101,6 +110,31 @@
   <section class="wide">
     <h2>ค่าในโปรไฟล์ที่ใช้อยู่ <span id="mapstatus" class="h2note"></span></h2>
     <div id="mapping" class="empty">เชื่อมต่อจอยเพื่ออ่านค่าโปรไฟล์</div>
+  </section>
+
+  <section class="wide" id="editor">
+    <h2>แก้ Deadzone สติ๊ก <span class="h2note">เขียนลงโปรไฟล์ที่ใช้อยู่</span></h2>
+    <div class="dzgrid">
+      <label class="dz">
+        <span>สติ๊กซ้าย</span>
+        <input type="range" id="dz-left" min="0" max="127" value="0" disabled>
+        <output id="dz-left-v">—</output>
+      </label>
+      <label class="dz">
+        <span>สติ๊กขวา</span>
+        <input type="range" id="dz-right" min="0" max="127" value="0" disabled>
+        <output id="dz-right-v">—</output>
+      </label>
+    </div>
+    <div class="row" style="margin-top:14px">
+      <button id="dz-save" disabled>บันทึกลงจอย</button>
+      <button id="dz-reset" class="ghost" disabled>คืนค่าที่อ่านมา</button>
+      <span class="spacer"></span>
+      <button id="restore-last" class="ghost" disabled>กู้คืน backup ล่าสุด</button>
+      <label class="ghost filebtn" id="restore-file-btn">กู้คืนจากไฟล์ .bin<input type="file" id="restore-file" accept=".bin,application/octet-stream" hidden disabled></label>
+    </div>
+    <p id="writestatus" class="note"></p>
+    <p class="note">ก่อนเขียนทุกครั้ง แอปจะอ่านค่าล่าสุดจากจอย ดาวน์โหลดไฟล์ backup ให้อัตโนมัติ แล้วอ่านกลับมาเทียบหลังเขียนเสร็จ · ค่าที่เปลี่ยนมีแค่ deadzone ส่วนค่าอื่นในโปรไฟล์คงเดิมทุกไบต์</p>
   </section>
 
   <section class="wide">

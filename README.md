@@ -6,8 +6,9 @@ An unofficial web app for reading the configuration of a Flydigi Apex 6 Pro cont
 
 ## Status
 
-- Read-only: device info, profile slots, the current profile (sticks, triggers, gyro, remaps, macros), live input, RAM dump.
-- Writing to the controller is not implemented yet.
+- Read: device info, profile slots, the current profile (sticks, triggers, gyro, remaps, macros), live input, RAM dump.
+- Write: stick deadzone of the active profile, plus restoring a profile from a backup `.bin`. Every write re-reads the profile first, downloads a backup, and reads the result back to compare byte-for-byte.
+- Experimental: the write path is tested against a mock device. Keep the backup files.
 
 ## Use
 

@@ -1,10 +1,14 @@
-import { Apex6, RAM, hex } from "./protocol.js";
+import { Apex6, RAM, hex, crc32 } from "./protocol.js";
 import { decodeMapping } from "./mapping.js";
 import { renderProfile } from "./profile-view.js";
+import { unwrapMapping, withStickDeadzones, deadzoneMax, sameBytes } from "./mapping-edit.js";
 
 const $ = (s) => document.querySelector(s);
 let pad = null;
 let lastDump = null;
+// Mapping buffer as last read from the device: { wrapped, cfg, slot }. Edits are made against this.
+let current = null;
+let busy = false;
 
 const BUTTON_NAMES = ["A", "B", "X", "Y", "LB", "RB", "LT", "RT", "Back", "Start", "LS", "RS", "↑", "↓", "←", "→", "Home"];
 
@@ -116,11 +120,192 @@ async function loadMapping() {
     $("#mapping").innerHTML = renderProfile(cfg);
     $("#mapping").classList.remove("empty");
     status.textContent = `โปรไฟล์ ${activeSlot + 1} · v${cfg.version} · ${data.length} bytes`;
+    // Editing needs the wrapped form with a valid CRC16; otherwise stay read-only.
+    current = { wrapped: data, cfg: unwrapMapping(data).cfg, slot: activeSlot };
   } catch (e) {
     console.warn(e);
     status.textContent = "";
     $("#mapping").textContent = `อ่านหรือถอดค่าโปรไฟล์ไม่สำเร็จ: ${e.message}`;
+    current = null;
   }
+  renderEditor();
+}
+
+// --- Deadzone editor and restore ---
+
+const DZ = { left: "joystick_left", right: "joystick_right" };
+const pctOf = (v) => `${((v / 255) * 100).toFixed(1)}%`;
+
+function writeStatus(text, kind = "") {
+  const el = $("#writestatus");
+  el.textContent = text;
+  el.className = `note ${kind}`;
+}
+
+function renderEditor() {
+  const ready = !!(pad && current) && !busy;
+  for (const [side, key] of Object.entries(DZ)) {
+    const input = $(`#dz-${side}`);
+    const stick = current?.cfg[key];
+    input.disabled = !ready || !stick;
+    if (stick) {
+      input.max = deadzoneMax(stick);
+      if (!busy) input.value = stick.curve.start_x;
+    }
+    updateDzLabel(side);
+  }
+  $("#dz-reset").disabled = !ready;
+  $("#restore-file").disabled = !ready;
+  $("#restore-file-btn").classList.toggle("disabled", !ready);
+  $("#restore-last").disabled = !ready || !loadLastBackup(current?.slot);
+  updateSaveButton();
+}
+
+function updateDzLabel(side) {
+  const input = $(`#dz-${side}`);
+  const out = $(`#dz-${side}-v`);
+  const orig = current?.cfg[DZ[side]]?.curve.start_x;
+  if (orig == null) {
+    out.textContent = "—";
+    return;
+  }
+  const v = Number(input.value);
+  out.textContent = `${pctOf(v)} (${v})`;
+  out.classList.toggle("changed", v !== orig);
+}
+
+function dzValues() {
+  const vals = {};
+  for (const [side, key] of Object.entries(DZ)) if (current?.cfg[key]) vals[side] = Number($(`#dz-${side}`).value);
+  return vals;
+}
+
+function updateSaveButton() {
+  const changed = !!current && Object.entries(dzValues()).some(([s, v]) => v !== current.cfg[DZ[s]].curve.start_x);
+  $("#dz-save").disabled = !pad || !current || busy || !changed;
+}
+
+for (const side of Object.keys(DZ)) {
+  $(`#dz-${side}`).addEventListener("input", () => {
+    updateDzLabel(side);
+    updateSaveButton();
+  });
+}
+
+$("#dz-reset").addEventListener("click", () => {
+  renderEditor();
+  writeStatus("");
+});
+
+$("#dz-save").addEventListener("click", async () => {
+  const vals = dzValues();
+  let next;
+  try {
+    next = withStickDeadzones(current.wrapped, vals);
+  } catch (e) {
+    return writeStatus(e.message, "err");
+  }
+  const lines = Object.entries(vals)
+    .map(([s, v]) => `สติ๊ก${s === "left" ? "ซ้าย" : "ขวา"}: ${pctOf(current.cfg[DZ[s]].curve.start_x)} → ${pctOf(v)}`)
+    .join("\n");
+  if (!confirm(`เขียน deadzone ลงโปรไฟล์ ${current.slot + 1}?\n\n${lines}\n\nแอปจะดาวน์โหลดไฟล์ backup ของค่าเดิมให้ก่อนเขียน`)) return;
+  await writeMapping(next);
+});
+
+$("#restore-file").addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  e.target.value = "";
+  if (!file) return;
+  let data, cfg;
+  try {
+    data = new Uint8Array(await file.arrayBuffer());
+    cfg = unwrapMapping(data).cfg;
+  } catch (err) {
+    return writeStatus(`ใช้ไฟล์นี้ไม่ได้: ${err.message}`, "err");
+  }
+  if (!confirm(`กู้คืน "${file.name}"${cfg.name ? ` (${cfg.name})` : ""} ลงโปรไฟล์ ${current.slot + 1}?\n\nค่าทั้งหมดในโปรไฟล์นี้จะถูกแทนที่ด้วยค่าในไฟล์`)) return;
+  await writeMapping(data);
+});
+
+$("#restore-last").addEventListener("click", async () => {
+  const b = loadLastBackup(current.slot);
+  if (!b) return;
+  const when = new Date(b.at).toLocaleString("th-TH");
+  if (!confirm(`กู้คืน backup ของโปรไฟล์ ${current.slot + 1} ที่บันทึกไว้เมื่อ ${when}?`)) return;
+  await writeMapping(b.data);
+});
+
+// Every write: re-read and confirm nothing changed since display, back up, write, read back and compare.
+async function writeMapping(next) {
+  busy = true;
+  renderEditor();
+  try {
+    writeStatus("กำลังตรวจค่าล่าสุดในจอย…");
+    const fresh = await pad.readRam(RAM.MAPPING);
+    if (fresh.activeSlot !== current.slot || !sameBytes(fresh.data, current.wrapped)) {
+      throw new Error("ค่าในจอยไม่ตรงกับที่แสดงอยู่ (อาจสลับโปรไฟล์หรือถูกแก้จากที่อื่น) — กดรีเฟรชแล้วลองใหม่");
+    }
+    const info = await pad.getRamInfo(RAM.MAPPING);
+    if (info.status !== 0 || info.len !== fresh.data.length || info.crc32 !== crc32(fresh.data)) {
+      throw new Error(`จอยรายงาน len/CRC ไม่ตรงกับที่อ่านได้ (status=${info.status}) — ยกเลิก ไม่ได้เขียนอะไร`);
+    }
+    if (sameBytes(fresh.data, next)) {
+      writeStatus("ค่าในจอยตรงกับที่จะเขียนอยู่แล้ว ไม่ต้องเขียน", "ok");
+      return;
+    }
+
+    backup(fresh.data, fresh.activeSlot);
+
+    await pad.writeRam(RAM.MAPPING, next, (i, n) => writeStatus(`กำลังเขียน ${i}/${n}`));
+
+    writeStatus("กำลังอ่านกลับมาตรวจ…");
+    const back = await pad.readRam(RAM.MAPPING);
+    if (!sameBytes(back.data, next)) {
+      throw new Error("อ่านกลับแล้วไม่ตรงกับที่เขียน — กด \"กู้คืน backup ล่าสุด\" เพื่อคืนค่าเดิม");
+    }
+    busy = false;
+    await loadAll();
+    writeStatus(`บันทึกลงโปรไฟล์ ${back.activeSlot + 1} แล้ว และอ่านกลับมาตรงทุกไบต์`, "ok");
+  } catch (e) {
+    console.warn(e);
+    writeStatus(e.message, "err");
+  } finally {
+    busy = false;
+    renderEditor();
+  }
+}
+
+const BACKUP_KEY = (slot) => `apex6.backup.mapping.slot${slot}`;
+
+function backup(data, slot) {
+  const stamp = new Date().toISOString().replace(/[-:]/g, "").replace("T", "-").slice(0, 15);
+  download(data, `apex6-profile${slot + 1}-backup-${stamp}.bin`);
+  try {
+    localStorage.setItem(BACKUP_KEY(slot), JSON.stringify({ at: Date.now(), data: btoa(String.fromCharCode(...data)) }));
+  } catch (e) {
+    console.warn("backup to localStorage failed", e);
+  }
+}
+
+function loadLastBackup(slot) {
+  if (slot == null) return null;
+  try {
+    const b = JSON.parse(localStorage.getItem(BACKUP_KEY(slot)) ?? "null");
+    if (!b) return null;
+    const data = Uint8Array.from(atob(b.data), (c) => c.charCodeAt(0));
+    unwrapMapping(data);
+    return { at: b.at, data };
+  } catch {
+    return null;
+  }
+}
+
+function download(data, name) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([data]));
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
 async function attach(p) {
@@ -133,7 +318,9 @@ async function attach(p) {
 async function disconnect() {
   await pad?.close();
   pad = null;
+  current = null;
   enable(false);
+  renderEditor();
   setStatus("ยังไม่ได้เชื่อมต่อ");
 }
 
@@ -167,11 +354,7 @@ document.querySelectorAll(".dump").forEach((btn) =>
 
 $("#download").addEventListener("click", () => {
   if (!lastDump) return;
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([lastDump.data]));
-  a.download = `apex6-ram-0x${lastDump.ram.toString(16).padStart(2, "0")}-${Date.now()}.bin`;
-  a.click();
-  URL.revokeObjectURL(a.href);
+  download(lastDump.data, `apex6-ram-0x${lastDump.ram.toString(16).padStart(2, "0")}-${Date.now()}.bin`);
 });
 
 function hexdump(b) {
@@ -210,6 +393,8 @@ function tick() {
   requestAnimationFrame(tick);
 }
 requestAnimationFrame(tick);
+
+renderEditor();
 
 if (!("hid" in navigator)) {
   $("#nohid").style.display = "block";

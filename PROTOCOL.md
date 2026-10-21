@@ -31,8 +31,8 @@ Replies are zero-padded, so find the end by scanning for a valid checksum.
 | 0xA1 | slot status | → activeSlot u8, 4× slot crc16, global crc16 |
 | 0xA2 | switch profile | cfgId → same layout as 0xA1 |
 | 0xA3 | RAM read (v2.1) | op 0 READ_CHUNK `[0, ramId, idx, size=16]` → `[0, status, ramId, activeSlot, totalLen u16, idx, size, data…]`; op 1 INFO `[1, ramId]` → status, ramId, slot, len u16, crc32 |
-| 0xA4 | RAM write (v2.1) | op 0 FULL_BEGIN(ramId, len u16, crc32), 1 CHUNK(offset u16, n, data), 2 COMMIT(len, crc32), 3 ABORT, 0x10 DELTA_BEGIN, 0x11 DELTA_SPLICE |
-| 0xA7 | apply/commit config | `[1, cfgId]` |
+| 0xA4 | RAM write (v2.1) | all LE. op 0 FULL_BEGIN `[0, ramId, len u16, crc32 u32]`; 1 CHUNK `[1, offset u16 (bytes), n, data…]` (client uses n=16, no ramId); 2 COMMIT `[2, len u16, crc32 u32]` (no ramId); 3 ABORT `[3]`; 0x10 DELTA_BEGIN, 0x11 DELTA_SPLICE. Reply `[op, status, ramId, …]`, matched on op + ramId; COMMIT reply adds activeSlot, len u16, crc32 u32 and counts as success when len+crc match. |
+| 0xA7 | apply/commit config | `[1, cfgId]`. Not sent by the official client after a write (debug only); a COMMIT takes effect on its own. |
 | 0xAC / 0xAD | LCD settings get / set | |
 | 0xAF | ? per cfgId | |
 | 0xEF | (input) live stick stream | LX, LY, RX, RY i16le, buttons u32le |
@@ -40,9 +40,9 @@ Replies are zero-padded, so find the end by scanning for a valid checksum.
 
 ## RAM regions
 - `0x01` global config. The official client uses bytes `[2, 82)`.
-- `0x05` mapping. Wrapped as `len u16le, crc16-CCITT(0xFFFF) u16le, blob`. Blob magic is `XMUL`, versions 1.7, 1.8 and 1.9. The codec is in `vendor-gpa6-codec-*.js`.
+- `0x05` mapping (active slot). Wrapped as `len u16le` (whole buffer incl. this 4-byte header), `crc16 u16le` (CCITT-FALSE: poly 0x1021, init 0xFFFF, over the blob only), blob. Writes send the wrapped form. Blob magic is `XMUL`, versions 1.7, 1.8 and 1.9. The codec is in `vendor-gpa6-codec-*.js`.
 - `0x04`, `0x06` are still unknown. One of them is probably lighting (magic `LGHT`).
-- Write CRC is CRC-32 (IEEE).
+- Write CRC is CRC-32 (IEEE) over the whole wrapped buffer. 0xA3 INFO `[1, ramId]` returns the same len + crc32 for the current buffer.
 
 ## Verified on hardware (2026-10-21)
 - 0x01, 0x04, 0x07, 0x0F, 0xA1, and 0xA3 reads for RAM 0x01 and 0x05 all reply as documented.

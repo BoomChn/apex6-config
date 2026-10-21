@@ -161,11 +161,15 @@ function layer(r) {
   };
 }
 
-function tlv(r, out) {
+const TLV_KEYS = { 1: "joystick_left", 2: "joystick_right", 3: "trigger_left", 4: "trigger_right", 5: "gyroscope" };
+
+// `offsets` records where each known TLV's value starts in the blob, for in-place edits.
+function tlv(r, out, offsets) {
   while (r.remaining >= 2) {
     const tag = r.u8(), len = r.u8();
     if (tag === 0xff && len === 0) return;
     const start = r.o;
+    if (TLV_KEYS[tag]) offsets[TLV_KEYS[tag]] = start;
     const take = () => new Reader(r.bytes(len));
     switch (tag) {
       case 1:
@@ -243,6 +247,9 @@ export function decodeMapping(buf) {
   const layers = [];
   for (let i = 0; i < layerCount; i++) layers.push(layer(r));
   const config = { version: ver === 9 ? "1.9" : "1.8", runtime, layers };
-  tlv(r, config);
+  const offsets = {};
+  tlv(r, config, offsets);
+  // Non-enumerable: byte offsets into the blob (not the RAM wrapper), used by mapping-edit.js.
+  Object.defineProperty(config, "offsets", { value: offsets });
   return config;
 }
