@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Apex 6 Pro — Setup (prototype)</title>
+<style>
+  :root {
+    --bg: #0e1013; --panel: #171a1f; --line: #262a31; --text: #e7e9ec; --muted: #8b929c;
+    --accent: #4f9cff; --ok: #3ecf8e; --warn: #f5a524; --err: #f26d6d;
+    font-family: "Inter", "Noto Sans Thai", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-size: 14px; }
+  header { display: flex; align-items: center; gap: 16px; padding: 16px 24px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--bg); z-index: 1; }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  header .tag { font-size: 11px; color: var(--warn); border: 1px solid var(--warn); border-radius: 4px; padding: 1px 6px; }
+  header .spacer { flex: 1; }
+  #status { color: var(--muted); }
+  #status.on { color: var(--ok); }
+  button { background: #2563eb; color: #fff; border: 0; border-radius: 8px; padding: 8px 14px; font: inherit; font-weight: 600; cursor: pointer; }
+  button.ghost { background: transparent; color: var(--text); border: 1px solid var(--line); font-weight: 500; }
+  button:disabled { opacity: .4; cursor: default; }
+  main { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; padding: 24px; max-width: 1280px; margin: 0 auto; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px; min-width: 0; }
+  section.wide { grid-column: 1 / -1; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 14px; font-weight: 600; }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; }
+  dt { color: var(--muted); }
+  dd { margin: 0; font-variant-numeric: tabular-nums; }
+  .empty { color: var(--muted); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; font-size: 12px; color: var(--muted); }
+  .chip.on { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
+  .slots { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .slot { border: 1px solid var(--line); border-radius: 10px; padding: 12px; text-align: center; }
+  .slot b { display: block; font-size: 20px; }
+  .slot small { color: var(--muted); font-family: ui-monospace, monospace; }
+  .slot.active { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+  .pad { display: flex; gap: 24px; align-items: center; flex-wrap: wrap; }
+  .stick { width: 120px; height: 120px; border-radius: 50%; border: 1px solid var(--line); position: relative; background: radial-gradient(circle, #1f232a 0 30%, transparent 31%); }
+  .stick .dot { width: 14px; height: 14px; border-radius: 50%; background: var(--accent); position: absolute; left: 53px; top: 53px; }
+  .stick + .lbl, .lbl { color: var(--muted); font-size: 12px; text-align: center; margin-top: 6px; font-family: ui-monospace, monospace; }
+  .trig { width: 22px; height: 120px; border: 1px solid var(--line); border-radius: 6px; position: relative; overflow: hidden; }
+  .trig .fill { position: absolute; bottom: 0; left: 0; right: 0; background: var(--accent); height: 0; }
+  .btns { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; flex: 1; min-width: 220px; }
+  .btns span { border: 1px solid var(--line); border-radius: 6px; padding: 4px 0; text-align: center; font-size: 11px; color: var(--muted); }
+  .btns span.on { background: #2563eb; color: #fff; border-color: #2563eb; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+  pre { margin: 0; background: #0b0d10; border: 1px solid var(--line); border-radius: 8px; padding: 12px; font: 12px/1.5 ui-monospace, monospace; max-height: 320px; overflow: auto; white-space: pre; color: #c9d1d9; }
+  .log .out { color: #7fb4ff; } .log .in { color: #9be3b8; }
+  .banner { margin: 24px; padding: 14px 18px; border-radius: 10px; border: 1px solid var(--err); color: var(--err); display: none; }
+  .note { color: var(--muted); font-size: 12px; margin: 10px 0 0; }
+  .h2note { text-transform: none; letter-spacing: 0; font-weight: 400; margin-left: 8px; }
+  h3.group { font-size: 13px; color: var(--text); margin: 18px 0 10px; font-weight: 600; }
+  h3.group:first-child { margin-top: 0; }
+  .pgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
+  .pcard { display: flex; gap: 14px; border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+  .pcard h3 { margin: 0 0 6px; font-size: 14px; }
+  .kv { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; line-height: 1.7; }
+  .kv span { color: var(--muted); } .kv b { font-weight: 500; text-align: right; }
+  .pcard > div { flex: 1; min-width: 0; }
+  svg.curve { flex: none; }
+  svg.curve rect { fill: #0b0d10; stroke: var(--line); }
+  svg.curve .diag { stroke: var(--line); stroke-dasharray: 3 3; }
+  svg.curve polyline { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; }
+  .layers { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 10px; }
+  .layer { border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+  .layer h3 { margin: 0 0 8px; font-size: 14px; } .layer h4 { margin: 12px 0 6px; font-size: 12px; color: var(--muted); font-weight: 500; }
+  .layer p { margin: 0; }
+  table.maps { border-collapse: collapse; font-size: 13px; } table.maps td { padding: 3px 8px 3px 0; vertical-align: top; }
+  .macro { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 6px 0; border-top: 1px solid var(--line); }
+  .macro small { color: var(--muted); margin-left: auto; }
+  .seq { display: flex; gap: 3px; flex-wrap: wrap; }
+  .key { border: 1px solid var(--line); border-radius: 5px; padding: 0 6px; font-size: 12px; background: #0b0d10; }
+  .pname { font-size: 16px; font-weight: 600; margin: 0 0 8px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Apex 6 Pro Setup</h1>
+  <span class="tag">ต้นแบบ · อ่านอย่างเดียว</span>
+  <span class="spacer"></span>
+  <span id="status">ยังไม่ได้เชื่อมต่อ</span>
+  <button id="refresh" class="ghost" disabled>รีเฟรช</button>
+  <button id="connect">เชื่อมต่อจอย</button>
+</header>
+<div class="banner" id="nohid">เบราว์เซอร์นี้ไม่รองรับ WebHID — ใช้ Chrome หรือ Edge บนเดสก์ท็อป และเปิดผ่าน https หรือ localhost</div>
+
+<main>
+  <section>
+    <h2>อุปกรณ์</h2>
+    <div id="device" class="empty">เชื่อมต่อจอยเพื่อดูข้อมูล</div>
+  </section>
+
+  <section>
+    <h2>โปรไฟล์</h2>
+    <div id="profiles" class="empty">—</div>
+  </section>
+
+  <section class="wide">
+    <h2>ค่าในโปรไฟล์ที่ใช้อยู่ <span id="mapstatus" class="h2note"></span></h2>
+    <div id="mapping" class="empty">เชื่อมต่อจอยเพื่ออ่านค่าโปรไฟล์</div>
+  </section>
+
+  <section class="wide">
+    <h2>อินพุตสด</h2>
+    <div class="pad">
+      <div><div class="trig"><div class="fill" id="lt"></div></div><div class="lbl">LT</div></div>
+      <div><div class="stick"><div class="dot" id="ls"></div></div><div class="lbl" id="lsv">0.00, 0.00</div></div>
+      <div class="btns" id="btns"></div>
+      <div><div class="stick"><div class="dot" id="rs"></div></div><div class="lbl" id="rsv">0.00, 0.00</div></div>
+      <div><div class="trig"><div class="fill" id="rt"></div></div><div class="lbl">RT</div></div>
+    </div>
+    <p class="note" id="padnote">ใช้ Gamepad API ของเบราว์เซอร์ — กดปุ่มใดก็ได้บนจอยเพื่อเริ่มแสดงผล</p>
+  </section>
+
+  <section class="wide">
+    <h2>ข้อมูลตั้งค่าดิบ (RAM dump)</h2>
+    <div class="row">
+      <button class="ghost dump" data-ram="1" disabled>Global config (0x01)</button>
+      <button class="ghost dump" data-ram="5" disabled>Mapping (0x05)</button>
+      <button class="ghost dump" data-ram="4" disabled>0x04</button>
+      <button class="ghost dump" data-ram="6" disabled>0x06</button>
+      <button class="ghost" id="download" disabled>ดาวน์โหลด .bin</button>
+      <span id="dumpstatus" class="empty"></span>
+    </div>
+    <pre id="dump">—</pre>
+    <p class="note">อ่านด้วยคำสั่ง 0xA3 READ_CHUNK เท่านั้น ไม่มีการเขียนลงจอย</p>
+  </section>
+
+  <section class="wide log">
+    <h2>Packet log</h2>
+    <div class="row"><button class="ghost" id="clearlog">ล้าง</button></div>
+    <pre id="log"></pre>
+  </section>
+</main>
+
+<script type="module" src="./app.js"></script>
+</body>
+</html>
