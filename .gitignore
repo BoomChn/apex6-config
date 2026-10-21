@@ -3,3 +3,4 @@ node_modules/
 *.tar.gz
 .DS_Store
 Thumbs.db
+.design-delivery/
