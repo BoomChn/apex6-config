@@ -15,7 +15,7 @@ A personal replacement for the official setup site (space_station.flydigi.com). 
 ## Positioning
 It fixes three failures of the official site:
 1. Macros and profiles can be renamed.
-2. There is no separate config library, so applying a config never duplicates it. The 4 device slots are edited directly.
+2. Applying a config never duplicates it. The 4 device slots are edited directly; the profile library (owner's request, 2026-10-23) only keeps copies, and putting one into a slot copies it there without adding anything to the library.
 3. The vibration test waits for the controller's ack and shows an error when the ack doesn't arrive.
 
 It also keeps the sync state visible at all times and verifies every write with a CRC check.
@@ -44,6 +44,6 @@ None beyond the product name "Apex 6 Pro". The UI copy is mostly Thai, and Engli
 
 ## Product Principles
 1. What the screen shows must match the controller. Pending edits and sync state are never hidden.
-2. Edit the device directly. Don't add a library layer between the user and the slots.
+2. Edit the device directly. The profile library sits beside the slots, never between: edits go to a slot, never to a library copy, and a slot shows which library profile it holds by CRC16.
 3. Every write is reversible: back up, verify, restore.
 4. Make every action respond. A control that can't confirm its effect says so.

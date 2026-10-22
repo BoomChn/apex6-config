@@ -7,7 +7,7 @@ import {
   labelTarget, baseTarget, isIdentity, evalCurve, macroSteps, macroUses, macroList, openMacro,
   layerList, nextLayerId, layerSwitches, layerKey, meta, gripPart, lraGrip,
 } from "./model.js";
-import { BUTTONS } from "./mapping.js";
+import { BUTTONS, decodeMapping } from "./mapping.js";
 import { isWritable, HW_TESTED, NAME_MAX, nameBytes, MACRO_MAX, gyroPct, GYRO_MIDS_MAX, VIB_LEVELS, gripEndY, motorMode, FEEDBACK_MODE } from "./mapping-edit.js";
 import { fit, APP_NAME_MAX } from "./names.js";
 
@@ -171,7 +171,9 @@ export function profiles(S, D) {
         : `<div class="slot-name"><span class="${pend ? "pending" : name ? "" : "faint"}">${esc(name || `Slot ${i + 1}`)}</span>
              ${cfg ? `<button class="icon-btn" data-act="rename" data-slot="${i}" aria-label="เปลี่ยนชื่อ slot ${i + 1}">${ICON.pencil}</button>` : ""}</div>
            ${loaded && !pend ? nameClash(key, cfg.shown?.profile.other) : ""}`;
-      const sum = on && cfg ? slotSummary(cfg) : `<span class="mono" style="font-weight:500">crc16 ${crc?.toString(16).padStart(4, "0").toUpperCase() ?? "—"}</span> · สลับไปใช้เพื่ออ่านค่าใน slot นี้`;
+      const held = S.profiles.inSlot(crc);
+      const sum = (on && cfg ? slotSummary(cfg) : `<span class="mono" style="font-weight:500">crc16 ${crc?.toString(16).padStart(4, "0").toUpperCase() ?? "—"}</span> · สลับไปใช้เพื่ออ่านค่าใน slot นี้`) +
+        (held.length ? `<br>ตรงกับ profile ในคลัง: ${held.map((p) => `“${esc(p.name)}”`).join(", ")}` : "");
       const acts = on
         ? `<span class="ok" style="font-weight:700">ใช้อยู่บนจอย</span><button class="btn ink" data-act="tab" data-tab="buttons">แก้</button>`
         : `<button class="btn" data-act="slot" data-slot="${i}">ใช้ slot นี้</button>`;
@@ -183,8 +185,8 @@ export function profiles(S, D) {
     })
     .join("");
   const renamePending = D.pendingKeys("slot.").length;
-  const opts = (sel) => [0, 1, 2, 3].map((i) => `<option value="${i}" ${i === sel ? "selected" : ""}>${i + 1} · ${esc(slotName(S, D, i))}</option>`).join("");
-  return `${head("Profiles", "4 slot บนตัวจอย แก้ที่ slot ตรงๆ ไม่มีคลัง config แยก จึงไม่เกิดของซ้ำ")}
+  const opts = (sel) => [0, 1, 2, 3].map((i) => `<option value="${i}" ${i === sel ? "selected" : ""}>Slot ${i + 1} · ${esc(slotName(S, D, i))}</option>`).join("");
+  return `${head("Profiles", "4 slot บนตัวจอย แก้ที่ slot ตรงๆ · คลังเก็บสำเนาไว้ใส่ slot ไหนก็ได้ ใส่แล้วไม่สร้างของซ้ำ")}
   <div class="split wide-right" style="grid-template-columns:minmax(0,640px) minmax(0,1fr)">
     <div>${frontFigure(S, D, { screen: `แสดงชื่อ slot ที่ใช้อยู่: ${slotName(S, D, active)}`, screenSub: "เขียนชื่อลงจอได้ไหม ยังไม่ยืนยัน" })}</div>
     <div>
@@ -192,20 +194,45 @@ export function profiles(S, D) {
       ${rows}
       <p class="meta" style="margin-top:12px">สลับ slot ใช้คำสั่ง 0xA2 · ${UNTESTED} · แอปจะถามก่อนส่ง</p>
       ${renamePending ? `<p class="meta" style="margin-top:12px">${cfg?.version === "1.9" ? untested("profile.name") : UNSUP} · กดเขียนลงจอยเพื่อบันทึกชื่อ slot ที่ใช้อยู่</p>` : ""}
-      <section style="margin-top:56px">
-        <div class="rule-head top"><h2>คัดลอก slot</h2><span class="meta">เลือกต้นทางและปลายทางชัดเจน ไม่สร้าง config ลอยๆ</span></div>
-        <div style="display:grid;grid-template-columns:1fr 40px 1fr;gap:12px;align-items:end;margin-top:18px">
-          <label><span class="label" style="display:block;margin-bottom:8px">จาก</span><select class="field" disabled>${opts(active === 0 ? 1 : 0)}</select></label>
-          <span style="text-align:center;padding-bottom:10px">→</span>
-          <label><span class="label" style="display:block;margin-bottom:8px">ไปที่</span><select class="field" disabled>${opts(active ?? 0)}</select></label>
-        </div>
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:20px;gap:20px">
-          <span class="notice">${ICON.warn}<span>ยังคัดลอกไม่ได้: ต้องสลับไปอ่าน slot ต้นทางก่อน และคำสั่งสลับ slot ยังไม่ได้ทดสอบกับจอยจริง</span></span>
-          <button class="btn ink" disabled>คัดลอก</button>
-        </div>
-      </section>
+      ${profileLibrary(S, D, cfg, active, opts)}
     </div>
   </div>`;
+}
+
+// The profile library (profiles.js): copies of whole slots, each can go into any slot.
+function profileLibrary(S, D, cfg, active, opts) {
+  const list = S.profiles.list();
+  const crcs = S.slots?.slotCrc16 ?? [];
+  const rows = list
+    .map((p) => {
+      let sum = "";
+      try {
+        sum = slotSummary(decodeMapping(S.profiles.data(p).subarray(4)));
+      } catch {
+        sum = "อ่านไฟล์นี้ไม่ได้";
+      }
+      const inSlots = [0, 1, 2, 3].filter((i) => crcs[i] === p.crc);
+      // The first slot that doesn't hold it already is the likely target.
+      const to = [active, 0, 1, 2, 3].find((i) => i != null && !inSlots.includes(i)) ?? active ?? 0;
+      return `<div class="row flush" style="display:block;padding:18px 0">
+        <div style="display:flex;align-items:baseline;gap:16px;justify-content:space-between">
+          <span style="font-size:18px;font-weight:600">${esc(p.name)}</span>
+          <span style="display:flex;gap:16px;white-space:nowrap"><button class="link muted" data-act="pf-rename" data-id="${p.uid}">เปลี่ยนชื่อ</button><button class="link muted" data-act="pf-delete" data-id="${p.uid}">ลบ</button></span>
+        </div>
+        <div class="meta" style="margin-top:4px">${sum} · เก็บเมื่อ ${fmtWhen(p.at)}${inSlots.length ? ` · <span class="ok">อยู่ใน Slot ${inSlots.map((i) => i + 1).join(", ")}</span>` : ""}</div>
+        <div style="display:flex;gap:10px;align-items:center;margin-top:12px">
+          <select class="field" style="max-width:280px;height:40px" data-pf-slot="${p.uid}" aria-label="slot ที่จะใส่ ${esc(p.name)}" ${S.writing ? "disabled" : ""}>${opts(to)}</select>
+          <button class="btn" data-act="pf-apply" data-id="${p.uid}" ${cfg && !S.writing ? "" : "disabled"}>ใส่ลง slot</button>
+        </div>
+      </div>`;
+    })
+    .join("");
+  return `<section style="margin-top:56px">
+    <div class="rule-head top" style="align-items:flex-end"><div><h2>คลัง profile</h2><span class="meta">เก็บในเบราว์เซอร์นี้ · ใส่ลง slot คือคัดลอกทับ slot นั้น สำรองค่าเดิมให้ก่อนทุกครั้ง</span></div>
+      <button class="link" data-act="pf-save" ${cfg ? "" : "disabled"}>เก็บ Slot ${(active ?? 0) + 1} เข้าคลัง</button></div>
+    ${rows || `<p class="empty-note">ยังไม่มี profile ในคลัง · กด “เก็บ Slot ${(active ?? 0) + 1} เข้าคลัง” เพื่อเก็บค่าใน slot ที่ใช้อยู่</p>`}
+    <p class="meta" style="margin-top:12px">ใส่ลง slot อื่นต้องสลับ slot ด้วยคำสั่ง 0xA2 ก่อน · ${UNTESTED}</p>
+  </section>`;
 }
 
 function slotSummary(cfg) {
