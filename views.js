@@ -915,6 +915,7 @@ export function gyro(S, D) {
       <section style="margin-top:28px;border-top:1px solid var(--ink-2);padding-top:24px">
         <div class="rule-head"><h2>ค่าเซนเซอร์สด</h2><span class="meta">อ่านจากจอยโดยตรง · ยังไม่รู้ว่าช่องไหนคือแกนไหน</span></div>
         <p class="muted" style="margin:8px 0 16px">วางจอยนิ่ง แล้วหมุนทีละแบบ: ก้ม–เงย, เอียงซ้าย–ขวา, หมุนแบบพวงมาลัย · ช่องที่ขยับอยู่จะเป็นสีน้ำเงิน</p>
+        <div data-live="imu-rec" style="margin-bottom:20px">${imuRec({ motion: null, done: {} })}</div>
         <div data-live="imu">${liveImu(null)}</div>
       </section>
     </div>
@@ -964,6 +965,24 @@ export function gyroStick(g, v) {
     <div><b style="font-size:18px">${when}เอียงจอย</b>
       <p class="muted" style="margin:4px 0 0">จุดคือ ${esc(GYRO_MODE[g.mode])} ที่ Windows เห็น รวมส่วนที่ gyro ขยับให้แล้ว</p></div>
   </div>`;
+}
+
+// Measure-one-motion buttons. r: { motion being measured or null, left: seconds, done: { motion: sums } }.
+const MOTIONS = [["pitch", "ก้ม–เงย"], ["roll", "เอียงซ้าย–ขวา"], ["yaw", "หมุนแบบพวงมาลัย"]];
+export function imuRec(r) {
+  const result = (sums) => {
+    const total = sums.reduce((a, b) => a + b, 0) || 1;
+    const top = sums.indexOf(Math.max(...sums));
+    return `<b style="color:#2140D9">ช่อง ${top + 1}</b> <span class="meta">${sums.map((s, i) => `ช่อง ${i + 1} ${Math.round((s / total) * 100)}%`).join(" · ")}</span>`;
+  };
+  const rows = MOTIONS.map(([id, label]) => {
+    const busy = r.motion === id;
+    const status = busy ? `<b>กำลังวัด · หมุนไปมาต่อ ${Math.max(0, r.left)} วิ</b>` : r.done[id] ? result(r.done[id]) : `<span class="meta">ยังไม่ได้วัด</span>`;
+    return `<div style="display:grid;grid-template-columns:200px 1fr;gap:16px;align-items:center;min-height:44px">
+      <button class="btn" style="height:40px" data-act="gyro-rec" data-val="${id}" ${r.motion ? "disabled" : ""}>วัด ${label}</button><span>${status}</span></div>`;
+  }).join("");
+  const n = Object.keys(r.done).length;
+  return `<p style="margin:0 0 8px"><b>วัดทีละท่า:</b> <span class="muted">กดปุ่ม แล้วหมุนจอยท่านั้นไปมาจนครบ 3 วินาที</span>${n ? ` · <button class="link" data-act="gyro-rec-clear">ล้างผล</button>` : ""}</p>${rows}`;
 }
 
 // v: { imu: six i16 from 0xEF bytes 17..28, tail: bytes 29/30, move: how much each moves now,

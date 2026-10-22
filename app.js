@@ -629,6 +629,13 @@ const ACTIONS = {
     setDraft(el.dataset.key, v);
     render();
   },
+  // Gyro page: measure one motion for 3 s to find which sensor channel it moves.
+  "gyro-rec": (el) => {
+    Object.assign(IMU_REC, { motion: el.dataset.val, until: Date.now() + 3000, sum: [0, 0, 0] });
+  },
+  "gyro-rec-clear": () => {
+    Object.assign(IMU_REC, { motion: null, done: {} });
+  },
   "copy-side": (el) => {
     const { from, to } = el.dataset;
     const fields = from.startsWith("stick") ? ["deadzone", "max", "invertX", "invertY", "round", "preset"] : ["start", "end", "preset"];
@@ -1000,7 +1007,19 @@ const LIVE = { on: false, stop: null, stick: null, keys: new Set(), imu: null };
 
 // Gyro page: which of the six i16 channels in 0xEF bytes 17..28 moves, to find the gyro axes.
 // move: smoothed size of each frame-to-frame change; peak: largest |value| seen, for the bar scale.
+// A 3 s measurement of one motion: sum of |value| on channels 1–3 (near 0 at rest, so they look
+// like rotation rates). done: { pitch|roll|yaw: [sum1, sum2, sum3] }.
+const IMU_REC = { motion: null, until: 0, sum: [0, 0, 0], done: {} };
+
+function endImuRec() {
+  if (!IMU_REC.motion || Date.now() < IMU_REC.until) return;
+  IMU_REC.done[IMU_REC.motion] = IMU_REC.sum;
+  IMU_REC.motion = null;
+}
+
 function trackImu(imu) {
+  endImuRec();
+  if (IMU_REC.motion) imu.slice(0, 3).forEach((x, i) => (IMU_REC.sum[i] += Math.abs(x)));
   const t = (LIVE.imu ??= { last: imu, move: imu.map(() => 0), peak: imu.map(() => 1000) });
   imu.forEach((x, i) => {
     t.move[i] = t.move[i] * 0.85 + Math.abs(x - t.last[i]) * 0.15;
@@ -1064,6 +1083,8 @@ function tick() {
   if (S.current && S.tab === "gyro") {
     const st = LIVE.stick;
     const mode = S.current.cfg.gyroscope?.mode;
+    endImuRec(); // also when no frames arrive
+    setLive(`[data-live="imu-rec"]`, V.imuRec({ motion: IMU_REC.motion, left: Math.ceil((IMU_REC.until - Date.now()) / 1000), done: IMU_REC.done }));
     setLive(`[data-live="imu"]`, V.liveImu(st && LIVE.imu && { imu: st.imu, tail: st.tail, move: LIVE.imu.move, peak: LIVE.imu.peak }));
     // What the gyro drives. 0xEF carries the physical sticks only (found on hardware), so this reads
     // the XInput pad Windows sees, where the gyro's part is mixed in. Standard mapping: axes 0/1 left, 2/3 right.
