@@ -2,7 +2,7 @@
 // Keys editKey() maps to a writable field (mapping-edit.js) can be written; everything else stays a draft in this page
 // until the protocol for it is known, and the UI says so.
 
-import { isWritable, LAYER_MAX, layerRenumber } from "./mapping-edit.js";
+import { isWritable, LAYER_MAX, layerRenumber, gyroEndSens } from "./mapping-edit.js";
 import { planMacros } from "./macros.js";
 import { fit } from "./names.js";
 import { targetLabel } from "./profile-view.js";
@@ -22,6 +22,9 @@ export const PRESS = [
 ];
 const ACT_OF = { simple: ["simple", "timing_single"], long: ["timing_long"], double: ["timing_double"] };
 
+// "กดค้าง LT, กดสลับ RB", or "ไม่ตั้ง · ทำงานตลอด" for an empty list.
+export const gyroActText = (list) =>
+  list?.length ? list.map((a) => `${a.activation === "toggle" ? "กดสลับ" : "กดค้าง"} ${btnName(a.button)}`).join(", ") : "ไม่ตั้ง · ทำงานตลอด";
 export const GYRO_MODE = { disable: "ปิด", left_joystick: "Stick ซ้าย", right_joystick: "Stick ขวา", mouse: "เมาส์" };
 export const LED_MODE = { off: "ปิด", solid: "สีเดียว", breath: "หายใจ", cycle: "ไล่สี" };
 export const LAYER_NAME = (id) => (id === 0 ? "Base layer" : id === 1 ? "Shift layer" : `Layer ${id}`);
@@ -217,10 +220,12 @@ export function meta(key, S) {
       mode: ["ทำหน้าที่เป็น", g?.mode, (v) => GYRO_MODE[v] ?? v],
       invertX: ["กลับซ้าย–ขวา", g?.invert_x, onOff],
       invertY: ["กลับบน–ล่าง", g?.invert_y, onOff],
-      sens: ["ความไว", undefined, (v) => `${v}%`],
-      preset: ["รูปแบบ curve", g && (g.curve.mid_points.length ? "custom" : "linear"), (v) => GPRESET[v]],
-      axisX: ["แกนซ้าย–ขวา", g?.axis_x, (v) => AXIS[v] ?? v],
-      axisY: ["แกนบน–ล่าง", g?.axis_y, (v) => AXIS[v] ?? v],
+      sens: ["ความไว", g && gyroEndSens(g.curve.end_x), (v) => `${v}%`],
+      deadzone: ["ช่วงนิ่ง", g?.curve.start_x, pct],
+      activation: ["ปุ่มเปิด gyro", g?.activation, gyroActText],
+      axisX: ["เล็งซ้าย–ขวาด้วย", g?.axis_x, (v) => AXIS[v] ?? v],
+      axisY: ["เล็งบน–ล่างด้วย", g?.axis_y, (v) => AXIS[v] ?? v],
+      mouseRadius: ["รัศมีเมาส์", g?.mouse_window_radius, String],
     }[b];
     return { tab: "gyro", group: "slot", label: `Gyro · ${map[0]}`, base: map[1], fmt: map[2] };
   }

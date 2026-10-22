@@ -12,7 +12,7 @@ const MACRO_MODES = ["press_once", "press_loop_immediate", "press_loop_wait", "p
 const ANGLE_MODES = ["4way", "8way", "4way_overlap"];
 const DIRS = ["up", "down", "left", "right", "up_left", "up_right", "down_left", "down_right"];
 const GYRO_MODES = ["disable", "left_joystick", "right_joystick", "mouse"];
-const GYRO_AXES = ["none", "imu_x", "imu_y", "imu_z"];
+export const GYRO_AXES = ["none", "imu_x", "imu_y", "imu_z"];
 const TARGET_SIZE = 4;
 const CURVE_LEN = 11;
 

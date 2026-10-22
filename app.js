@@ -1,6 +1,6 @@
 import { Apex6, RAM, hex, crc32 } from "./protocol.js";
 import { decodeMapping } from "./mapping.js";
-import { unwrapMapping, applyEdits, sameBytes, deadzoneMax, curveEndMin, curveStartMax, motorMaxMin, MACRO_STEPS_MAX } from "./mapping-edit.js";
+import { unwrapMapping, applyEdits, sameBytes, deadzoneMax, curveEndMin, curveStartMax, motorMaxMin, MACRO_STEPS_MAX, gyroSensEnd, gyroSensMax, GYRO_ACT_MAX } from "./mapping-edit.js";
 import { Drafts, esc, resolveNames, resolveMacros, macroPlan, writeEdits, macroUses, openMacro, layerMoves, nameId, evalCurve, layerKey, layerList, nextLayerId, LAYER_NAME, btnName } from "./model.js";
 import { Names, fit } from "./names.js";
 import { Library } from "./macros.js";
@@ -132,6 +132,7 @@ function softUpdate(key) {
 function outText(key, label) {
   const v = D.get(key);
   if (key.startsWith("led.bright") || key.startsWith("screen.bright") || key === "gyro.sens") return `${v}%`;
+  if (key === "gyro.mouseRadius") return String(v);
   if (key.startsWith("motor.") || key.startsWith("vibtrig.")) return `${Math.round((v / 255) * 100)}%`;
   return `${Math.round((v / 255) * 100)}%  ·  ${v}`;
 }
@@ -454,7 +455,20 @@ const CLAMP = {
   "trigger.right.end": (v) => Math.max(v, curveEndMin(S.current.cfg.trigger_right.curve)),
   "motor.left.max": (v) => Math.max(v, motorMaxMin(S.current.cfg.vibration_motor_left.curve)),
   "motor.right.max": (v) => Math.max(v, motorMaxMin(S.current.cfg.vibration_motor_right.curve)),
+  // Gyro start and end limit each other, including an unwritten edit of the other one.
+  "gyro.deadzone": (v) => Math.min(v, deadzoneMax({ curve: gyroCurve() })),
+  "gyro.sens": (v) => Math.min(v, gyroSensMax(gyroCurve())),
 };
+
+// The gyro curve with unwritten deadzone/sensitivity edits applied.
+function gyroCurve() {
+  const c = S.current.cfg.gyroscope.curve;
+  return {
+    ...c,
+    start_x: D.has("gyro.deadzone") ? D.get("gyro.deadzone") : c.start_x,
+    end_x: D.has("gyro.sens") ? gyroSensEnd(D.get("gyro.sens")) : c.end_x,
+  };
+}
 
 function setDraft(key, v) {
   if (CLAMP[key]) v = CLAMP[key](v);
@@ -627,6 +641,19 @@ const ACTIONS = {
   set: (el) => {
     const v = "numval" in el.dataset ? Number(el.dataset.val) : el.dataset.val;
     setDraft(el.dataset.key, v);
+    render();
+  },
+  // Gyro activation buttons: the list is one draft value ("gyro.activation").
+  "gyro-act-add": () => {
+    const list = D.get("gyro.activation") ?? [];
+    const button = document.getElementById("gyro-act-btn")?.value;
+    const activation = document.getElementById("gyro-act-how")?.value ?? "hold";
+    if (!button || list.length >= GYRO_ACT_MAX || list.some((a) => a.button === button)) return;
+    setDraft("gyro.activation", [...list, { activation, button }]);
+    render();
+  },
+  "gyro-act-del": (el) => {
+    setDraft("gyro.activation", (D.get("gyro.activation") ?? []).filter((_, i) => i !== Number(el.dataset.i)));
     render();
   },
   "aim-center": () => {

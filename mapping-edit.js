@@ -1,7 +1,7 @@
 // In-place edits of the RAM-wrapped mapping buffer (RAM 0x05).
 // We patch single bytes instead of re-encoding, so everything we don't touch stays byte-identical.
 
-import { decodeMapping, BUTTONS } from "./mapping.js";
+import { decodeMapping, BUTTONS, GYRO_AXES } from "./mapping.js";
 
 // CRC-16/CCITT-FALSE (poly 0x1021, init 0xFFFF); the wrapper CRC covers the XMUL blob only.
 export function crc16(bytes) {
@@ -42,6 +42,34 @@ export function motorMaxMin(curve) {
 }
 
 const GYRO_MODES = ["disable", "left_joystick", "right_joystick", "mouse"];
+
+// Gyro sensitivity as the app shows it, 0–100%, stored as the gyro curve's end_x: the turn speed
+// that gives a full stick. 0% = 255 (a fast turn is needed), 100% = 64. Our own scale.
+const SENS_END = [255, 64];
+export const gyroSensEnd = (v) => SENS_END[0] - Math.round((v * (SENS_END[0] - SENS_END[1])) / 100);
+export const gyroEndSens = (e) => Math.max(0, Math.min(100, Math.round(((SENS_END[0] - e) * 100) / (SENS_END[0] - SENS_END[1]))));
+// Highest sensitivity the curve allows: end_x must stay above the start and every mid point.
+export const gyroSensMax = (curve) => Math.max(0, Math.min(100, Math.floor(((SENS_END[0] - curveEndMin(curve)) * 100) / (SENS_END[0] - SENS_END[1]))));
+
+// Gyro activation: 4 slots of (0 hold | 1 toggle, button id), an empty slot is (0, 0xFF).
+export const GYRO_ACT_MAX = 4;
+function gyroActBytes(list) {
+  const out = [];
+  for (let i = 0; i < GYRO_ACT_MAX; i++) {
+    const a = list[i];
+    out.push(a ? (a.activation === "toggle" ? 1 : 0) : 0, a ? BUTTONS.indexOf(a.button) : 0xff);
+  }
+  return out;
+}
+function gyroActCheck(_, list) {
+  if (!Array.isArray(list) || list.length > GYRO_ACT_MAX) return `ตั้งได้ไม่เกิน ${GYRO_ACT_MAX} ปุ่ม`;
+  for (const a of list) {
+    if (!BUTTONS.includes(a?.button)) return `ปุ่มไม่รู้จัก: ${a?.button}`;
+    if (a.activation !== "hold" && a.activation !== "toggle") return `แบบการกดไม่รู้จัก: ${a.activation}`;
+  }
+  return new Set(list.map((a) => a.button)).size === list.length ? null : "ปุ่มซ้ำกัน";
+}
+const gyroAxis = (at) => ({ key: "gyroscope", at, enc: (v) => GYRO_AXES.indexOf(v), check: (_, v) => (GYRO_AXES.includes(v) ? null : `แกน gyro ไม่รู้จัก: ${v}`) });
 const SIDE_KEY = { left: "_left", right: "_right" };
 
 // Every byte-level edit the app can write. Offsets are relative to the TLV value start
@@ -65,6 +93,12 @@ const FIELDS = {
   "gyro.mode": { key: "gyroscope", at: 12, enc: (v) => GYRO_MODES.indexOf(v), check: (_, v) => (GYRO_MODES.includes(v) ? null : `โหมด gyro ไม่รู้จัก: ${v}`) },
   "gyro.invertX": { key: "gyroscope", at: 11, bit: 1 },
   "gyro.invertY": { key: "gyroscope", at: 11, bit: 2 },
+  "gyro.deadzone": { key: "gyroscope", at: 0, check: (g, v) => range(v, 0, deadzoneMax(g)) },
+  "gyro.sens": { key: "gyroscope", at: 2, enc: gyroSensEnd, check: (g, v) => range(v, 0, gyroSensMax(g.curve)) },
+  "gyro.activation": { key: "gyroscope", at: 13, bytes: gyroActBytes, check: gyroActCheck },
+  "gyro.axisX": gyroAxis(21),
+  "gyro.axisY": gyroAxis(22),
+  "gyro.mouseRadius": { key: "gyroscope", at: 23, check: (_, v) => range(v, 1, 255) },
   "motor.left.enabled": { key: "vibration_motor_left", at: 0, bit: 1 },
   "motor.right.enabled": { key: "vibration_motor_right", at: 0, bit: 1 },
   "motor.left.max": { key: "vibration_motor_left", at: 4, check: (m, v) => range(v, motorMaxMin(m.curve), 255) },
@@ -156,6 +190,8 @@ export function applyEdits(wrapped, edits) {
     if (f.bit != null) {
       if (typeof v !== "boolean") throw new Error(`${name}: ต้องเป็นเปิด/ปิด`);
       out[at] = v ? out[at] | f.bit : out[at] & ~f.bit;
+    } else if (f.bytes) {
+      out.set(f.bytes(v), at);
     } else if (f.u16) {
       out[at] = v & 0xff;
       out[at + 1] = v >> 8;
@@ -198,6 +234,16 @@ export function checkProfile(wrapped) {
         if ((t.type === "layer_hold" || t.type === "layer_toggle") && !(t.layer < cfg.layers.length)) fail(`ปุ่ม ${m.source} ใน ${where(l)} สลับไป layer ${t.layer} ที่ไม่มี`);
         if (t.type === "macro" && !ids.includes(t.macro)) fail(`ปุ่ม ${m.source} ใน ${where(l)} เล่น macro #${t.macro + 1} ที่ไม่มีใน layer นี้`);
       }
+  }
+  // Gyro block (TLV 5): only values the official app and the firmware know, and a curve that rises.
+  const g = cfg.gyroscope;
+  if (g) {
+    if (!GYRO_MODES.includes(g.mode)) fail(`โหมด gyro ไม่รู้จัก (${g.mode})`);
+    for (const k of ["axis_x", "axis_y"]) if (!GYRO_AXES.includes(g[k])) fail(`แกน gyro ไม่รู้จัก (${g[k]})`);
+    for (const a of g.activation) if (!BUTTONS.includes(a.button)) fail(`ปุ่มเปิด gyro ไม่รู้จัก (${a.button})`);
+    if (new Set(g.activation.map((a) => a.button)).size !== g.activation.length) fail("ปุ่มเปิด gyro ซ้ำกัน");
+    const xs = [g.curve.start_x, ...g.curve.mid_points.map((m) => m.x), g.curve.end_x];
+    if (xs.some((x, i) => i && x <= xs[i - 1])) fail("curve ของ gyro ต้องไล่จากน้อยไปมาก จุดเริ่มต้องน้อยกว่าจุดสุด");
   }
 }
 
