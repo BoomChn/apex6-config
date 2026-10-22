@@ -167,12 +167,17 @@ const TLV_KEYS = {
 };
 
 // `offsets` records where each known TLV's value starts in the blob, for in-place edits.
+// `meta` is the TLV 0x20 value and `end` the (0xFF, 0x00) marker, for name edits.
 function tlv(r, out, offsets) {
   while (r.remaining >= 2) {
     const tag = r.u8(), len = r.u8();
-    if (tag === 0xff && len === 0) return;
+    if (tag === 0xff && len === 0) {
+      offsets.end = r.o - 2;
+      return;
+    }
     const start = r.o;
     if (TLV_KEYS[tag]) offsets[TLV_KEYS[tag]] = start;
+    if (tag === 32) offsets.meta = start;
     const take = () => new Reader(r.bytes(len));
     switch (tag) {
       case 1:
