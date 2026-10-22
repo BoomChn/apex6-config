@@ -278,13 +278,13 @@ async function connect() {
 // Drafts of the loaded slot's settings (not slot names, which the app keeps per slot).
 const slotDrafts = () => D.items().filter((x) => x.group === "slot" && !x.key.startsWith("slot."));
 
-// Returns whether the controller now uses slot i. asked: the caller has already confirmed both.
+// Returns whether the controller now uses slot i (0xA2, verified on hardware). Switching changes
+// nothing in the slots, so it only asks when drafts would be lost. asked: the caller already did.
 async function switchSlot(i, { asked = false } = {}) {
   if (!S.pad || S.writing) return false;
   if (i === S.slots?.activeSlot) return true;
   const n = slotDrafts().length;
   if (!asked && n && !confirm(`สลับไป Slot ${i + 1}?\n\nร่างที่ยังไม่ได้เขียน ${n} จุดใน slot นี้จะหายไป`)) return false;
-  if (!asked && !S.demo && !confirm(`สลับจอยไปใช้ Slot ${i + 1}?\n\nคำสั่งสลับ slot (0xA2) ยังไม่ได้ทดสอบกับจอยจริง ถ้าไม่สลับ แอปจะแจ้งและไม่แก้อะไร`)) return false;
   try {
     await S.pad.switchSlot(i);
     for (const it of slotDrafts()) D.map.delete(it.key);
@@ -312,7 +312,6 @@ async function resetSlot(slot, { keep }) {
   if (slot !== S.current.slot) {
     const n = slotDrafts().length;
     const ask = [`${verb}?`, "", `แอปต้องสลับจอยไปใช้ Slot ${slot + 1} ก่อนเพื่ออ่านค่าในนั้น`];
-    if (!S.demo) ask.push("คำสั่งสลับ slot (0xA2) ยังไม่ได้ทดสอบกับจอยจริง ถ้าไม่สลับ แอปจะหยุดและไม่แก้อะไร");
     if (n) ask.push(`ร่างที่ยังไม่ได้เขียน ${n} จุดใน Slot ${S.current.slot + 1} จะหายไป`);
     if (!confirm(ask.join("\n"))) return;
     if (!(await switchSlot(slot, { asked: true }))) return;
@@ -392,7 +391,6 @@ async function applyProfile(p, slot) {
     "ค่าทั้งหมดใน slot นั้นจะถูกแทนที่ แอปจะสำรองค่าเดิมเป็นไฟล์ให้ก่อน",
     ...(out ? [`“${out.name}” จะออกจาก slot นี้ แต่ยังอยู่ในคลัง`] : []),
     ...(other ? [`แอปจะสลับจอยไปใช้ Slot ${slot + 1} ก่อน และจอยจะใช้ slot นั้นต่อหลังเขียนเสร็จ`] : []),
-    ...(other && !S.demo ? ["คำสั่งสลับ slot (0xA2) ยังไม่ได้ทดสอบกับจอยจริง ถ้าไม่สลับ แอปจะหยุดและไม่เขียนอะไร"] : []),
     ...(n ? [`ร่างที่ยังไม่ได้เขียน ${n} จุดใน Slot ${S.current.slot + 1} จะหายไป`] : []),
   ];
   if (!confirm(lines.join("\n"))) return;
