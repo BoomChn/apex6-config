@@ -1,7 +1,7 @@
 import { Apex6, RAM, hex, crc32 } from "./protocol.js";
 import { decodeMapping } from "./mapping.js";
 import { unwrapMapping, applyEdits, sameBytes, deadzoneMax, curveEndMin, curveStartMax, motorMaxMin, MACRO_MAX, MACRO_STEPS_MAX } from "./mapping-edit.js";
-import { Drafts, esc, resolveNames, nameId, macroKey, nextMacroId } from "./model.js";
+import { Drafts, esc, resolveNames, nameId, macroKey, nextMacroId, evalCurve } from "./model.js";
 import { Names, fit } from "./names.js";
 import * as V from "./views.js";
 
@@ -106,8 +106,10 @@ function softUpdate(key) {
   }
   const [a, side] = key.split(".");
   if (a === "stick" || a === "trigger") {
-    const box = document.querySelector(`[data-live-chart="${a}-${side}"]`);
+    const sel = `[data-live-chart="${a}-${side}"]`;
+    const box = document.querySelector(sel);
     if (box) box.innerHTML = chartFor(a, side);
+    liveCache.delete(sel);
   }
   renderChrome();
 }
@@ -119,13 +121,17 @@ function outText(key, label) {
   return `${Math.round((v / 255) * 100)}%  ·  ${v}`;
 }
 
-function chartFor(kind, side) {
-  const cfg = S.current.cfg;
-  const base = cfg[`${kind === "stick" ? "joystick" : "trigger"}_${side}`].curve;
+// The curve as drawn: the one on the controller with any unwritten edits applied.
+function curveFor(kind, side) {
+  const base = S.current.cfg[`${kind === "stick" ? "joystick" : "trigger"}_${side}`].curve;
   const keys = kind === "stick" ? [`stick.${side}.deadzone`, `stick.${side}.max`] : [`trigger.${side}.start`, `trigger.${side}.end`];
-  const c = V.effCurve(D, base, keys[0], keys[1]);
+  return V.effCurve(D, base, keys[0], keys[1]);
+}
+
+// live: how far the trigger is pressed (0–255), drawn as a dot on the curve.
+function chartFor(kind, side, live = null) {
   const pend = D.pendingKeys(`${kind}.${side}.`).length > 0;
-  return V.curveSvg(c, { pending: pend });
+  return V.curveSvg(curveFor(kind, side), { pending: pend, live });
 }
 
 // ---------------- Toast ----------------
@@ -854,9 +860,9 @@ window.addEventListener("beforeunload", (e) => {
 });
 
 // ---------------- Live input ----------------
-// On Sticks, the app asks the controller itself for its stick stream (0xEF) and key events (0x21),
-// so testing works even when the browser does not see a gamepad. Values are what the controller
-// sends out, after its own curve. Elsewhere it falls back to the Gamepad API.
+// On Sticks and Triggers, the app asks the controller itself for its stick stream (0xEF) and key
+// events (0x21), so testing works even when the browser does not see a gamepad. Elsewhere it
+// falls back to the Gamepad API.
 
 const LIVE = { on: false, stop: null, stick: null, keys: new Set() };
 
@@ -892,7 +898,7 @@ async function stopLive() {
 }
 
 function syncLive() {
-  const want = !!(S.pad && S.current && S.tab === "sticks" && !S.writing && !document.hidden);
+  const want = !!(S.pad && S.current && (S.tab === "sticks" || S.tab === "triggers") && !S.writing && !document.hidden);
   if (want !== LIVE.on) (want ? startLive : stopLive)();
 }
 document.addEventListener("visibilitychange", syncLive);
@@ -909,9 +915,9 @@ function setLive(sel, html) {
 function tick() {
   if (S.current && (S.tab === "sticks" || S.tab === "triggers")) {
     const gp = Array.from(navigator.getGamepads?.() ?? []).find(Boolean);
+    const st = LIVE.stick;
     const cfg = S.current.cfg;
     if (S.tab === "sticks") {
-      const st = LIVE.stick;
       for (const [side, ax] of [["left", 0], ["right", 2]]) {
         if (!cfg[`joystick_${side}`]) continue;
         let v = null;
@@ -922,9 +928,19 @@ function tick() {
       }
       setLive(`[data-live="keys"]`, V.liveKeys(LIVE.on ? [...LIVE.keys] : null));
     } else {
-      for (const [side, bi] of [["left", 6], ["right", 7]]) {
+      // Buttons 6/7 are LT/RT only in the standard mapping; other pads (a USB mic showed up as one) are skipped.
+      const std = gp?.mapping === "standard";
+      for (const [side, bi, k] of [["left", 6, "lt"], ["right", 7, "rt"]]) {
         if (!cfg[`trigger_${side}`]) continue;
-        setLive(`[data-live="trigger-${side}"]`, V.liveTrigger(gp ? Number((gp.buttons[bi]?.value ?? 0).toFixed(2)) : null));
+        // 0xEF LT/RT is how far the trigger is pressed, before the curve (half press reads 50% even
+        // with the end point at 50%). The output is worked out from the curve as drawn.
+        let v = null;
+        if (st) {
+          const press = st[k];
+          v = { press: press / 255, out: evalCurve(curveFor("trigger", side), press) / 255 };
+          setLive(`[data-live-chart="trigger-${side}"]`, chartFor("trigger", side, press));
+        } else if (std) v = gp.buttons[bi]?.value ?? 0;
+        setLive(`[data-live="trigger-${side}"]`, V.liveTrigger(v));
       }
     }
   }

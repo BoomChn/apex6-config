@@ -256,11 +256,12 @@ export class Apex6 {
   }
 
   // 0xEF frames: 32 bytes, LX LY RX RY i16le, buttons u32le, sum8 of bytes 2..30 at byte 31.
+  // Bytes 15/16 are LT/RT u8 (0..255), found on hardware; the official site ignores them. 17..30 are unknown.
   onStick(cb) {
     const l = (b) => {
       if (b.length < 32 || b[0] !== SYNC0 || b[1] !== SYNC1 || b[2] !== CMD.STICK_STREAM || b[31] !== sum8(b, 2, 31)) return;
       const v = new DataView(b.buffer, b.byteOffset + 3, 12);
-      cb({ lx: v.getInt16(0, true), ly: v.getInt16(2, true), rx: v.getInt16(4, true), ry: v.getInt16(6, true), buttons: v.getUint32(8, true) });
+      cb({ lx: v.getInt16(0, true), ly: v.getInt16(2, true), rx: v.getInt16(4, true), ry: v.getInt16(6, true), buttons: v.getUint32(8, true), lt: b[15], rt: b[16] });
     };
     this.listeners.add(l);
     return () => this.listeners.delete(l);

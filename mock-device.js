@@ -34,7 +34,8 @@ export async function createMockDevice() {
   const ram = { 1: new Uint8Array(82), 4: new Uint8Array(64), 6: new Uint8Array(32) };
   const buf = (id) => (id === 5 ? slots[active] : ram[id]);
   let pending = null;
-  // Live input for the Sticks page: with dinput on, stream 0xEF frames (left stick circles);
+  // Live input for Sticks and Triggers: with dinput on, stream 0xEF frames (left stick circles,
+  // LT and RT ramp in turn);
   // with key events on, press and release A every 2 s.
   let stream = null, keys = null;
   const emit = (f) => dev.listeners.forEach((l) => l({ data: new DataView(f.buffer) }));
@@ -43,6 +44,8 @@ export async function createMockDevice() {
     f.set([0x5a, 0xa5, 0xef]);
     v.setInt16(3, Math.round(Math.cos(t) * 30000), true);
     v.setInt16(5, Math.round(Math.sin(t) * 30000), true);
+    f[15] = Math.round(Math.max(0, Math.sin(t)) * 255);
+    f[16] = Math.round(Math.max(0, -Math.sin(t)) * 255);
     f[31] = sum(f, 2, 31);
     return f;
   };
