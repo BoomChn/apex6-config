@@ -749,3 +749,55 @@ console.log("app names ok");
   assert.equal(events.length, 1);
 }
 console.log("live ok");
+
+// Profile library: stored as it will be written, so a slot's CRC16 tells which profile it holds.
+{
+  const { Profiles, toWrite, crcOf, PROFILES_MAX } = await import("./profiles.js");
+  const { fit } = await import("./names.js");
+  const { crc16: crc } = await import("./mapping-edit.js");
+  const mem = () => { const m = new Map(); return { getItem: (k) => m.get(k) ?? null, setItem: (k, v) => m.set(k, v) }; };
+  const cfgOf = (b) => unwrapMapping(b).cfg;
+  const st = mem();
+  const P = new Profiles(st);
+  const long = "โปรไฟล์สำหรับเกมยิงระยะไกลมากๆ"; // > 40 bytes
+  const { profile: p, existed } = P.add(long, sample, 1);
+  assert.equal(existed, false);
+  const d = P.data(p);
+  assert.equal(cfgOf(d).name, fit(long), "the profile carries its name, cut to what the controller holds");
+  assert.equal(p.crc, crcOf(d));
+  assert.equal(crcOf(toWrite(d)), p.crc, "writing it gives the slot the CRC the library keeps");
+  assert.deepEqual(P.inSlot(p.crc), [p]);
+  assert.deepEqual(P.inSlot(null), []);
+  assert.equal(P.add(long, sample).existed, true, "the same slot saved again adds nothing");
+  assert.equal(P.add(long, d).existed, true, "nor does the profile read back from a slot it was put into");
+  assert.equal(new Profiles(st).list().length, 1, "persisted");
+  P.rename(p.uid, "Race");
+  assert.equal(cfgOf(P.data(p)).name, "Race");
+  assert.equal(p.crc, crcOf(P.data(p)), "a rename moves the CRC with the name");
+  assert.throws(() => P.add("   ", sample), /ตั้งชื่อ/);
+  P.remove(p.uid);
+  assert.equal(P.list().length, 0);
+
+  // A slot the official app left with layers out of order is stored, and written, in order.
+  const three = applyEdits(sample, { "layer.2.new": true, "map.0.M1.simple": { type: "layer_hold", layer: 2 } });
+  const gap = three.slice();
+  gap[4 + cfgOf(three).offsets.layers[2].from] = 3;
+  const c = crc(gap.subarray(4));
+  gap[2] = c & 255; gap[3] = c >> 8;
+  assert.deepEqual(cfgOf(gap).layers.map((l) => l.layer_id), [0, 1, 3]);
+  assert.deepEqual(cfgOf(toWrite(gap)).layers.map((l) => l.layer_id), [0, 1, 2], "a whole-profile write puts layers in order too");
+  const { profile: q } = P.add("Gap", gap);
+  assert.deepEqual(cfgOf(P.data(q)).layers.map((l) => l.layer_id), [0, 1, 2]);
+  // A profile the rules refuse is not kept, and a whole-profile write of it stops.
+  // A hold to a layer there is not: find the hold's layer byte by comparing with a hold to layer 1.
+  const to1 = applyEdits(three, { "map.0.M1.simple": { type: "layer_hold", layer: 1 } });
+  const broken = three.slice();
+  broken[three.findIndex((x, i) => i > 3 && x !== to1[i])] = 7;
+  const bc = crc(broken.subarray(4));
+  broken[2] = bc & 255; broken[3] = bc >> 8;
+  assert.throws(() => toWrite(broken), /ไม่เขียนลงจอย: ปุ่ม M1 ใน Base layer สลับไป layer 7 ที่ไม่มี/);
+  assert.throws(() => P.add("Broken", broken));
+  assert.equal(P.list().length, 1);
+  assert.ok(PROFILES_MAX >= 16);
+}
+console.log("profiles ok");

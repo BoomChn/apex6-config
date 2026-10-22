@@ -4,6 +4,7 @@ import { unwrapMapping, applyEdits, sameBytes, deadzoneMax, curveEndMin, curveSt
 import { Drafts, meta, esc, resolveNames, resolveMacros, macroPlan, writeEdits, macroUses, openMacro, layerMoves, nameId, evalCurve, layerKey, layerList, nextLayerId, LAYER_NAME, btnName } from "./model.js";
 import { Names, fit } from "./names.js";
 import { Library } from "./macros.js";
+import { Profiles, toWrite } from "./profiles.js";
 import * as V from "./views.js";
 
 const $ = (s) => document.querySelector(s);
@@ -30,6 +31,7 @@ const S = {
   writing: false,
   names: new Names(), // full names kept by the app, see names.js
   lib: new Library(), // the macro library, see macros.js
+  profiles: new Profiles(), // the profile library, see profiles.js
   plan: null, // what the next write does to the slot's macros, see macroPlan
 };
 const D = new Drafts(S);
@@ -271,21 +273,72 @@ async function connect() {
   }
 }
 
-async function switchSlot(i) {
-  if (!S.pad || i === S.slots?.activeSlot || S.writing) return;
-  const slotDrafts = D.items().filter((x) => x.group === "slot" && !x.key.startsWith("slot.")).length;
-  if (slotDrafts && !confirm(`สลับไป Slot ${i + 1}?\n\nร่างที่ยังไม่ได้เขียน ${slotDrafts} จุดใน slot นี้จะหายไป`)) return;
-  if (!S.demo && !confirm(`สลับจอยไปใช้ Slot ${i + 1}?\n\nคำสั่งสลับ slot (0xA2) ยังไม่ได้ทดสอบกับจอยจริง ถ้าไม่สลับ แอปจะแจ้งและไม่แก้อะไร`)) return;
+// Drafts of the loaded slot's settings (not slot names, which the app keeps per slot).
+const slotDrafts = () => D.items().filter((x) => x.group === "slot" && !x.key.startsWith("slot."));
+
+// Returns whether the controller now uses slot i. asked: the caller has already confirmed both.
+async function switchSlot(i, { asked = false } = {}) {
+  if (!S.pad || S.writing) return false;
+  if (i === S.slots?.activeSlot) return true;
+  const n = slotDrafts().length;
+  if (!asked && n && !confirm(`สลับไป Slot ${i + 1}?\n\nร่างที่ยังไม่ได้เขียน ${n} จุดใน slot นี้จะหายไป`)) return false;
+  if (!asked && !S.demo && !confirm(`สลับจอยไปใช้ Slot ${i + 1}?\n\nคำสั่งสลับ slot (0xA2) ยังไม่ได้ทดสอบกับจอยจริง ถ้าไม่สลับ แอปจะแจ้งและไม่แก้อะไร`)) return false;
   try {
     await S.pad.switchSlot(i);
-    for (const it of D.items()) if (it.group === "slot" && !it.key.startsWith("slot.")) D.map.delete(it.key);
+    for (const it of slotDrafts()) D.map.delete(it.key);
     S.current = null;
     await loadAll();
     toast(`จอยใช้ Slot ${i + 1} แล้ว`);
+    return S.current?.slot === i;
   } catch (e) {
     toast(`สลับ slot ไม่สำเร็จ: ${e.message}`, true);
     await loadAll();
+    return false;
   }
+}
+
+// ---------------- Profile library ----------------
+
+function saveProfile() {
+  if (!S.current) return;
+  const slot = S.current.slot;
+  const n = slotDrafts().length;
+  const name = prompt(`ชื่อ profile ที่จะเก็บจาก Slot ${slot + 1}${n ? `\n(เก็บค่าที่อยู่บนจอยตอนนี้ ร่างที่ยังไม่ได้เขียน ${n} จุดไม่รวมด้วย)` : ""}`, V.slotName(S, D, slot));
+  if (name == null) return;
+  try {
+    const { existed } = S.profiles.add(name, S.current.wrapped);
+    toast(existed ? "มี profile นี้ในคลังอยู่แล้ว ไม่ได้เพิ่มซ้ำ" : `เก็บ "${name.trim()}" เข้าคลังแล้ว`);
+  } catch (e) {
+    toast(`เก็บไม่สำเร็จ: ${e.message}`, true);
+  }
+  render();
+}
+
+// Copies a library profile into a slot: switches the controller to it first when it isn't the one
+// in use, then writes like any other write (re-read, back up, write, read back). The controller
+// keeps using that slot afterwards.
+async function applyProfile(p, slot) {
+  if (!S.current || S.writing) return;
+  let data;
+  try {
+    data = toWrite(S.profiles.data(p));
+  } catch (e) {
+    return toast(`ใส่ profile นี้ไม่ได้: ${e.message}`, true);
+  }
+  const other = slot !== S.current.slot;
+  const n = slotDrafts().length;
+  const lines = [
+    `ใส่ "${p.name}" ลง Slot ${slot + 1} (${V.slotName(S, D, slot)})?`,
+    "",
+    "ค่าทั้งหมดใน slot นั้นจะถูกแทนที่ แอปจะสำรองค่าเดิมเป็นไฟล์ให้ก่อน",
+    ...(other ? [`แอปจะสลับจอยไปใช้ Slot ${slot + 1} ก่อน และจอยจะใช้ slot นั้นต่อหลังเขียนเสร็จ`] : []),
+    ...(other && !S.demo ? ["คำสั่งสลับ slot (0xA2) ยังไม่ได้ทดสอบกับจอยจริง ถ้าไม่สลับ แอปจะหยุดและไม่เขียนอะไร"] : []),
+    ...(n ? [`ร่างที่ยังไม่ได้เขียน ${n} จุดใน Slot ${S.current.slot + 1} จะหายไป`] : []),
+  ];
+  if (!confirm(lines.join("\n"))) return;
+  if (other && !(await switchSlot(slot, { asked: true }))) return;
+  for (const it of slotDrafts()) D.map.delete(it.key);
+  runWrite({ data, names: [[`slot.${slot}`, p.name]], reason: `ก่อนใส่ profile "${p.name}"`, title: `กำลังใส่ "${p.name}"`, doneTitle: "ใส่ profile เสร็จ ตรงกับจอยแล้ว", failTitle: "ใส่ profile ไม่สำเร็จ" });
 }
 
 // ---------------- Backups ----------------
@@ -372,7 +425,8 @@ function openReview() {
 // edits: for applyEdits; drafts: the draft keys they take care of; links: the macro links after the
 // write (macroPlan), kept so each copy stays tied to its library macro; motor: trigger feedback
 // switches (Drafts.motorCmds), sent with 0x53 once the profile is in.
-async function runWrite({ edits = null, drafts = null, links = null, data = null, motor = [], reason, title, doneTitle, failTitle }) {
+// data: a whole profile written instead of edits; names: [id, full name] the app keeps once it is in.
+async function runWrite({ edits = null, drafts = null, links = null, data = null, names = [], motor = [], reason, title, doneTitle, failTitle }) {
   const slot = S.current.slot;
   const steps = ["สำรองไฟล์", `ส่งข้อมูล Slot ${slot + 1}`, "ตรวจ CRC กับจอย", ...(motor.length ? ["ตั้งบีบไกแล้วด้ามสั่น"] : [])];
   W = { title, doneTitle, failTitle, slot, name: S.current.cfg.name || "", at: 0, steps, bytes: null };
@@ -389,7 +443,8 @@ async function runWrite({ edits = null, drafts = null, links = null, data = null
     if (info.status !== 0 || info.len !== fresh.data.length || info.crc32 !== crc32(fresh.data)) {
       throw new Error(`จอยรายงานความยาว/CRC ไม่ตรงกับที่อ่านได้ (status=${info.status}) ยกเลิกแล้ว ไม่ได้เขียนอะไร`);
     }
-    const next = edits ? applyEdits(fresh.data, edits) : data;
+    // A whole profile (library, backup, file) goes through the same rules as an edit (toWrite).
+    const next = edits ? applyEdits(fresh.data, edits) : toWrite(data);
     const sentNames = edits ? D.items().filter((i) => i.writable && i.key.endsWith(".name")) : [];
     unwrapMapping(next);
     W.backupAt = backup(fresh.data, slot, reason);
@@ -422,6 +477,7 @@ async function runWrite({ edits = null, drafts = null, links = null, data = null
     }
     // The controller now holds what fits of each name; the app keeps the full one.
     for (const { key, value } of sentNames) S.names.put(S.uuid, nameId(key), value, fit(value));
+    for (const [id, full] of names) S.names.put(S.uuid, id, full, fit(full));
     if (links) S.lib.setLinks(S.uuid, slot, links);
     S.current = { wrapped: back.data, cfg: unwrapMapping(back.data).cfg, slot: back.activeSlot };
     resolveNames(S);
@@ -847,6 +903,29 @@ const ACTIONS = {
     download(data, `apex6-macros-${S.lib.list().length}.json`);
   },
   "lib-import": () => $("#lib-in").click(),
+  "pf-save": saveProfile,
+  "pf-apply": (el) => {
+    const p = S.profiles.get(el.dataset.id);
+    const slot = Number(document.querySelector(`[data-pf-slot="${el.dataset.id}"]`)?.value);
+    if (p && slot >= 0 && slot < 4) applyProfile(p, slot);
+  },
+  "pf-rename": (el) => {
+    const p = S.profiles.get(el.dataset.id);
+    const name = p && prompt("ชื่อใหม่ของ profile", p.name);
+    if (!name?.trim()) return;
+    try {
+      S.profiles.rename(p.uid, name);
+    } catch (e) {
+      toast(`เปลี่ยนชื่อไม่สำเร็จ: ${e.message}`, true);
+    }
+    render();
+  },
+  "pf-delete": (el) => {
+    const p = S.profiles.get(el.dataset.id);
+    if (!p || !confirm(`ลบ "${p.name}" ออกจากคลัง?\n\nslot บนจอยไม่เปลี่ยน`)) return;
+    S.profiles.remove(p.uid);
+    render();
+  },
   "bk-dl": (el) => {
     const b = S.backups.find((x) => x.id === el.dataset.id);
     if (b) download(unb64(b.data), `apex6-slot${b.slot + 1}-${b.at}.bin`);
