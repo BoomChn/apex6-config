@@ -144,7 +144,8 @@ function logPacket(dir, bytes) {
   while (n > 1 && bytes[n - 1] === 0) n--;
   const t = new Date().toLocaleTimeString("th-TH", { hour12: false });
   S.log.push({ dir, text: `${t}  ${dir === "out" ? "→" : "←"}  ${hex(bytes.slice(0, n)).toUpperCase()}` });
-  if (S.log.length > 300) S.log.splice(0, S.log.length - 300);
+  // A full write (backup read, write, read-back) is about 800 lines; keep all of it.
+  if (S.log.length > 2000) S.log.splice(0, S.log.length - 2000);
   scheduleLog();
 }
 

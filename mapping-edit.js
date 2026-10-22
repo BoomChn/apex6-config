@@ -85,9 +85,14 @@ function range(v, lo, hi) {
 }
 
 export const WRITABLE = new Set(Object.keys(FIELDS));
-// Fields confirmed by a write to a real Apex 6 Pro. None yet: every write path is only tested
-// against the mock, so the UI labels all of them. Add a key here once it has been tried on hardware.
-export const HW_TESTED = new Set();
+// Fields confirmed by a write to a real Apex 6 Pro; the UI labels every other writable field.
+// Add a key here once it has been tried on hardware.
+// 2026-10-22, checked in joy.cpl: stick.left.max (255 → 179, edge at ~70% travel), then
+// stick.left.deadzone, stick.left.invertX, stick.right.max, and trigger end on both sides.
+export const HW_TESTED = new Set([
+  "stick.left.max", "stick.left.deadzone", "stick.left.invertX", "stick.right.max",
+  "trigger.left.end", "trigger.right.end",
+]);
 
 // Returns a new wrapped buffer with the given edits applied and the CRC16 updated.
 // edits: { "stick.left.deadzone": 20, "gyro.mode": "mouse", ... }
