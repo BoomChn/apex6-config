@@ -1045,7 +1045,8 @@ function trackAim(imu) {
   const step = (r) => (Math.abs(r) < AIM_DEAD ? 0 : (r / AIM_LSB) * dt / AIM_DEG);
   const clamp = (v) => Math.max(-1, Math.min(1, v));
   // Yaw right is positive; pitch up is positive, and the SVG is positive down (found on hardware).
-  AIM.x = clamp(AIM.x + step(imu[0]));
+  // Roll also aims sideways: in joy.cpl it moved the right stick across. Its sign is a guess.
+  AIM.x = clamp(AIM.x + step(imu[0]) + step(imu[2]));
   AIM.y = clamp(AIM.y - step(imu[1]));
 }
 

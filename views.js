@@ -977,7 +977,7 @@ export function liveAim(g, a) {
   const title = !a ? "ยังไม่ได้รับค่าจากจอย" : a.on ? "gyro ทำงาน · เอียงจอยเพื่อเล็ง" : `gyro ยังไม่ทำงาน · ${how}`;
   return `<svg width="200" height="200" viewBox="-102 -102 204 204" style="flex:none" aria-hidden="true">${frame}${dot}</svg>
     <div><b style="font-size:18px">${title}</b>
-      <p class="muted" style="margin:4px 0 0">จุดคือทิศที่เล็ง · หมุนแบบพวงมาลัย = ซ้าย–ขวา · ก้ม–เงย = บน–ล่าง${acts.length ? ` · จุดขยับเฉพาะตอน${how}` : " · ไม่ได้ตั้งปุ่ม จึงทำงานตลอด"}</p>
+      <p class="muted" style="margin:4px 0 0">จุดคือทิศที่เล็ง · หมุนแบบพวงมาลัย หรือ เอียงซ้าย–ขวา = ซ้าย–ขวา · ก้ม–เงย = บน–ล่าง${acts.length ? ` · จุดขยับเฉพาะตอน${how}` : " · ไม่ได้ตั้งปุ่ม จึงทำงานตลอด"}</p>
       <p class="meta" style="margin:4px 0 0">คำนวณจาก gyro ในแอป ใช้ดูว่าเซนเซอร์กับปุ่มเปิดทำงาน ความไวไม่ตรงกับในเกม</p></div>`;
 }
 
