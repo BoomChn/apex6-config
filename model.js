@@ -10,7 +10,7 @@ export const pct = (v) => `${Math.round((v / 255) * 100)}%`;
 export const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 export const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
-// M5/M6 are the shoulder buttons LM/RM: Flydigi Space Station names ControllerKey_M5 "LM" and M6 "RM".
+// M5/M6 are the shoulder buttons LM/RM (confirmed on hardware): Flydigi Space Station names ControllerKey_M5 "LM" and M6 "RM".
 export const BTN_NAME = { M5: "LM", M6: "RM", Back: "View", Start: "Menu", "LT (active)": "LT", "RT (active)": "RT", "D-pad ↑": "Up", "D-pad ↓": "Down", "D-pad ←": "Left", "D-pad →": "Right" };
 export const btnName = (b) => BTN_NAME[b] ?? b;
 
