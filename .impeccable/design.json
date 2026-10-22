@@ -1,0 +1,147 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-22T08:00:00+07:00",
+  "title": "Design System: Apex 6 Pro Config",
+  "extensions": {
+    "colorMeta": {
+      "cobalt": { "role": "primary", "displayName": "Cobalt Spot Ink", "canonical": "#2140D9", "tonalRamp": ["#0B1650", "#132681", "#1A33AE", "#2140D9", "#4D66E2", "#8396EC", "#BAC5F5", "#EDF0FC"] },
+      "cobalt-tint": { "role": "primary", "displayName": "Cobalt Wash", "canonical": "#EDF0FC", "tonalRamp": ["#0B1650", "#132681", "#1A33AE", "#2140D9", "#4D66E2", "#8396EC", "#BAC5F5", "#EDF0FC"] },
+      "cobalt-tint-faint": { "role": "primary", "displayName": "Cobalt Wash, faint", "canonical": "#F5F7FE", "tonalRamp": ["#0B1650", "#132681", "#1A33AE", "#2140D9", "#4D66E2", "#8396EC", "#BAC5F5", "#F5F7FE"] },
+      "ground": { "role": "neutral", "displayName": "Page White", "canonical": "#FFFFFF", "tonalRamp": ["#111111", "#2E2E2E", "#5C5C5C", "#8A8A8A", "#CFCFCF", "#E2E2E2", "#EEEEEE", "#FFFFFF"] },
+      "ink": { "role": "neutral", "displayName": "Manual Ink", "canonical": "#111111", "tonalRamp": ["#111111", "#2E2E2E", "#5C5C5C", "#8A8A8A", "#CFCFCF", "#E2E2E2", "#EEEEEE", "#FFFFFF"] },
+      "ink-secondary": { "role": "neutral", "displayName": "Secondary Grey", "canonical": "#5C5C5C", "tonalRamp": ["#111111", "#2E2E2E", "#5C5C5C", "#8A8A8A", "#CFCFCF", "#E2E2E2", "#EEEEEE", "#FFFFFF"] },
+      "ink-tertiary": { "role": "neutral", "displayName": "Tertiary Grey", "canonical": "#8A8A8A", "tonalRamp": ["#111111", "#2E2E2E", "#5C5C5C", "#8A8A8A", "#CFCFCF", "#E2E2E2", "#EEEEEE", "#FFFFFF"] },
+      "hairline": { "role": "neutral", "displayName": "Hairline", "canonical": "#E2E2E2", "tonalRamp": ["#111111", "#2E2E2E", "#5C5C5C", "#8A8A8A", "#CFCFCF", "#E2E2E2", "#EEEEEE", "#FFFFFF"] },
+      "keycap-border": { "role": "neutral", "displayName": "Keycap Edge", "canonical": "#CFCFCF", "tonalRamp": ["#111111", "#2E2E2E", "#5C5C5C", "#8A8A8A", "#CFCFCF", "#E2E2E2", "#EEEEEE", "#FFFFFF"] },
+      "disabled-fill": { "role": "neutral", "displayName": "Disabled Fill", "canonical": "#E6E6E6" },
+      "disabled-fill-soft": { "role": "neutral", "displayName": "Disabled Fill, soft", "canonical": "#EEEEEE" },
+      "disabled-text": { "role": "neutral", "displayName": "Disabled Text", "canonical": "#6B6B6B" },
+      "log-ground": { "role": "neutral", "displayName": "Packet Log Ground", "canonical": "#111111" },
+      "log-text": { "role": "neutral", "displayName": "Packet Log Text", "canonical": "#E8E8E8" },
+      "scrim": { "role": "neutral", "displayName": "Scrim", "canonical": "rgba(17,17,17,0.55)" },
+      "ok": { "role": "status", "displayName": "Synced Green", "canonical": "#1F8A4C", "tonalRamp": ["#0A2E19", "#124F2C", "#1A703D", "#1F8A4C", "#4DA673", "#85C49F", "#BEE1CC", "#EAF5EE"] },
+      "error": { "role": "status", "displayName": "Fault Red", "canonical": "#C0262D", "tonalRamp": ["#3D0C0E", "#6B1519", "#981E24", "#C0262D", "#D2585D", "#E28E91", "#F0C3C5", "#FBEDEE"] },
+      "warn": { "role": "status", "displayName": "Warn Umber", "canonical": "#9A4A06", "tonalRamp": ["#2E1602", "#542804", "#7A3A05", "#9A4A06", "#BA7438", "#D4A177", "#EACDB4", "#F8EEE5"] }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Page Title", "purpose": "Section page title, one per screen." },
+      "headline": { "displayName": "Editor Title", "purpose": "Right-column editor title and dialog title." },
+      "title": { "displayName": "Section Head", "purpose": "Heads that sit on a 3px ink rule." },
+      "numeral-row": { "displayName": "Slot Row Numeral", "purpose": "Slot numbers in the Profiles table." },
+      "numeral-tab": { "displayName": "Slot Tab Numeral", "purpose": "Slot numbers in the top bar." },
+      "tab": { "displayName": "Tab", "purpose": "Section tabs and underline choice tabs; 700 when active." },
+      "body": { "displayName": "Body", "purpose": "Row labels and callout values, 14-15px at 500-700." },
+      "label": { "displayName": "Label", "purpose": "Button text and bold row labels." },
+      "meta": { "displayName": "Meta", "purpose": "Hints, legends, column heads, callout names, 12-13px." },
+      "mono": { "displayName": "Mono Value", "purpose": "Every controller value, unit, hex, firmware, timestamp, packet log and CRC, 12-16px at 600." }
+    },
+    "shadows": [],
+    "motion": [],
+    "breakpoints": [
+      { "name": "desktop", "value": "1440px" },
+      { "name": "min-specified", "value": "1280px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Write Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Cobalt primary for actions that talk to the controller, with a white badge holding the pending count.",
+      "html": "<button class=\"ds-btn-primary\">เขียนลงจอย <span class=\"ds-badge\">5</span></button>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; gap: 12px; height: 44px; padding: 0 20px; background: #2140D9; color: #FFFFFF; border: none; border-radius: 6px; font: 700 15px 'Bai Jamjuree', sans-serif; cursor: pointer; } .ds-btn-primary:hover { background: #1A33AE; } .ds-btn-primary:focus-visible { outline: 2px solid #111111; outline-offset: 2px; } .ds-btn-primary:disabled { background: #E6E6E6; color: #6B6B6B; } .ds-badge { display: inline-grid; place-items: center; min-width: 26px; height: 26px; padding: 0 6px; background: #FFFFFF; color: #2140D9; border-radius: 4px; font: 600 14px 'JetBrains Mono', monospace; }"
+    },
+    {
+      "name": "Ink Button",
+      "kind": "button",
+      "refersTo": "button-ink",
+      "description": "Ink-filled local confirmation, such as Done or Copy to slot.",
+      "html": "<button class=\"ds-btn-ink\">เสร็จ</button>",
+      "css": ".ds-btn-ink { height: 40px; padding: 0 22px; background: #111111; color: #FFFFFF; border: none; border-radius: 6px; font: 700 15px 'Bai Jamjuree', sans-serif; cursor: pointer; } .ds-btn-ink:hover { background: #2E2E2E; } .ds-btn-ink:focus-visible { outline: 2px solid #2140D9; outline-offset: 2px; }"
+    },
+    {
+      "name": "Outline Button",
+      "kind": "button",
+      "refersTo": "button-outline",
+      "description": "Secondary row action with a 1px ink border.",
+      "html": "<button class=\"ds-btn-outline\">ใช้ slot นี้</button>",
+      "css": ".ds-btn-outline { height: 40px; padding: 0 16px; background: #FFFFFF; color: #111111; border: 1px solid #111111; border-radius: 6px; font: 700 15px 'Bai Jamjuree', sans-serif; cursor: pointer; } .ds-btn-outline:hover { background: #EEEEEE; } .ds-btn-outline:focus-visible { outline: 2px solid #2140D9; outline-offset: 2px; }"
+    },
+    {
+      "name": "Section Tabs",
+      "kind": "nav",
+      "refersTo": "tab",
+      "description": "Underline tab row; active tab carries a 3px ink underline, pending counts in cobalt mono.",
+      "html": "<nav class=\"ds-tabs\"><a class=\"ds-tab\">Profiles</a><a class=\"ds-tab is-active\" aria-current=\"page\">Buttons <span class=\"ds-count\">2</span></a><a class=\"ds-tab\">Sticks <span class=\"ds-count\">1</span></a><a class=\"ds-tab\">Gyro <span class=\"ds-count\">Stick ขวา</span></a></nav>",
+      "css": ".ds-tabs { display: flex; gap: 40px; height: 49px; border-bottom: 1px solid #111111; font: 500 15px 'Bai Jamjuree', sans-serif; } .ds-tab { display: flex; align-items: center; gap: 6px; color: #5C5C5C; text-decoration: none; border-bottom: 3px solid transparent; margin-bottom: -1px; cursor: pointer; } .ds-tab:hover { color: #111111; } .ds-tab:focus-visible { outline: 2px solid #2140D9; outline-offset: 2px; } .ds-tab.is-active { color: #111111; font-weight: 700; border-bottom-color: #111111; } .ds-count { color: #2140D9; font: 600 12px 'JetBrains Mono', monospace; }"
+    },
+    {
+      "name": "Keycap Grid",
+      "kind": "custom",
+      "refersTo": "keycap",
+      "description": "70x44 key picker; the selected key is filled cobalt.",
+      "html": "<div class=\"ds-keys\"><button class=\"ds-key\">A</button><button class=\"ds-key\">RT</button><button class=\"ds-key is-selected\">LS</button><button class=\"ds-key\">Menu</button></div>",
+      "css": ".ds-keys { display: grid; grid-template-columns: repeat(4, 70px); gap: 8px; } .ds-key { width: 70px; height: 44px; background: #FFFFFF; color: #111111; border: 1px solid #CFCFCF; border-radius: 6px; font: 500 15px 'Bai Jamjuree', sans-serif; cursor: pointer; } .ds-key:hover { border-color: #111111; } .ds-key:focus-visible { outline: 2px solid #2140D9; outline-offset: 2px; } .ds-key.is-selected { background: #2140D9; border-color: #2140D9; color: #FFFFFF; }"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "1px ink field with 6px corners; 2px cobalt border on focus or when pending.",
+      "html": "<input class=\"ds-input\" value=\"Racing · Forza Horizon\" />",
+      "css": ".ds-input { height: 44px; padding: 0 14px; background: #FFFFFF; color: #111111; border: 1px solid #111111; border-radius: 6px; font: 700 18px 'Bai Jamjuree', sans-serif; } .ds-input:hover { border-color: #5C5C5C; } .ds-input:focus-visible { outline: none; border: 2px solid #2140D9; padding: 0 13px; }"
+    },
+    {
+      "name": "Slider",
+      "kind": "custom",
+      "refersTo": "slider",
+      "description": "2px track, ink fill, 16px white thumb with a 2px ink border, mono value right-aligned.",
+      "html": "<label class=\"ds-slider\"><span class=\"ds-slider-head\"><b>Deadzone ด้านใน</b><span class=\"ds-mono\">5% · 13</span></span><input type=\"range\" min=\"0\" max=\"255\" value=\"13\" /></label>",
+      "css": ".ds-slider { display: grid; gap: 14px; width: 320px; font: 700 15px 'Bai Jamjuree', sans-serif; color: #111111; } .ds-slider-head { display: flex; justify-content: space-between; } .ds-mono { font: 600 14px 'JetBrains Mono', monospace; color: #5C5C5C; } .ds-slider input { appearance: none; height: 2px; background: #E2E2E2; accent-color: #111111; } .ds-slider input::-webkit-slider-thumb { appearance: none; width: 16px; height: 16px; border-radius: 50%; background: #FFFFFF; border: 2px solid #111111; cursor: pointer; } .ds-slider input:focus-visible::-webkit-slider-thumb { border-color: #2140D9; }"
+    },
+    {
+      "name": "Review Row",
+      "kind": "custom",
+      "refersTo": "dialog",
+      "description": "Write review change row: old value on the controller, arrow, new value in cobalt.",
+      "html": "<div class=\"ds-review\"><div class=\"ds-review-head\"><b>Slot 2 · Default</b><span>ค่าบนจอย → ค่าใหม่</span></div><div class=\"ds-review-row\"><b>ปุ่ม M1</b><span class=\"ds-old\">ว่าง</span><span>→</span><span class=\"ds-new\">LS กด</span></div></div>",
+      "css": ".ds-review { width: 520px; font: 500 15px 'Bai Jamjuree', sans-serif; color: #111111; } .ds-review-head { display: flex; justify-content: space-between; padding-bottom: 10px; border-bottom: 3px solid #111111; } .ds-review-head span { font-size: 13px; color: #5C5C5C; } .ds-review-row { display: grid; grid-template-columns: 140px 1fr 24px 1fr; align-items: center; height: 52px; border-bottom: 1px solid #E2E2E2; } .ds-old { color: #5C5C5C; } .ds-new { color: #2140D9; font-weight: 700; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Controls Spread",
+    "overview": "Each screen reads like the \"Controls\" page of a console instruction manual. A real Apex 6 Pro press photo sits on the page's own white ground, and thin ink leader lines run from each physical button out to a label saying what that button does on this slot. Everything around the photo is set in two-colour print: ink for what is already on the controller, one cobalt spot ink for what has changed and has not been written yet.\n\nInformation sits on ruled pages, not on panels. Heavy 3px ink rules open sections, hairlines separate rows, and tables and lists replace card grids. The density is that of a reference manual: compact rows of 52px, tabular mono values aligned right, and short Thai labels with the English control names (LB, RT, M1) kept as they are moulded on the shell.\n\nThe system is light only. It is a desktop tool used at a desk between play sessions, and pure white matches the press photo backgrounds, so the photo has no visible edge.",
+    "keyCharacteristics": [
+      "Pure white ground shared with the product photos.",
+      "Ink #111 type, 1px leader lines, 3px section rules.",
+      "One cobalt spot ink, reserved for pending edits, the selection being edited, and the action that talks to the controller.",
+      "Ruled lists and tables, never cards.",
+      "Bai Jamjuree for words, JetBrains Mono for values.",
+      "Square insets and rectangles; small 6px radius only on things you press or type into."
+    ],
+    "rules": [
+      { "name": "The Two-Colour Print Rule", "body": "Ink means \"on the controller\". Cobalt means \"changed here, not written yet\", \"being edited\", or \"talks to the controller now\". If a cobalt element is none of these, it is wrong.", "section": "colors" },
+      { "name": "The Photo Ground Rule", "body": "The page is pure white because the photo is. Do not tint the ground or put the photo on a panel.", "section": "colors" },
+      { "name": "The Values Are Mono Rule", "body": "Any number or code that came from or goes to the controller is set in JetBrains Mono. Words are never set in mono.", "section": "typography" },
+      { "name": "The One Modal Rule", "body": "The write review is the only modal in the app and the only lifted surface. Everything else edits in place.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do put the real Apex 6 Pro press photo on the pure white ground and point at controls with 1px ink leaders ending in a 3.5px dot.",
+      "Do use cobalt only for pending edits, the item being edited, and the action that talks to the controller.",
+      "Do open every section with a 3px ink rule and separate rows with hairlines.",
+      "Do set every controller value, unit, hex code, firmware string, timestamp and CRC in JetBrains Mono 600.",
+      "Do label unconfirmed protocol facts \"ยังไม่ยืนยัน\" in place, next to the value they qualify.",
+      "Do show only back buttons M1 to M4. Seen from the back, the left of the image is the right hand.",
+      "Do keep English control names (LB, RT, M1) in the Thai UI."
+    ],
+    "donts": [
+      "Don't add a sidebar, card grids or tinted rounded panels.",
+      "Don't draw a controller; use the press photo.",
+      "Don't mask photos or avatars to circles.",
+      "Don't add M5/M6 or C/Z buttons.",
+      "Don't use LED swatch colours, or any colour other than the status inks, as UI accents.",
+      "Don't add a second modal; edit in place.",
+      "Don't add a dark theme; the system is light only."
+    ]
+  }
+}
