@@ -1065,10 +1065,13 @@ function tick() {
     const st = LIVE.stick;
     const mode = S.current.cfg.gyroscope?.mode;
     setLive(`[data-live="imu"]`, V.liveImu(st && LIVE.imu && { imu: st.imu, tail: st.tail, move: LIVE.imu.move, peak: LIVE.imu.peak }));
-    // What the gyro drives, as the controller reports its sticks. 0xEF Y is positive up; the SVG is positive down.
+    // What the gyro drives. 0xEF carries the physical sticks only (found on hardware), so this reads
+    // the XInput pad Windows sees, where the gyro's part is mixed in. Standard mapping: axes 0/1 left, 2/3 right.
     if (mode === "left_joystick" || mode === "right_joystick") {
-      const [x, y] = mode === "left_joystick" ? [st?.lx, st?.ly] : [st?.rx, st?.ry];
-      setLive(`[data-live="gyro-out"]`, V.liveStick(st && { x: Number((x / 32767).toFixed(2)), y: Number((-y / 32767).toFixed(2)) }));
+      const gp = Array.from(navigator.getGamepads?.() ?? []).find((g) => g?.mapping === "standard");
+      const ax = mode === "left_joystick" ? 0 : 2;
+      const v = gp && { x: Number((gp.axes[ax] ?? 0).toFixed(2)), y: Number((gp.axes[ax + 1] ?? 0).toFixed(2)) };
+      setLive(`[data-live="gyro-out"]`, V.liveStick(v, "เบราว์เซอร์ยังไม่เห็นจอย<br>กดปุ่มใดก็ได้บนจอยหนึ่งครั้ง"));
     }
     setLive(`[data-live="keys"]`, V.liveKeys(LIVE.on ? [...LIVE.keys] : null));
   } else if (S.current && (S.tab === "sticks" || S.tab === "triggers")) {

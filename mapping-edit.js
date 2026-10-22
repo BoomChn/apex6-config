@@ -113,6 +113,8 @@ export const HW_TESTED = new Set([
   "stick.left.max", "stick.left.deadzone", "stick.left.invertX", "stick.left.invertY", "stick.left.round",
   "stick.right.max", "stick.right.deadzone", "stick.right.invertX", "stick.right.invertY", "stick.right.round",
   "trigger.left.start", "trigger.right.start", "trigger.left.end", "trigger.right.end",
+  // Right stick + "hold LT" confirmed in joy.cpl; the other modes write the same byte.
+  "gyro.mode",
 ]);
 
 // Returns a new wrapped buffer with the given edits applied and the CRC16 updated.

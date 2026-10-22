@@ -600,12 +600,12 @@ export function sticks(S, D) {
 
 // v: what the controller sends out (after its own curve), x/y in -1..1, y positive down.
 // Like joy.cpl: the square is the full range, so a stick that reaches 100% touches its edge.
-export function liveStick(v) {
+export function liveStick(v, idle = "ขยับ stick บนจอยเพื่อดูค่า") {
   const R = 100;
   const frame = `<rect x="-100" y="-100" width="200" height="200" fill="none" stroke="#111"/><path d="M-100 0H100M0 -100V100" stroke="#E2E2E2"/>`;
   if (!v) {
     return `<svg width="200" height="200" viewBox="-102 -102 204 204" aria-hidden="true">${frame}</svg>
-      <div class="readout muted" style="font-size:16px">ขยับ stick บนจอยเพื่อดูค่า</div>`;
+      <div class="readout muted" style="font-size:16px;text-align:center">${idle}</div>`;
   }
   const { x, y } = v;
   const mag = Math.min(1, Math.hypot(x, y));
@@ -940,8 +940,8 @@ export function gyro(S, D) {
   </div>`;
 }
 
-// What the gyro drives with the mode on the controller now (not a pending edit). Whether the
-// 0xEF stick values include the gyro's part is not known yet; joy.cpl is the fallback.
+// What the gyro drives with the mode on the controller now (not a pending edit), read from the
+// XInput pad because 0xEF has the physical sticks only.
 function gyroOut(g) {
   const act = g.activation[0];
   const when = act ? `${act.activation === "hold" ? "กดค้าง" : "กดสลับ"} ${esc(btnName(act.button))} แล้ว` : "";
@@ -950,8 +950,8 @@ function gyroOut(g) {
   return `<div style="display:flex;gap:28px;align-items:center;margin-top:12px">
     <div class="live" style="flex:none;padding-top:0" data-live="gyro-out">${liveStick(null)}</div>
     <div><b style="font-size:18px">${when}เอียงจอย</b>
-      <p class="muted" style="margin:4px 0 0">จุดคือ ${esc(GYRO_MODE[g.mode])} ที่จอยส่งออก ควรขยับตามการเอียง</p>
-      <p class="meta" style="margin:4px 0 0">ถ้าเอียงแล้วจุดไม่ขยับ ค่านี้อาจไม่รวม gyro · ลองดูใน joy.cpl อีกทาง</p></div>
+      <p class="muted" style="margin:4px 0 0">จุดคือ ${esc(GYRO_MODE[g.mode])} ที่ Windows เห็น รวมส่วนที่ gyro ขยับให้แล้ว</p>
+      <p class="meta" style="margin:4px 0 0">ใน joy.cpl ดูที่แกน X Rotation / Y Rotation สำหรับ Stick ขวา</p></div>
   </div>`;
 }
 
