@@ -205,6 +205,118 @@ assert.equal(editKey(mk, S0), mk);
 assert.equal(editKey("led.color", S0), null);
 console.log("names ok");
 
+// --- Creating and deleting macros: the layer section changes length ---
+{
+  const { encodeMacro, MACRO_MAX, crc16 } = await import("./mapping-edit.js");
+  const seq = (s) => [...s].flatMap((b, i) => [
+    { action: "press", target: { type: "btn_gamepad", button: b }, at_ms: i * 100 },
+    { action: "release", target: { type: "btn_gamepad", button: b }, at_ms: i * 100 + 50 },
+  ]);
+  const mk1 = (s, mode) => ({ mode, actions: seq(s) });
+  const ids = (buf, layer) => unwrapMapping(buf).cfg.layers.find((l) => l.layer_id === layer).macros.map((m) => m.macro_id);
+  const the = (buf, layer, id) => unwrapMapping(buf).cfg.layers.find((l) => l.layer_id === layer).macros.find((m) => m.macro_id === id);
+  const rest = (c) => JSON.stringify({ ...c, layers: c.layers.map((l) => ({ ...l, macros: undefined })) });
+  const base = unwrapMapping(sample).cfg;
+  assert.deepEqual(ids(sample, 0), [0, 1]);
+  assert.deepEqual(ids(sample, 1), []);
+
+  // New macro in the empty layer: valid wrapper, only that layer's macros change.
+  const a1 = applyEdits(sample, { "macro.1.0.new": mk1("YABX", "press_once") });
+  assert.equal(a1[0] | (a1[1] << 8), a1.length);
+  assert.deepEqual(ids(a1, 1), [0]);
+  assert.deepEqual(ids(a1, 0), [0, 1]);
+  assert.deepEqual(the(a1, 1, 0).actions, seq("YABX"));
+  assert.equal(the(a1, 1, 0).trigger_mode, "press_once");
+  assert.equal(rest(unwrapMapping(a1).cfg), rest(base), "the rest of the profile did not move");
+  assert.deepEqual(the(a1, 0, 1), base.layers[0].macros[1], "other macros are byte-for-byte the same");
+  // Entries stay in id order, and a mode can come with the new macro.
+  const a2 = applyEdits(a1, { "macro.0.5.new": mk1("AB", "press_once"), "macro.0.2.new": mk1("X", "press_hold"), "macro.0.2.mode": "press_loop_immediate" });
+  assert.deepEqual(ids(a2, 0), [0, 1, 2, 5]);
+  assert.equal(the(a2, 0, 2).trigger_mode, "press_loop_immediate");
+  // Create then delete gives the original bytes back, also with a name in between.
+  assert.ok(sameBytes(applyEdits(a1, { "macro.1.0.delete": true }), sample));
+  const a3 = applyEdits(sample, { "macro.1.3.new": mk1("Y", "press_once"), "macro.1.3.name": "Reinforce", "stick.left.max": 240 });
+  const c3 = unwrapMapping(a3).cfg;
+  assert.deepEqual(c3.macro_names, [{ layerId: 1, macroId: 3, name: "Reinforce" }]);
+  assert.equal(c3.joystick_left.curve.end_x, 240, "other edits land after the splice");
+  const a4 = applyEdits(a3, { "macro.1.3.delete": true, "stick.left.max": wcfg.joystick_left.curve.end_x });
+  assert.ok(sameBytes(a4, sample), "deleting drops the name entry too");
+  // Delete one, keep the other; ids are not renumbered. A name edit for a deleted macro is ignored.
+  const d1 = applyEdits(sample, { "macro.0.0.delete": true, [`macro.0.0.name`]: "x" });
+  assert.deepEqual(ids(d1, 0), [1]);
+  assert.deepEqual(the(d1, 0, 1), base.layers[0].macros[1]);
+  assert.deepEqual(ids(applyEdits(sample, { "macro.0.0.delete": true, "macro.0.1.delete": true }), 0), []);
+  // A full layer takes a new macro in the same write once one is deleted.
+  let full = sample;
+  for (let i = 2; i < MACRO_MAX; i++) full = applyEdits(full, { [`macro.0.${i}.new`]: mk1("A", "press_once") });
+  assert.equal(ids(full, 0).length, MACRO_MAX);
+  assert.throws(() => applyEdits(full, { "macro.1.0.new": mk1("A", "press_once"), "macro.0.2.new": mk1("A", "press_once") }), /มี macro #3 อยู่แล้ว/);
+  assert.ok(ids(applyEdits(full, { "macro.0.4.delete": true, "macro.0.4.new": mk1("B", "press_once") }), 0).includes(4));
+  // Things it must refuse.
+  assert.throws(() => applyEdits(sample, { "macro.1.8.new": mk1("A", "press_once") }), /0–7/);
+  assert.throws(() => applyEdits(sample, { "macro.7.0.new": mk1("A", "press_once") }), /ไม่มี layer 7/);
+  assert.throws(() => applyEdits(sample, { "macro.1.0.new": { mode: "press_once", actions: [] } }), /อย่างน้อย 1 ขั้น/);
+  assert.throws(() => applyEdits(sample, { "macro.1.0.new": mk1("A", "dance") }), /วิธีเล่นไม่รู้จัก/);
+  assert.throws(() => applyEdits(sample, { "macro.1.0.new": { mode: "press_once", actions: [{ action: "press", target: { type: "btn_keyboard", key: 4 }, at_ms: 0 }] } }), /เฉพาะปุ่มจอย/);
+  assert.throws(() => applyEdits(sample, { "macro.1.0.new": { mode: "press_once", actions: [...seq("A"), { action: "press", target: { type: "btn_gamepad", button: "A" }, at_ms: 10 }] } }), /เรียงจากน้อยไปมาก/);
+  assert.throws(() => applyEdits(sample, { "macro.0.7.delete": true }), /ไม่มี macro #8/);
+  assert.throws(() => applyEdits(sample, { "macro.0.0.mode": "press_hold" }), /ที่มีอยู่แล้ว/);
+
+  // Buttons that played a deleted macro: only that press goes, a button with nothing left resets.
+  const b0 = unwrapMapping(sample).cfg.offsets.layers[0];
+  const entry = (src, ...acts) => [src, acts.length, 0, 0, ...acts.flatMap(([t, ty, a]) => [t, ty, a, 0, 0])];
+  const blob = sample.subarray(4);
+  const put = (entries) => {
+    const bytes = Uint8Array.from(entries.flat());
+    const parts = [blob.subarray(0, b0.macrosFrom), bytes, blob.subarray(b0.macrosFrom)];
+    const out = new Uint8Array(4 + parts.reduce((n, p) => n + p.length, 0));
+    let o = 4;
+    for (const p of parts) { out.set(p, o); o += p.length; }
+    out[0] = out.length & 255; out[1] = out.length >> 8;
+    out[4 + b0.mapCountAt] = entries.length; // map count was 0
+    const c = crc16(out.subarray(4)); out[2] = c & 255; out[3] = c >> 8;
+    return out;
+  };
+  const bound = put([entry(16, [0, 30, 0]), entry(17, [0, 30, 1], [2, 30, 0]), entry(18, [0, 0, 0])]);
+  const bc = unwrapMapping(bound).cfg;
+  assert.deepEqual(bc.layers[0].mappings.map((m) => m.source), ["M1", "M2", "M3"]);
+  assert.equal(bc.layers[0].mappings[0].activators[0].target.layer, 0, "a macro target knows its layer");
+  const gone = unwrapMapping(applyEdits(bound, { "macro.0.0.delete": true })).cfg;
+  assert.deepEqual(gone.layers[0].mappings.map((m) => m.source), ["M2", "M3"], "M1 only played that macro: back to default");
+  assert.equal(gone.layers[0].mappings[0].activators.length, 1, "M2 keeps its other press");
+  assert.equal(gone.layers[0].mappings[0].activators[0].target.macro, 1);
+  assert.deepEqual(ids(applyEdits(bound, { "macro.0.0.delete": true }), 0), [1]);
+}
+{
+  // The Macros page's view of it: drafts, grouping by layer, the review rows.
+  const { Drafts, macroLayers, nextMacroId, macroKey } = await import("./model.js");
+  const act = (b, i) => [
+    { action: "press", target: { type: "btn_gamepad", button: b }, at_ms: i * 100 },
+    { action: "release", target: { type: "btn_gamepad", button: b }, at_ms: i * 100 + 50 },
+  ];
+  const S2 = { current: { cfg: unwrapMapping(sample).cfg, slot: 1, wrapped: sample } };
+  const D2 = new Drafts(S2);
+  D2.set(macroKey(1, 0, "new"), { mode: "press_once", actions: [...act("Y", 0), ...act("A", 1)] });
+  D2.set(macroKey(0, 0, "delete"), true);
+  const g = macroLayers(S2, D2);
+  assert.deepEqual(g.map((x) => [x.layer, x.items.map((i) => [i.id, i.isNew, i.deleted])]), [[0, [[0, false, true], [1, false, false]]], [1, [[0, true, false]]]]);
+  assert.deepEqual(g.map((x) => x.nextId), [2, 1], "free ids per layer; the id of a macro awaiting deletion stays taken");
+  assert.deepEqual(D2.items().map((i) => [i.writable, i.label, i.baseText]), [[true, "สร้าง Macro 1 · Shift layer", "ยังไม่มี"], [true, "ลบ Macro 1 · Base layer", undefined]]);
+  assert.equal(D2.items()[1].fmt(true), "ลบ");
+  assert.equal(D2.items()[0].fmt(D2.map.get(macroKey(1, 0, "new"))), "2 ขั้น · กดครั้งเดียว เล่นจบ");
+  assert.equal(D2.count("macros"), 2);
+  assert.equal(nextMacroId(S2.current.cfg, new Drafts(S2), 0), 2);
+  const wrote = applyEdits(sample, D2.writable());
+  assert.deepEqual(unwrapMapping(wrote).cfg.layers.map((l) => l.macros.map((m) => m.macro_id)), [[1], [0]]);
+  S2.current = { cfg: unwrapMapping(wrote).cfg, slot: 1, wrapped: wrote };
+  D2.prune();
+  assert.equal(D2.count(), 0, "after the write both drafts are done with");
+  D2.set(macroKey(0, 5, "delete"), true);
+  D2.prune();
+  assert.equal(D2.count(), 0, "a delete of a macro that is not there is dropped");
+}
+console.log("macro create/delete ok");
+
 // --- App-side names (names.js): full name in the app, what fits on the controller ---
 {
   const { Names, fit } = await import("./names.js");
