@@ -1,7 +1,7 @@
 import { Apex6, RAM, hex, crc32 } from "./protocol.js";
 import { decodeMapping } from "./mapping.js";
-import { unwrapMapping, applyEdits, sameBytes, deadzoneMax, curveEndMin, curveStartMax, motorMaxMin, MACRO_STEPS_MAX, gyroByte, gyroPct, GYRO_MIDS_MAX } from "./mapping-edit.js";
-import { Drafts, esc, resolveNames, resolveMacros, macroPlan, writeEdits, macroUses, openMacro, layerMoves, nameId, evalCurve, layerKey, layerList, nextLayerId, LAYER_NAME, btnName } from "./model.js";
+import { unwrapMapping, applyEdits, sameBytes, deadzoneMax, curveEndMin, curveStartMax, MACRO_STEPS_MAX, motorCmd, motorMode, FEEDBACK_MODE, gyroByte, gyroPct, GYRO_MIDS_MAX } from "./mapping-edit.js";
+import { Drafts, meta, esc, resolveNames, resolveMacros, macroPlan, writeEdits, macroUses, openMacro, layerMoves, nameId, evalCurve, layerKey, layerList, nextLayerId, LAYER_NAME, btnName } from "./model.js";
 import { Names, fit } from "./names.js";
 import { Library } from "./macros.js";
 import * as V from "./views.js";
@@ -15,6 +15,7 @@ const S = {
   hid: "hid" in navigator,
   info: null, sku: null, uuid: null, vers: null, slots: null,
   current: null, // { wrapped, cfg, slot } as last read from the controller
+  motor: null, // RAM 0x06 (motor output) as last read, or null when it could not be read
   readAt: null,
   loading: null,
   loadError: null,
@@ -133,7 +134,7 @@ function outText(key, label) {
   const v = D.get(key);
   if (key.startsWith("led.bright") || key.startsWith("screen.bright")) return `${v}%`;
   if (key.startsWith("gyro.")) return `${v}%`;
-  if (key.startsWith("motor.") || key.startsWith("vibtrig.")) return `${Math.round((v / 255) * 100)}%`;
+  if (key.startsWith("grip.") || key.startsWith("gripfb.")) return meta(key, S).fmt(v);
   return `${Math.round((v / 255) * 100)}%  ·  ${v}`;
 }
 
@@ -223,6 +224,8 @@ async function loadAll() {
     });
     const { cfg } = unwrapMapping(data);
     S.current = { wrapped: data, cfg, slot: activeSlot };
+    // Trigger feedback on/off lives in RAM 0x06; without it those switches stay drafts.
+    S.motor = (await safe(() => pad.readRam(RAM.MOTOR)))?.data ?? null;
     // A name drafted for a slot that is no longer loaded can't be written now: keep it in the app.
     for (const k of D.pendingKeys("slot.")) {
       const i = Number(k.split(".")[1]);
@@ -250,7 +253,7 @@ async function disconnect() {
   await S.pad?.close().catch(() => {});
   S.pad = null;
   S.current = null;
-  S.info = S.sku = S.uuid = S.vers = S.slots = null;
+  S.info = S.sku = S.uuid = S.vers = S.slots = S.motor = null;
   D.clear();
   if (S.demo) {
     S.demo = false;
@@ -367,10 +370,12 @@ function openReview() {
 
 // Every write: re-read and confirm nothing changed since display, back up, write, read back and compare.
 // edits: for applyEdits; drafts: the draft keys they take care of; links: the macro links after the
-// write (macroPlan), kept so each copy stays tied to its library macro.
-async function runWrite({ edits = null, drafts = null, links = null, data = null, reason, title, doneTitle, failTitle }) {
+// write (macroPlan), kept so each copy stays tied to its library macro; motor: trigger feedback
+// switches (Drafts.motorCmds), sent with 0x53 once the profile is in.
+async function runWrite({ edits = null, drafts = null, links = null, data = null, motor = [], reason, title, doneTitle, failTitle }) {
   const slot = S.current.slot;
-  W = { title, doneTitle, failTitle, slot, name: S.current.cfg.name || "", at: 0, steps: ["สำรองไฟล์", `ส่งข้อมูล Slot ${slot + 1}`, "ตรวจ CRC กับจอย"], bytes: null };
+  const steps = ["สำรองไฟล์", `ส่งข้อมูล Slot ${slot + 1}`, "ตรวจ CRC กับจอย", ...(motor.length ? ["ตั้งบีบไกแล้วด้ามสั่น"] : [])];
+  W = { title, doneTitle, failTitle, slot, name: S.current.cfg.name || "", at: 0, steps, bytes: null };
   S.writing = true;
   showSheet(V.writing(W));
   await stopLive();
@@ -423,6 +428,11 @@ async function runWrite({ edits = null, drafts = null, links = null, data = null
     resolveMacros(S);
     S.readAt = new Date();
     S.slots = (await safe(() => S.pad.getSlotStatus())) ?? S.slots;
+    if (motor.length) {
+      W.at = 3;
+      showSheet(V.writing(W));
+      await writeMotor(motor, slot);
+    }
     D.prune();
     W.left = D.count();
     S.writing = false;
@@ -442,6 +452,25 @@ async function runWrite({ edits = null, drafts = null, links = null, data = null
   }
 }
 
+// Trigger feedback on/off, one side at a time as the official app does: read RAM 0x06, send 0x53,
+// read it back and check the side's mode. Each draft goes once the controller holds it.
+async function writeMotor(list, slot) {
+  const side = { left: "ซ้าย", right: "ขวา" };
+  for (const m of list) {
+    const cmd = motorCmd(m.side, m.on);
+    const before = await S.pad.readRam(RAM.MOTOR);
+    if (before.activeSlot !== slot) throw new Error(`จอยเปลี่ยนไปใช้ Slot ${before.activeSlot + 1} ระหว่างเขียน ยังไม่ได้ตั้งบีบไก${side[m.side]}แล้วด้ามสั่น`);
+    await S.pad.setMotor(cmd);
+    const after = await S.pad.readRam(RAM.MOTOR);
+    S.motor = after.data;
+    if (after.activeSlot !== slot) throw new Error(`จอยเปลี่ยน slot ระหว่างตั้งบีบไก${side[m.side]}แล้วด้ามสั่น อ่านค่าจากจอยใหม่แล้วลองอีกครั้ง`);
+    if ((motorMode(after.data, m.side) === FEEDBACK_MODE) !== m.on) {
+      throw new Error(`ส่งคำสั่งแล้ว แต่อ่านกลับมา บีบไก${side[m.side]}แล้วด้ามสั่น ยัง${m.on ? "ปิด" : "เปิด"}อยู่ (โหมด ${motorMode(after.data, m.side)}) ค่าอื่นในโปรไฟล์เขียนเสร็จแล้ว`);
+    }
+    D.map.delete(m.key);
+  }
+}
+
 // ---------------- Events ----------------
 
 const CLAMP = {
@@ -453,8 +482,6 @@ const CLAMP = {
   "trigger.right.start": (v) => Math.min(v, curveStartMax(S.current.cfg.trigger_right.curve)),
   "trigger.left.end": (v) => Math.max(v, curveEndMin(S.current.cfg.trigger_left.curve)),
   "trigger.right.end": (v) => Math.max(v, curveEndMin(S.current.cfg.trigger_right.curve)),
-  "motor.left.max": (v) => Math.max(v, motorMaxMin(S.current.cfg.vibration_motor_left.curve)),
-  "motor.right.max": (v) => Math.max(v, motorMaxMin(S.current.cfg.vibration_motor_right.curve)),
 };
 
 // Gyro curve edits (one draft, "gyro.curve"). Points stay in order left to right, start ≤ mid
@@ -585,7 +612,7 @@ const ACTIONS = {
     const plan = macroPlan(S, D);
     if (plan.errors.length) return toast(plan.errors[0], true);
     const { edits, drafts } = writeEdits(D, plan);
-    runWrite({ edits, drafts, links: plan.links, reason: "ก่อนเขียน", title: "กำลังเขียนลงจอย", doneTitle: "เขียนเสร็จ ตรงกับจอยแล้ว", failTitle: "เขียนไม่สำเร็จ" });
+    runWrite({ edits, drafts, links: plan.links, motor: D.motorCmds(), reason: "ก่อนเขียน", title: "กำลังเขียนลงจอย", doneTitle: "เขียนเสร็จ ตรงกับจอยแล้ว", failTitle: "เขียนไม่สำเร็จ" });
   },
   "see-log": () => {
     sheet.close();

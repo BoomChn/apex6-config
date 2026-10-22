@@ -2,7 +2,7 @@
 // Keys editKey() maps to a writable field (mapping-edit.js) can be written; everything else stays a draft in this page
 // until the protocol for it is known, and the UI says so.
 
-import { isWritable, LAYER_MAX, layerRenumber, gyroPct } from "./mapping-edit.js";
+import { isWritable, LAYER_MAX, layerRenumber, gyroPct, vibLevel, gripCurve, gripEndY, feedbackLevel, feedbackCurve, motorMode, FEEDBACK_MODE, FEEDBACK_KEY } from "./mapping-edit.js";
 import { planMacros } from "./macros.js";
 import { fit } from "./names.js";
 import { targetLabel } from "./profile-view.js";
@@ -157,7 +157,7 @@ export function layerMoves(S, D) {
 // keys the write takes care of.
 export function writeEdits(D, plan) {
   const edits = D.writable();
-  const drafts = Object.keys(edits);
+  const drafts = D.items().filter((i) => i.writable && !FEEDBACK_KEY.test(i.key)).map((i) => i.key);
   for (const [k, v] of Object.entries(edits)) if (v?.type === "macro") delete edits[k];
   return { edits: { ...edits, ...plan.edits }, drafts };
 }
@@ -195,7 +195,15 @@ export function isIdentity(t, source) {
 const SIDE = { left: "ซ้าย", right: "ขวา" };
 const stick = (cfg, side) => cfg?.[`joystick_${side}`];
 const trig = (cfg, side) => cfg?.[`trigger_${side}`];
-const motor = (cfg, side) => cfg?.[`vibration_motor_${side}`];
+// Grips with LRA motors (device info flag "haptic") get stronger low levels in the official app.
+export const lraGrip = (S) => !!S.info?.features?.haptic;
+// Grip vibration is both motors at once; the official app reads the left one unless only the right is on.
+export function gripPart(cfg) {
+  const l = cfg?.vibration_motor_left, r = cfg?.vibration_motor_right;
+  if (!l || !r) return null;
+  return { enabled: l.enabled || r.enabled, curve: (l.enabled || !r.enabled ? l : r).curve };
+}
+export const levelText = (v, pct) => `ระดับ ${v}${pct != null ? ` · ${pct}%` : ""}`;
 const onOff = (v) => (v ? "เปิด" : "ปิด");
 const ms = (v) => `${v} ms`;
 
@@ -233,17 +241,23 @@ export function meta(key, S) {
     }[b];
     return { tab: "gyro", group: "slot", label: `Gyro · ${map[0]}`, base: map[1], fmt: map[2] };
   }
-  if (a === "motor") {
-    const m = motor(cfg, b);
-    return c === "enabled"
-      ? { tab: "vibration", group: "slot", label: `มอเตอร์${SIDE[b]} · เปิด`, base: m?.enabled, fmt: onOff }
-      : { tab: "vibration", group: "slot", label: `มอเตอร์${SIDE[b]} · แรงสุด`, base: m?.curve.end_y, fmt: pct };
+  if (a === "grip") {
+    const g = gripPart(cfg);
+    const lra = lraGrip(S);
+    return b === "enabled"
+      ? { tab: "vibration", group: "slot", label: "ด้ามสั่นตามเกม · เปิด", base: g?.enabled, fmt: onOff }
+      : {
+          tab: "vibration", group: "slot", label: "ด้ามสั่นตามเกม · ความแรง", base: vibLevel(g?.curve, lra), fmt: (v) => levelText(v, Math.round((gripEndY(v, lra) / 255) * 100)),
+          // A curve with mid points is not one of the levels: say so instead of a level's percent.
+          ...(g?.curve.mid_points.length ? { baseText: `curve ที่ตั้งเอง · ใกล้ระดับ ${vibLevel(g.curve, lra)}` } : {}),
+        };
   }
-  if (a === "vibtrig") {
+  if (a === "gripfb") {
     const t = cfg?.[`vibration_trigger_${b}`];
+    const mode = motorMode(S.motor, b);
     return c === "enabled"
-      ? { tab: "vibration", group: "slot", label: `ไก${SIDE[b]} สั่น · เปิด`, base: t ? true : undefined, fmt: onOff }
-      : { tab: "vibration", group: "slot", label: `ไก${SIDE[b]} สั่น · แรงสุด`, base: t?.curve.end_y, fmt: pct };
+      ? { tab: "vibration", group: "slot", label: `บีบไก${SIDE[b]}แล้วด้ามสั่น · เปิด`, base: mode === undefined ? undefined : mode === FEEDBACK_MODE, fmt: onOff }
+      : { tab: "vibration", group: "slot", label: `บีบไก${SIDE[b]}แล้วด้ามสั่น · ความแรง`, base: feedbackLevel(t?.curve), fmt: (v) => levelText(v) };
   }
   if (a === "runtime") {
     return { tab: "buttons", group: "slot", label: b === "long" ? "เวลากดค้าง" : "เวลาดับเบิลคลิก", base: b === "long" ? cfg?.runtime.long_press_ms : cfg?.runtime.double_press_ms, fmt: ms };
@@ -298,6 +312,15 @@ export const TIMEOUT = { 30: "30 วิ", 60: "1 นาที", 300: "5 นา�
 // Draft key → key applyEdits takes, or null while it can only stay a draft.
 // Only the loaded slot's name can be written: the other slots' blobs aren't in RAM 0x05.
 export function editKey(key, S) {
+  const cfg = S.current?.cfg;
+  // Vibration drafts stand for fields in another form (expand below).
+  if (key === "grip.enabled") return gripPart(cfg) ? "motor.left.enabled" : null;
+  // The level table depends on the grip motors, which device info tells.
+  if (key === "grip.level") return gripPart(cfg) && S.info ? "motor.left.curve" : null;
+  const fb = key.match(/^gripfb\.(left|right)\.level$/);
+  if (fb) return cfg?.[`vibration_trigger_${fb[1]}`] ? `vibtrig.${fb[1]}.curve` : null;
+  // On/off is sent with 0x53 after the profile, once RAM 0x06 could be read.
+  if (FEEDBACK_KEY.test(key)) return S.motor ? key : null;
   const k = key === `slot.${S.current?.slot}.name` ? "profile.name" : key;
   if (!isWritable(k)) return null;
   // Names need TLV 0x20, which only v1.9 profiles have.
@@ -348,11 +371,18 @@ export class Drafts {
     const moves = !tab || tab === "buttons" ? this.S.plan?.moves?.length ?? 0 : 0;
     return [...this.map.keys()].filter((k) => !tab || meta(k, this.S).tab === tab).length + stale + moves;
   }
+  // Edits for applyEdits. On/off of trigger feedback is not in the profile: see motorCmds().
   writable() {
-    // Names go to the controller cut to what it holds; the app keeps the full name (names.js).
-    return Object.fromEntries(
-      [...this.map].map(([k, v]) => [editKey(k, this.S), k.endsWith(".name") ? fit(v) : v]).filter(([k]) => k),
-    );
+    const out = {};
+    for (const [k, v] of this.map) {
+      if (!editKey(k, this.S) || FEEDBACK_KEY.test(k)) continue;
+      for (const [ek, ev] of expand(k, v, this.S)) out[ek] = ev;
+    }
+    return out;
+  }
+  // Writable trigger feedback drafts: [{ key, side, on }], sent with 0x53 after the profile.
+  motorCmds() {
+    return [...this.map].filter(([k]) => FEEDBACK_KEY.test(k) && editKey(k, this.S)).map(([key, on]) => ({ key, side: key.split(".")[1], on }));
   }
   items() {
     return [...this.map].map(([key, v]) => {
@@ -360,6 +390,20 @@ export class Drafts {
       return { key, value: v, writable: !!ek, editKey: ek, ...meta(key, this.S) };
     });
   }
+}
+
+// A draft as the fields applyEdits takes. Names go to the controller cut to what it holds; the app
+// keeps the full name (names.js). Grip drafts set both motors; a level writes a whole curve.
+function expand(key, v, S) {
+  const cfg = S.current.cfg;
+  if (key === "grip.enabled") return [["motor.left.enabled", v], ["motor.right.enabled", v]];
+  if (key === "grip.level") {
+    const c = gripCurve(v, lraGrip(S));
+    return [["motor.left.curve", c], ["motor.right.curve", c]];
+  }
+  const fb = key.match(/^gripfb\.(left|right)\.level$/);
+  if (fb) return [[`vibtrig.${fb[1]}.curve`, feedbackCurve(cfg[`vibration_trigger_${fb[1]}`].curve, v)]];
+  return [[editKey(key, S), key.endsWith(".name") ? fit(v) : v]];
 }
 
 // Curve evaluation for previews: piecewise linear through start, mid points and end. x, y in 0–255.

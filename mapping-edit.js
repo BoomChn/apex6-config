@@ -48,14 +48,14 @@ const GYRO_MODES = ["disable", "left_joystick", "right_joystick", "mouse"];
 export const gyroPct = (b) => Math.round(Math.max(0, Math.min(255, b)) / 2.55);
 export const gyroByte = (p) => Math.round(Math.max(0, Math.min(100, p)) * 2.55);
 
-// The gyro curve is written whole, as the official encoder writes curve11: start_x start_y end_x
+// A curve is written whole, as the official encoder writes curve11: start_x start_y end_x
 // end_y n, two (x, y) mid points (unused ones 0, 0), two zero pad bytes.
 export const GYRO_MIDS_MAX = 2;
-function gyroCurveBytes(c) {
+function curveBytes(c) {
   const m = c.mid_points;
   return [c.start_x, c.start_y, c.end_x, c.end_y, m.length, m[0]?.x ?? 0, m[0]?.y ?? 0, m[1]?.x ?? 0, m[1]?.y ?? 0, 0, 0];
 }
-function gyroCurveCheck(_, c) {
+function curveCheck(_, c) {
   const byte = (v) => Number.isInteger(v) && v >= 0 && v <= 255;
   const m = c?.mid_points;
   if (!Array.isArray(m) || m.length > GYRO_MIDS_MAX) return `จุดกลางได้ไม่เกิน ${GYRO_MIDS_MAX} จุด`;
@@ -107,7 +107,7 @@ const FIELDS = {
   "gyro.mode": { key: "gyroscope", at: 12, enc: (v) => GYRO_MODES.indexOf(v), check: (_, v) => (GYRO_MODES.includes(v) ? null : `โหมด gyro ไม่รู้จัก: ${v}`) },
   "gyro.invertX": { key: "gyroscope", at: 11, bit: 1 },
   "gyro.invertY": { key: "gyroscope", at: 11, bit: 2 },
-  "gyro.curve": { key: "gyroscope", at: 0, bytes: gyroCurveBytes, check: gyroCurveCheck },
+  "gyro.curve": { key: "gyroscope", at: 0, bytes: curveBytes, check: curveCheck },
   "gyro.activation": { key: "gyroscope", at: 13, bytes: gyroActBytes, check: gyroActCheck },
   "gyro.axisX": gyroAxis(21),
   "gyro.axisY": gyroAxis(22),
@@ -116,6 +116,11 @@ const FIELDS = {
   "motor.right.enabled": { key: "vibration_motor_right", at: 0, bit: 1 },
   "motor.left.max": { key: "vibration_motor_left", at: 4, check: (m, v) => range(v, motorMaxMin(m.curve), 255) },
   "motor.right.max": { key: "vibration_motor_right", at: 4, check: (m, v) => range(v, motorMaxMin(m.curve), 255) },
+  // TLV 6–9 are 1 byte (motor: enabled bit, trigger: pad) + curve11.
+  "motor.left.curve": { key: "vibration_motor_left", at: 1, bytes: curveBytes, check: curveCheck },
+  "motor.right.curve": { key: "vibration_motor_right", at: 1, bytes: curveBytes, check: curveCheck },
+  "vibtrig.left.curve": { key: "vibration_trigger_left", at: 1, bytes: curveBytes, check: curveCheck },
+  "vibtrig.right.curve": { key: "vibration_trigger_right", at: 1, bytes: curveBytes, check: curveCheck },
   "runtime.long": { header: 12, u16: true, check: (_, v) => range(v, 50, 2000) },
   "runtime.double": { header: 14, u16: true, check: (_, v) => range(v, 50, 1000) },
 };
@@ -129,6 +134,66 @@ function trigField(side, at, check) {
 }
 function range(v, lo, hi) {
   return Number.isInteger(v) && v >= lo && v <= hi ? null : `ต้องอยู่ระหว่าง ${lo}–${hi} (ได้ ${v})`;
+}
+
+// ---- Vibration, as the official Vibration page shows it (PROTOCOL.md, TLV 6–9 and RAM 0x06) ----
+// Levels 1–5. "Grip" is both motors (TLV 8/9) at one level: a level writes a fresh linear curve.
+export const VIB_LEVELS = 5;
+const GRIP_END_Y = { std: [0, 51, 102, 153, 204, 255], lra: [0, 128, 166, 204, 230, 255] };
+const clampLevel = (v) => Math.max(1, Math.min(VIB_LEVELS, Math.round(v)));
+const byte = (v) => Math.max(0, Math.min(255, Math.round(v)));
+export const gripEndY = (level, lra) => GRIP_END_Y[lra ? "lra" : "std"][clampLevel(level)];
+export const gripCurve = (level, lra) => ({ start_x: 0, start_y: 0, end_x: 255, end_y: gripEndY(level, lra), mid_points: [] });
+// A curve of the official shape (no mid points) reads as the nearest level; any other as end_y in fifths.
+export function vibLevel(curve, lra) {
+  if (!curve) return undefined;
+  if (curve.mid_points.length) return clampLevel((curve.end_y / 255) * VIB_LEVELS);
+  let best = 1;
+  for (let l = 1; l <= VIB_LEVELS; l++) {
+    const d = (c) => Math.abs(c.start_y - curve.start_y) + Math.abs(c.end_y - curve.end_y);
+    if (d(gripCurve(l, lra)) < d(gripCurve(best, lra))) best = l;
+  }
+  return best;
+}
+// Trigger-bound grip feedback (TLV 6/7): the strength is the curve's shape scaled to level/5.
+export const feedbackLevel = (curve) => (curve ? clampLevel((curve.end_y / 255) * VIB_LEVELS) : undefined);
+export function feedbackCurve(curve, level) {
+  let c = structuredClone(curve);
+  const ys = [c.start_y, c.end_y, ...c.mid_points.map((m) => m.y)];
+  if (ys.every((y) => !y)) {
+    // A curve at zero has no shape left to scale: the official app picks one from the mid points.
+    const xs = c.mid_points.map((m) => m.x).join();
+    c.end_y = 255;
+    if (xs === "64,192") c.mid_points = [{ x: 64, y: 77 }, { x: 192, y: 217 }];
+    else if (xs === "60,200") c.mid_points = [{ x: 60, y: 255 }, { x: 200, y: 255 }];
+  } else {
+    const e = Math.max(1 / 255, c.end_y / 255);
+    c = { ...c, start_y: byte(c.start_y / e), end_y: byte(c.end_y / e), mid_points: c.mid_points.map((m) => ({ x: m.x, y: byte(m.y / e) })) };
+  }
+  const k = clampLevel(level) / VIB_LEVELS;
+  return { ...c, start_y: byte(c.start_y * k), end_y: byte(c.end_y * k), mid_points: c.mid_points.map((m) => ({ x: m.x, y: byte(m.y * k) })) };
+}
+
+// Trigger-bound grip feedback on/off is not in the profile: it is the mode of each side in RAM 0x06,
+// set with 0x53 [area, target, mode, params…]. Mode 2 is this feedback, 0 off; others are X-Haptics scenes.
+export const FEEDBACK_MODE = 2;
+const FEEDBACK_PARAMS = [0, 64, 6];
+const MOTOR_SIDE = { left: 0, right: 1 };
+export const motorMode = (ram, side) => (ram && ram.length >= 23 ? ram[side === "left" ? 1 : 12] : undefined);
+export const FEEDBACK_KEY = /^gripfb\.(left|right)\.enabled$/;
+export function motorCmd(side, on) {
+  const cmd = { area: 0, target: MOTOR_SIDE[side], mode: on ? FEEDBACK_MODE : 0, params: on ? FEEDBACK_PARAMS : [] };
+  checkMotorCmd(cmd);
+  return cmd;
+}
+// The only 0x53 commands the app sends: feedback on or off for one side, as the official app sends them.
+export function checkMotorCmd({ area, target, mode, params }) {
+  const fail = (msg) => {
+    throw new Error(`ไม่ส่งคำสั่งสั่นลงจอย: ${msg}`);
+  };
+  if (area !== 0) fail(`area ${area} ไม่รู้จัก`);
+  if (target !== 0 && target !== 1) fail(`ไกฝั่ง ${target} ไม่รู้จัก (ได้ 0 ซ้าย, 1 ขวา)`);
+  if (mode === FEEDBACK_MODE ? params.join() !== FEEDBACK_PARAMS.join() : mode !== 0 || params.length) fail(`โหมด ${mode} กับค่า [${params}] ไม่ใช่แบบที่แอป Flydigi ส่ง`);
 }
 
 // Names live in TLV 0x20 (v1.9 only): u8 nameLen, name, u8 n, n × (layer, macro, len, name), UTF-8.
@@ -146,7 +211,7 @@ const LAYER_OP = /^layer\.(\d+)\.(new|delete)$/;
 const isStructural = (key) => MACRO_OP.test(key) || MAP_KEY.test(key) || LAYER_OP.test(key);
 
 export const WRITABLE = new Set([...Object.keys(FIELDS), "profile.name"]);
-export const isWritable = (key) => WRITABLE.has(key) || MACRO_NAME.test(key) || MACRO_OP.test(key) || MAP_KEY.test(key) || LAYER_OP.test(key);
+export const isWritable = (key) => WRITABLE.has(key) || FEEDBACK_KEY.test(key) || MACRO_NAME.test(key) || MACRO_OP.test(key) || MAP_KEY.test(key) || LAYER_OP.test(key);
 export const nameBytes = (s) => new TextEncoder().encode(s).length;
 // Fields confirmed by a write to a real Apex 6 Pro; the UI labels every other writable field.
 // Add a key here once it has been tried on hardware.
@@ -256,6 +321,16 @@ export function checkProfile(wrapped) {
     for (const a of g.activation) if (!BUTTONS.includes(a.button)) fail(`ปุ่มเปิด gyro ไม่รู้จัก (${a.button})`);
     if (new Set(g.activation.map((a) => a.button)).size !== g.activation.length) fail("ปุ่มเปิด gyro ซ้ำกัน");
     if (!g.activation.length) fail("ไม่มีปุ่มเปิด gyro เลย แอป Flydigi ต้องมีอย่างน้อย 1 ปุ่ม");
+  }
+  // Every curve11 (sticks, triggers, gyro, vibration): at most 2 mid points, points left to right.
+  for (const k of ["joystick_left", "joystick_right", "trigger_left", "trigger_right", "gyroscope", "vibration_trigger_left", "vibration_trigger_right", "vibration_motor_left", "vibration_motor_right"]) {
+    const c = cfg[k]?.curve;
+    if (!c) continue;
+    // The decoder keeps 2 mid points at most, so read the count byte itself (TLV 6–9 start with 1 extra byte).
+    const n = wrapped[4 + cfg.offsets[k] + (k.startsWith("vibration") ? 1 : 0) + 4];
+    if (n > GYRO_MIDS_MAX) fail(`curve ของ ${k} มีจุดกลาง ${n} จุด (ได้ ${GYRO_MIDS_MAX})`);
+    const xs = [c.start_x, ...c.mid_points.map((m) => m.x), c.end_x];
+    if (xs.some((x, i) => i && x < xs[i - 1])) fail(`จุดใน curve ของ ${k} ไม่ได้เรียงจากซ้ายไปขวา`);
   }
 }
 

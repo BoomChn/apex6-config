@@ -595,6 +595,87 @@ console.log("macro create/delete ok");
 }
 console.log("button maps and layers ok");
 
+// --- Vibration: levels as the official Vibration page, trigger feedback via 0x53, curve rules ---
+{
+  const { applyEdits, checkProfile, crc16: crc, vibLevel, gripCurve, feedbackLevel, feedbackCurve, motorCmd, checkMotorCmd, motorMode, isWritable } = await import("./mapping-edit.js");
+  const { Drafts, writeEdits, meta } = await import("./model.js");
+  const cfg0 = unwrapMapping(sample).cfg;
+  // The owner's slot 2 shows grip "Level 3" and both triggers "Level 5" in the official app.
+  assert.equal(vibLevel(cfg0.vibration_motor_left.curve, false), 3);
+  assert.equal(feedbackLevel(cfg0.vibration_trigger_left.curve), 5);
+  assert.equal(vibLevel(gripCurve(2, false), false), 2);
+  assert.equal(vibLevel(gripCurve(4, true), true), 4);
+  assert.equal(gripCurve(1, false).end_y, 51);
+  assert.equal(gripCurve(1, true).end_y, 128);
+  assert.equal(gripCurve(9, false).end_y, 255, "levels clamp to 1–5");
+  // Feedback strength keeps the curve's shape and scales it to level/5.
+  const lin = { start_x: 0, start_y: 0, end_x: 255, end_y: 255, mid_points: [] };
+  assert.equal(feedbackCurve(lin, 3).end_y, 153);
+  const shaped = { start_x: 0, start_y: 30, end_x: 255, end_y: 153, mid_points: [{ x: 100, y: 90 }] };
+  assert.deepEqual(feedbackCurve(shaped, 5), { start_x: 0, start_y: 50, end_x: 255, end_y: 255, mid_points: [{ x: 100, y: 150 }] });
+  assert.equal(feedbackLevel(feedbackCurve(shaped, 2)), 2);
+  const zero = { start_x: 0, start_y: 0, end_x: 255, end_y: 0, mid_points: [{ x: 64, y: 0 }, { x: 192, y: 0 }] };
+  assert.deepEqual(feedbackCurve(zero, 5).mid_points, [{ x: 64, y: 77 }, { x: 192, y: 217 }]);
+  assert.equal(feedbackCurve({ ...zero, mid_points: [] }, 5).end_y, 255);
+
+  // Drafts: grip sets both motors, a level writes a whole linear curve; feedback on/off is a 0x53 command.
+  const ram6 = new Uint8Array(64); ram6[12] = 1;
+  const S = { current: { cfg: cfg0, slot: 1, wrapped: sample }, info: { features: { haptic: false } }, motor: ram6 };
+  const D = new Drafts(S);
+  assert.equal(D.get("grip.level"), 3);
+  assert.equal(D.get("gripfb.left.enabled"), false);
+  D.set("grip.level", 2);
+  D.set("grip.enabled", false);
+  D.set("gripfb.left.level", 3);
+  D.set("gripfb.right.enabled", true);
+  const { edits, drafts } = writeEdits(D, { edits: {} });
+  assert.deepEqual(Object.keys(edits).sort(), ["motor.left.curve", "motor.left.enabled", "motor.right.curve", "motor.right.enabled", "vibtrig.left.curve"]);
+  assert.deepEqual(drafts.sort(), ["grip.enabled", "grip.level", "gripfb.left.level"], "on/off is not a profile edit");
+  assert.deepEqual(D.motorCmds(), [{ key: "gripfb.right.enabled", side: "right", on: true }]);
+  const out = unwrapMapping(applyEdits(sample, edits)).cfg;
+  for (const m of [out.vibration_motor_left, out.vibration_motor_right]) {
+    assert.equal(m.enabled, false);
+    assert.deepEqual(m.curve, gripCurve(2, false));
+  }
+  assert.equal(out.vibration_trigger_left.curve.end_y, 153);
+  assert.deepEqual(out.vibration_trigger_right, cfg0.vibration_trigger_right, "the other trigger is left alone");
+  assert.equal(meta("grip.level", S).fmt(2), "ระดับ 2 · 40%");
+  // Without RAM 0x06 the switch stays a draft; without device info so does the grip level.
+  const S2 = { ...S, motor: null, info: null };
+  const D2 = new Drafts(S2);
+  D2.set("gripfb.left.enabled", true);
+  D2.set("grip.level", 4);
+  assert.deepEqual(D2.motorCmds(), []);
+  assert.deepEqual(D2.writable(), {});
+  assert.ok(isWritable("gripfb.left.enabled") && !isWritable("gripfb.both.enabled"));
+
+  // 0x53: only what the official app sends for trigger feedback.
+  assert.deepEqual(motorCmd("left", true), { area: 0, target: 0, mode: 2, params: [0, 64, 6] });
+  assert.deepEqual(motorCmd("right", false), { area: 0, target: 1, mode: 0, params: [] });
+  assert.throws(() => checkMotorCmd({ area: 0, target: 2, mode: 2, params: [0, 64, 6] }), /ไกฝั่ง/);
+  assert.throws(() => checkMotorCmd({ area: 1, target: 0, mode: 0, params: [] }), /area/);
+  assert.throws(() => checkMotorCmd({ area: 0, target: 0, mode: 1, params: [] }), /โหมด/);
+  assert.throws(() => checkMotorCmd({ area: 0, target: 0, mode: 2, params: [0, 64] }), /โหมด/);
+  assert.throws(() => checkMotorCmd({ area: 0, target: 0, mode: 0, params: [0, 64, 6] }), /โหมด/);
+  assert.equal(motorMode(ram6, "right"), 1);
+  assert.equal(motorMode(ram6, "left"), 0);
+  assert.equal(motorMode(new Uint8Array(10), "left"), undefined, "too short to hold both sides");
+
+  // checkProfile: every curve has at most 2 mid points, left to right.
+  const poke = (key, pairs) => {
+    const b = sample.slice(), at = 4 + cfg0.offsets[key];
+    for (const [i, v] of pairs) b[at + i] = v;
+    const c = crc(b.subarray(4)); b[2] = c & 0xff; b[3] = c >> 8;
+    return b;
+  };
+  checkProfile(sample);
+  assert.throws(() => checkProfile(poke("vibration_motor_left", [[5, 3]])), /จุดกลาง 3/);
+  assert.throws(() => checkProfile(poke("vibration_trigger_right", [[1, 200], [3, 100]])), /เรียง/);
+  assert.throws(() => checkProfile(poke("joystick_left", [[4, 5]])), /จุดกลาง 5/);
+  assert.throws(() => applyEdits(sample, { "motor.left.curve": { ...lin, mid_points: [{ x: 9, y: 0 }, { x: 5, y: 0 }] } }), /เรียง/);
+}
+console.log("vibration ok");
+
 // --- App-side names (names.js): full name in the app, what fits on the controller ---
 {
   const { Names, fit } = await import("./names.js");

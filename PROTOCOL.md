@@ -26,7 +26,7 @@ Replies are zero-padded, so find the end by scanning for a valid checksum.
 | 0x11 | set input modes (no ack) | xinput, dinput, keyboard, mouse, allowThirdparty (0xFF = unchanged) + 22 zero bytes |
 | 0x20 | text command | ASCII |
 | 0x21 | (input) log line | ASCII, NUL-terminated |
-| 0x53 | effect test? | area, target, mode, params… |
+| 0x53 | set motor/haptic output (no reply used) | `[area, target, mode, params…]`. area 0; target 0 left, 1 right, 2 both; the official client reads RAM 0x06 before and after to confirm. Trigger-bound grip feedback on: mode 2, params `[0, 64, 6]`; off: mode 0, no params. Other modes are X-Haptics scenes (10 params). Source: VibrationSimpleWorkbench-*.js, TickRange-*.js (2026-10-22), not tried on hardware. |
 | 0xA0 | set device config field | fieldId, data… → status (0 ok, 1 ERR, 2 ERR_LEN, 3 ERR_UNKNOWN). Known field IDs: 0x01 0x14 0x17 0x19 0x20 0x21 0x22 0x25 0x26 |
 | 0xA1 | slot status | → activeSlot u8, 4× slot crc16, global crc16 |
 | 0xA2 | switch profile | cfgId → same layout as 0xA1 |
@@ -43,7 +43,8 @@ Key events: 0x20 `"ENABLE_KEY_EVENT"` / `"DISABLE_KEY_EVENT"`. The controller th
 ## RAM regions
 - `0x01` global config. The official client uses bytes `[2, 82)`.
 - `0x05` mapping (active slot). Wrapped as `len u16le` (whole buffer incl. this 4-byte header), `crc16 u16le` (CCITT-FALSE: poly 0x1021, init 0xFFFF, over the blob only), blob. Writes send the wrapped form. Blob magic is `XMUL`, versions 1.7, 1.8 and 1.9. The codec is in `vendor-gpa6-codec-*.js`.
-- `0x04`, `0x06` are still unknown. One of them is probably lighting (magic `LGHT`).
+- `0x06` motor/haptic output, 64 bytes (official client, domain "motor"): byte 1 left mode, 2–11 left params, byte 12 right mode, 13–22 right params. Mode 2 on a side = trigger-bound grip feedback on. Written with 0x53, not 0xA4.
+- `0x04` is still unknown, probably lighting (magic `LGHT`).
 - Write CRC is CRC-32 (IEEE) over the whole wrapped buffer. 0xA3 INFO `[1, ramId]` returns the same len + crc32 for the current buffer.
 
 ## Verified on hardware (2026-10-21)
@@ -82,6 +83,14 @@ TLV until (0xFF,0x00):
     a primary and a secondary button. The owner's slot 2 (2026-10-22): 1%, 1%, 100%, 100%, mid point (29, 230), so output
     is ~90% by input 29 and the Basic sensitivity (end_x) barely changes anything.
   6/7 trigger vibration (12B: pad + curve11), 8/9 motor (12B: enabled + curve11)
+    The official Vibration page (VibrationSimpleWorkbench-*.js, 2026-10-22): 8/9 are "Native Grip Vibration", one toggle and
+    one level 1–5 for both motors. A level writes a fresh linear curve 0,0 → 255,end_y with no mid points, end_y =
+    51/102/153/204/255 (or 128/166/204/230/255 on LRA-grip models, feature flag haptic). Level shown = round(end_y/255×5), 1–5.
+    6/7 are "Trigger-Bound Grip Feedback": pressing a trigger shakes the grip, there is no motor in the trigger. Only the
+    strength lives here (the curve scaled to level/5); on/off is RAM 0x06 mode 2 via 0x53, and it turns off X-Haptics
+    scenes on that trigger. Its "Test Vibration" sends nothing to the controller: while on, it polls the browser Gamepad
+    API every 50 ms and, while LT or RT is past 20%, plays a 150 ms full-strength "dual-rumble" through it. So it does
+    nothing on a PC where Chrome lists no pad (see 0xEF).
   0x20 metadata (v1.9): u8 nameLen name u8 n, n × (layer, macro, len, name)
 curve11 = start_x start_y end_x end_y mid_count (x,y)×2 pad2   (0..255 scale)
 Macros are per layer: ids 0–7 repeat across layers, and a macro target (type 30) in a layer's button map means the macro of that same layer. Adding or removing one changes the blob length (macro_count, the entries, and the 0x20 name entry); ids are not renumbered. mapping-edit.js does it with `macro.<layer>.<id>.set` (add, or replace in place) / `.delete`. The app keeps its own macro library and copies a macro into each layer that plays it (macros.js).
