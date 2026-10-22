@@ -592,10 +592,16 @@ export function triggers(S, D) {
   return `${head("Triggers", "กดไกบนจอยเพื่อดูระยะจริง · ภาพไกมองจากด้านหลังจอย")}<div class="cols-2">${col("left")}${col("right")}</div>`;
 }
 
-// v: what the controller sends out for the trigger (0..1), or null when no gamepad is visible.
+// v: { press, out } (0..1) from the controller's own stream, a number for what a standard
+// gamepad reports (the output), or null when nothing reports the trigger.
 export function liveTrigger(v) {
   const bar = (h, color) => `<div style="width:40px;height:200px;border:1px solid #111;position:relative"><div style="position:absolute;left:0;right:0;bottom:0;height:${h * 100}%;background:${color}"></div></div>`;
   if (v === null) return `${bar(0)}<div class="readout muted" style="font-size:16px">เบราว์เซอร์ยังไม่เห็นจอย<br>ทดสอบไกด้วย joy.cpl ไปก่อน</div>`;
+  if (typeof v === "object") {
+    const pc = (x) => Math.round(x * 100);
+    if (v.press < 0.01) return `${bar(0)}<div class="readout muted" style="font-size:16px">ไม่ได้กด</div>`;
+    return `${bar(v.press, "#111")}<div class="readout">กด ${pc(v.press)}%${v.press >= 0.99 ? " · สุด" : ""}</div><div class="meta">ส่งออก ${pc(v.out)}% ตาม curve ในกราฟ</div>`;
+  }
   if (v < 0.01) return `${bar(0)}<div class="readout muted" style="font-size:16px">ไม่ได้กด</div>`;
   return `${bar(v, "#111")}<div class="readout">ส่งออก ${Math.round(v * 100)}%${v >= 0.99 ? " · เต็ม" : ""}</div>`;
 }
