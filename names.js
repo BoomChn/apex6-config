@@ -27,6 +27,34 @@ export function fit(s, max = NAME_MAX) {
   return out.trimEnd();
 }
 
+// The name each slot had when the app last read it, per controller, with the slot's CRC16 then.
+// Only the slot in use can be read; for the others 0xA1 reports a CRC16, and while it is still the
+// one seen here the slot holds what it held, name included.
+const SEEN_KEY = "apex6.slotNames";
+export class SlotSeen {
+  constructor(storage = globalThis.localStorage) {
+    this.st = storage;
+    try {
+      this.all = JSON.parse(storage?.getItem(SEEN_KEY) ?? "{}") ?? {};
+    } catch {
+      this.all = {};
+    }
+  }
+  put(uuid, slot, crc, name) {
+    const m = (this.all[uuid ?? "?"] ??= {});
+    if (m[slot]?.crc === crc && m[slot]?.name === name) return;
+    m[slot] = { crc, name };
+    try {
+      this.st?.setItem(SEEN_KEY, JSON.stringify(this.all));
+    } catch {}
+  }
+  // The slot's name if it still holds what was seen, else undefined.
+  name(uuid, slot, crc) {
+    const e = this.all[uuid ?? "?"]?.[slot];
+    return e && crc != null && e.crc === crc ? e.name : undefined;
+  }
+}
+
 export class Names {
   constructor(storage = globalThis.localStorage) {
     this.st = storage;

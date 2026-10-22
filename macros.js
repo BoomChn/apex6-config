@@ -256,7 +256,7 @@ export function planMacros({ cfg, links, lib, layers, sources, target, profileNa
   }
 
   // Names: each copy gets its macro's name, cut to what fits the shared 255-byte block.
-  if (cfg.version === "1.9") {
+  {
     const devName = (c) => c.fresh ? "" : cfg.macro_names?.find((n) => n.layerId === c.layer && n.macroId === c.id)?.name ?? "";
     const want = (c, cap) => (c.name === null ? devName(c) : cap ? fit(c.name, cap) : "");
     const size = (cap) => 2 + nameBytes(profileName) + copies.reduce((n, c) => n + (want(c, cap) ? 3 + nameBytes(want(c, cap)) : 0), 0);

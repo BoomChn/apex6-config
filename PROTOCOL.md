@@ -34,7 +34,7 @@ Replies are zero-padded, so find the end by scanning for a valid checksum.
 | 0xA4 | RAM write (v2.1) | all LE. op 0 FULL_BEGIN `[0, ramId, len u16, crc32 u32]`; 1 CHUNK `[1, offset u16 (bytes), n, data…]` (client uses n=16, no ramId); 2 COMMIT `[2, len u16, crc32 u32]` (no ramId); 3 ABORT `[3]`; 0x10 DELTA_BEGIN, 0x11 DELTA_SPLICE. Reply `[op, status, ramId, …]`, matched on op + ramId; COMMIT reply adds activeSlot, len u16, crc32 u32 and counts as success when len+crc match. |
 | 0xA7 | apply/commit config | `[1, cfgId]`. Not sent by the official client after a write (debug only); a COMMIT takes effect on its own. |
 | 0xAC / 0xAD | LCD settings get / set | |
-| 0xAF | ? per cfgId | |
+| 0xAF | reset config | `[cfgId]`: 0–3 slot 1–4, 128 global, 129 factory, 255 all (official site router-*.js, 2026-10-23). The site only sends 255, from its Factory Reset page; a single slot is never reset from its UI. Not tried on hardware, and this app doesn't send it. |
 | 0xEF | (input) live stick stream | 32-byte frame: `5A A5 EF`, LX LY RX RY i16le, buttons u32le (bit order unknown), LT u8 at byte 15, RT u8 at byte 16 (0 released, 0xFF full; physical travel before the trigger curve: half press reads 0x80 even with the end point at 128; found on hardware 2026-10-22, the official site ignores them), bytes 17..30 unknown, sum8 of bytes 2..30 at byte 31. The sticks here are the physical sticks only: with gyro → right stick, tilting moved Rx/Ry in joy.cpl but not RX/RY here (hardware, 2026-10-22). The gyro's effect shows on the XInput pad (joy.cpl), but Chrome's Gamepad API lists no pad at all on the owner's PC (2026-10-22), so the app cannot show it. Bytes 17..28 are six i16le. 17–18 yaw rate (steering-wheel turn), 19–20 pitch rate, 21–22 roll rate: each motion put 67–87% of its 3 s total on its channel (hardware, 2026-10-22). Rates sit near 0 at rest. Signs (hardware, 2026-10-22): yaw positive turning right, pitch positive tilting up, roll positive with the right grip going down. 23–28 look like the accelerometer: 27–28 reads ≈4600 lying flat, and the reading moves to 25–26 when tilted. The official site turns it on with 0x11 dinput=1 (others 0xFF) and off with dinput=0. |
 
 Key events: 0x20 `"ENABLE_KEY_EVENT"` / `"DISABLE_KEY_EVENT"`. The controller then sends 0x21 lines such as `KEY_DOWN GP_A` and `KEY_UP GP_A`. Other lines: `SLOT_CHANGED n`, `CAL_BEGIN`, `CAL_END`, `STICK_L_READY`, `TRIG_L_READY`, `MACRO_REC_START`, `PAIR_CLEARED`. Key names in the official table: DPAD_UP/RIGHT/DOWN/LEFT, A, B, X, Y, SELECT, START, LB, RB, LT, RT, THL, THR, C, Z, M1–M6, MENU, MODE, BACK, HOME, KEYW/A/S/D. The names LM/RM report are not yet known.
@@ -44,12 +44,15 @@ Key events: 0x20 `"ENABLE_KEY_EVENT"` / `"DISABLE_KEY_EVENT"`. The controller th
 - `0x01` global config. The official client uses bytes `[2, 82)`.
 - `0x05` mapping (active slot). Wrapped as `len u16le` (whole buffer incl. this 4-byte header), `crc16 u16le` (CCITT-FALSE: poly 0x1021, init 0xFFFF, over the blob only), blob. Writes send the wrapped form. Blob magic is `XMUL`, versions 1.7, 1.8 and 1.9. The codec is in `vendor-gpa6-codec-*.js`.
 - `0x06` motor/haptic output, 64 bytes (official client, domain "motor"): byte 1 left mode, 2–11 left params, byte 12 right mode, 13–22 right params. Mode 2 on a side = trigger-bound grip feedback on. Written with 0x53, not 0xA4.
-- `0x04` is still unknown, probably lighting (magic `LGHT`).
+- `0x04` is still unknown, probably lighting (magic `LGHT`). The official site's default lighting is 22 bytes wrapped: `16 00 26 AB 4C 47 48 54 02 00 04 00 00 00 35 01 04 19 33 00 50 00` (index-*.js `br`).
+- Default profile: the official site gives a new profile the 182-byte XMUL v1.8 in `defaults.js` (index-*.js `fr`, its `defaultConfig`). One layer, no maps or macros, gyro off (hold LB), sticks start 13, vibration motor curves with 2 mid points. It passes checkProfile unchanged. "Move to library" writes it, instead of 0xAF, to give a slot back its defaults.
+- v1.8 vs v1.9: the official codec writes version 9 whenever the profile has a name (TLV 0x20), else the version it read. Nothing else in the blob differs, so withNames turns a v1.8 profile into v1.9 when it adds a name.
 - Write CRC is CRC-32 (IEEE) over the whole wrapped buffer. 0xA3 INFO `[1, ramId]` returns the same len + crc32 for the current buffer.
 
 ## Verified on hardware (2026-10-21)
 - 0x01, 0x04, 0x07, 0x0F, 0xA1, and 0xA3 reads for RAM 0x01 and 0x05 all reply as documented.
 - The 0xA1 per-slot CRC16 equals the CRC16 in the RAM 0x05 wrapper for the active slot. The CRC can tell you whether a slot changed without reading it.
+- 2026-10-23: the 4 CRC16s run slot 1..4, and non-active slots report theirs too. With slot 2 in use and the same profile put into slots 2 and 3 by this app, 0xA1 gave `6647 5761 5761 5181`, and the RAM 0x05 wrapper CRC was 5761. The app's profile library uses this to tell which profile a slot not in use holds (test.mjs "slot status").
 - RAM 0x01 (82 bytes) contains the ASCII strings "Flydigi" and " APEX 6 Pro" plus a few settings bytes.
 
 ## Mapping blob (XMUL)

@@ -10,6 +10,8 @@ import {
 import { BUTTONS, decodeMapping } from "./mapping.js";
 import { isWritable, HW_TESTED, NAME_MAX, nameBytes, MACRO_MAX, gyroPct, GYRO_MIDS_MAX, VIB_LEVELS, gripEndY, motorMode, FEEDBACK_MODE } from "./mapping-edit.js";
 import { fit, APP_NAME_MAX } from "./names.js";
+import { slotsOf, crcOf } from "./profiles.js";
+import { DEFAULT_PROFILE } from "./defaults.js";
 
 export const TABS = [
   { id: "profiles", label: "Profiles" },
@@ -115,7 +117,20 @@ function nameClash(key, other) {
 export function slotName(S, D, i) {
   const v = D.get(`slot.${i}.name`);
   if (v) return v;
-  return `Slot ${i + 1}`;
+  return heldName(S, i) || `Slot ${i + 1}`;
+}
+
+// A slot not in use can't be read: its name is the one it had when last read, while its CRC16 says it
+// still holds the same thing, else the name of the library profile it holds.
+function heldName(S, i) {
+  if (i === S.current?.slot) return "";
+  const seen = S.seen?.name(S.uuid, i, S.slots?.slotCrc16[i]);
+  return seen !== undefined ? seen : libName(S, i);
+}
+
+function libName(S, i) {
+  if (!S.profiles) return "";
+  return S.profiles.list().find((p) => slotsOf(p, S.slots?.slotCrc16, S.current).includes(i))?.name ?? "";
 }
 
 function head(title, sub, right = "") {
@@ -168,15 +183,19 @@ export function profiles(S, D) {
       const nameHtml = renaming
         ? `<div data-name-field><div style="display:flex;align-items:center;gap:16px"><input class="field pending" style="max-width:340px;font-size:20px;height:48px" data-key="${key}" data-rename="${i}" value="${esc(name ?? "")}" maxlength="${APP_NAME_MAX}" placeholder="Slot ${i + 1}" aria-label="ชื่อ slot ${i + 1}"><span class="meta">Enter บันทึก · Esc ยกเลิก</span></div>
              <div style="margin-top:6px">${nameFit(name)}${loaded ? "" : `<span class="meta"> · slot นี้ไม่ได้ใช้อยู่ ชื่อจะเก็บในแอปก่อน แล้วเขียนลงจอยได้ตอนสลับมาใช้</span>`}</div></div>`
-        : `<div class="slot-name"><span class="${pend ? "pending" : name ? "" : "faint"}">${esc(name || `Slot ${i + 1}`)}</span>
+        : `<div class="slot-name"><span class="${pend ? "pending" : name || heldName(S, i) ? "" : "faint"}">${esc(name || heldName(S, i) || `Slot ${i + 1}`)}</span>
              ${cfg ? `<button class="icon-btn" data-act="rename" data-slot="${i}" aria-label="เปลี่ยนชื่อ slot ${i + 1}">${ICON.pencil}</button>` : ""}</div>
            ${loaded && !pend ? nameClash(key, cfg.shown?.profile.other) : ""}`;
-      const held = S.profiles.inSlot(crc);
+      const held = S.profiles.list().filter((p) => slotsOf(p, S.slots?.slotCrc16, S.current).includes(i));
       const sum = (on && cfg ? slotSummary(cfg) : `<span class="mono" style="font-weight:500">crc16 ${crc?.toString(16).padStart(4, "0").toUpperCase() ?? "—"}</span> · สลับไปใช้เพื่ออ่านค่าใน slot นี้`) +
-        (held.length ? `<br>ตรงกับ profile ในคลัง: ${held.map((p) => `“${esc(p.name)}”`).join(", ")}` : "");
+        (held.length ? `<br>profile ในคลัง: ${held.map((p) => `“${esc(p.name)}”`).join(", ")}` : "");
+      // A slot that still holds the defaults (the slot in use by its bytes, others by CRC16) has
+      // nothing to move or reset: the menu stays, its items are disabled.
+      const atDefault = loaded ? same([...S.current.wrapped], [...DEFAULT_PROFILE]) : crc === crcOf(DEFAULT_PROFILE);
+      const move = cfg ? slotMenu(S, i, atDefault) : "";
       const acts = on
-        ? `<span class="ok" style="font-weight:700">ใช้อยู่บนจอย</span><button class="btn ink" data-act="tab" data-tab="buttons">แก้</button>`
-        : `<button class="btn" data-act="slot" data-slot="${i}">ใช้ slot นี้</button>`;
+        ? `<span class="ok" style="font-weight:700">ใช้อยู่บนจอย</span><button class="btn ink" data-act="tab" data-tab="buttons">แก้</button>${move}`
+        : `<button class="btn" data-act="slot" data-slot="${i}">ใช้ slot นี้</button>${move}`;
       return `<div class="slot-row">
         <div>${on ? `<div class="slot-num on">${i + 1}</div>` : `<div class="slot-num">${i + 1}</div>`}</div>
         <div>${nameHtml}<div class="slot-sum">${sum}</div></div>
@@ -185,7 +204,6 @@ export function profiles(S, D) {
     })
     .join("");
   const renamePending = D.pendingKeys("slot.").length;
-  const opts = (sel) => [0, 1, 2, 3].map((i) => `<option value="${i}" ${i === sel ? "selected" : ""}>Slot ${i + 1} · ${esc(slotName(S, D, i))}</option>`).join("");
   return `${head("Profiles", "4 slot บนตัวจอย แก้ที่ slot ตรงๆ · คลังเก็บสำเนาไว้ใส่ slot ไหนก็ได้ ใส่แล้วไม่สร้างของซ้ำ")}
   <div class="split wide-right" style="grid-template-columns:minmax(0,640px) minmax(0,1fr)">
     <div>${frontFigure(S, D, { screen: `แสดงชื่อ slot ที่ใช้อยู่: ${slotName(S, D, active)}`, screenSub: "เขียนชื่อลงจอได้ไหม ยังไม่ยืนยัน" })}</div>
@@ -193,16 +211,25 @@ export function profiles(S, D) {
       <div class="rule-head" style="display:grid;grid-template-columns:112px 1fr auto"><span class="label">Slot</span><span class="label">ชื่อและสิ่งที่ตั้งไว้</span><span class="label">จัดการ</span></div>
       ${rows}
       <p class="meta" style="margin-top:12px">สลับ slot ใช้คำสั่ง 0xA2 · ${UNTESTED} · แอปจะถามก่อนส่ง</p>
-      ${renamePending ? `<p class="meta" style="margin-top:12px">${cfg?.version === "1.9" ? untested("profile.name") : UNSUP} · กดเขียนลงจอยเพื่อบันทึกชื่อ slot ที่ใช้อยู่</p>` : ""}
-      ${profileLibrary(S, D, cfg, active, opts)}
+      ${renamePending ? `<p class="meta" style="margin-top:12px">${untested("profile.name")} · กดเขียนลงจอยเพื่อบันทึกชื่อ slot ที่ใช้อยู่</p>` : ""}
+      ${profileLibrary(S, D, cfg, active)}
     </div>
   </div>`;
 }
 
-// The profile library (profiles.js): copies of whole slots, each can go into any slot.
-function profileLibrary(S, D, cfg, active, opts) {
+// The profile library (profiles.js): settings belong to a profile, a slot carries one at most.
+function profileLibrary(S, D, cfg, active) {
   const list = S.profiles.list();
   const crcs = S.slots?.slotCrc16 ?? [];
+  const where = new Map(list.map((p) => [p.uid, slotsOf(p, crcs, S.current)]));
+  const heldIn = (i) => list.find((p) => where.get(p.uid).includes(i));
+  const busy = !cfg || S.writing;
+  const slotOpts = [0, 1, 2, 3]
+    .map((i) => {
+      const q = heldIn(i);
+      return `<option value="${i}">Slot ${i + 1}${q ? ` · แทน “${esc(q.name)}”` : ` · ${esc(slotName(S, D, i))}`}</option>`;
+    })
+    .join("");
   const rows = list
     .map((p) => {
       let sum = "";
@@ -211,28 +238,45 @@ function profileLibrary(S, D, cfg, active, opts) {
       } catch {
         sum = "อ่านไฟล์นี้ไม่ได้";
       }
-      const inSlots = [0, 1, 2, 3].filter((i) => crcs[i] === p.crc);
-      // The first slot that doesn't hold it already is the likely target.
-      const to = [active, 0, 1, 2, 3].find((i) => i != null && !inSlots.includes(i)) ?? active ?? 0;
+      const at = where.get(p.uid);
+      // A profile in two slots was put there before the one-slot rule, or copied by the official app.
+      const put = at.length > 1
+        ? `<span class="notice">${ICON.warn}<span>อยู่ใน Slot ${at.map((i) => i + 1).join(" และ ")} · 1 profile ควรอยู่ slot เดียว ใส่ profile อื่นทับ slot ที่เกินได้</span></span>`
+        : at.length
+        ? `<span class="ok" style="font-weight:700">อยู่ใน Slot ${at[0] + 1}</span>`
+        : `<select class="field" style="max-width:300px;height:40px" data-pf-slot="${p.uid}" aria-label="slot ที่จะใส่ ${esc(p.name)}" ${busy ? "disabled" : ""}>${slotOpts}</select>
+           <button class="btn" data-act="pf-apply" data-id="${p.uid}" ${busy ? "disabled" : ""}>ใส่ลง slot</button>`;
       return `<div class="row flush" style="display:block;padding:18px 0">
         <div style="display:flex;align-items:baseline;gap:16px;justify-content:space-between">
           <span style="font-size:18px;font-weight:600">${esc(p.name)}</span>
           <span style="display:flex;gap:16px;white-space:nowrap"><button class="link muted" data-act="pf-rename" data-id="${p.uid}">เปลี่ยนชื่อ</button><button class="link muted" data-act="pf-delete" data-id="${p.uid}">ลบ</button></span>
         </div>
-        <div class="meta" style="margin-top:4px">${sum} · เก็บเมื่อ ${fmtWhen(p.at)}${inSlots.length ? ` · <span class="ok">อยู่ใน Slot ${inSlots.map((i) => i + 1).join(", ")}</span>` : ""}</div>
-        <div style="display:flex;gap:10px;align-items:center;margin-top:12px">
-          <select class="field" style="max-width:280px;height:40px" data-pf-slot="${p.uid}" aria-label="slot ที่จะใส่ ${esc(p.name)}" ${S.writing ? "disabled" : ""}>${opts(to)}</select>
-          <button class="btn" data-act="pf-apply" data-id="${p.uid}" ${cfg && !S.writing ? "" : "disabled"}>ใส่ลง slot</button>
-        </div>
+        <div class="meta" style="margin-top:4px">${sum} · บันทึกล่าสุด ${fmtWhen(p.at)}</div>
+        <div style="display:flex;gap:10px;align-items:center;margin-top:12px">${put}</div>
       </div>`;
     })
     .join("");
   return `<section style="margin-top:56px">
-    <div class="rule-head top" style="align-items:flex-end"><div><h2>คลัง profile</h2><span class="meta">เก็บในเบราว์เซอร์นี้ · ใส่ลง slot คือคัดลอกทับ slot นั้น สำรองค่าเดิมให้ก่อนทุกครั้ง</span></div>
-      <button class="link" data-act="pf-save" ${cfg ? "" : "disabled"}>เก็บ Slot ${(active ?? 0) + 1} เข้าคลัง</button></div>
-    ${rows || `<p class="empty-note">ยังไม่มี profile ในคลัง · กด “เก็บ Slot ${(active ?? 0) + 1} เข้าคลัง” เพื่อเก็บค่าใน slot ที่ใช้อยู่</p>`}
+    <div class="rule-head top" style="align-items:flex-end"><div><h2>คลัง profile</h2><span class="meta">เก็บในเบราว์เซอร์นี้ · ค่าทุกอย่างอยู่กับ profile slot เป็นแค่ช่องบนจอย · แก้ค่าใน slot แล้วเขียนลงจอย profile ใน slot นั้นจะอัปเดตตาม</span></div></div>
+    ${rows || `<p class="empty-note">ยังไม่มี profile ในคลัง · กด ⋯ ที่แถว slot แล้วเลือก “ย้ายเข้าคลัง”</p>`}
     <p class="meta" style="margin-top:12px">ใส่ลง slot อื่นต้องสลับ slot ด้วยคำสั่ง 0xA2 ก่อน · ${UNTESTED}</p>
   </section>`;
+}
+
+// The ⋯ menu of a slot row: move the slot's profile to the library, or reset the slot. Both give the
+// slot back the defaults, so neither applies to a slot that has them.
+function slotMenu(S, i, atDefault) {
+  const open = S.ui.slotMenu === i;
+  const off = atDefault || S.writing;
+  const why = atDefault ? `<span class="menu-why">Slot ${i + 1} เป็นค่าเริ่มต้นอยู่แล้ว</span>` : "";
+  const item = (act, label, sub) => `<button role="menuitem" data-act="${act}" data-slot="${i}" ${off ? "disabled" : ""}><b>${label}</b><span>${sub}</span></button>`;
+  return `<span class="menu-wrap">
+    <button class="icon-btn" data-act="slot-menu" data-slot="${i}" aria-haspopup="menu" aria-expanded="${open}" aria-label="จัดการ Slot ${i + 1}">${ICON.dots}</button>
+    ${open ? `<span class="menu" role="menu" aria-label="จัดการ Slot ${i + 1}">${why}
+      ${item("pf-move", "ย้ายเข้าคลัง", "เก็บค่าใน slot เข้าคลัง profile แล้วคืนค่าเริ่มต้น")}
+      ${item("pf-reset", "คืนค่าเริ่มต้น", "ไม่เก็บค่าเดิม · มีไฟล์สำรองให้")}
+    </span>` : ""}
+  </span>`;
 }
 
 function slotSummary(cfg) {
@@ -1301,6 +1345,7 @@ export function review(S, D) {
   const row = (i) => `<div class="diff-row${i.writable ? "" : " unsup"}"><b>${esc(i.label)}${untested(i.editKey) ? `<br>${untested(i.editKey)}` : ""}</b><span class="old">${esc(i.baseText ?? (i.base === undefined ? "ไม่ทราบ" : i.fmt(i.base)))}</span><span>→</span>
     <span class="new">${i.key === "led.color" ? `<span class="swatch-dot" style="background:${esc(i.value)}"></span>` : ""}${esc(i.fmt(i.value))}${i.writable && i.key.endsWith(".name") && fit(i.value) !== i.value ? `<br><span class="meta">บนจอยจะเป็น “${esc(fit(i.value))}” · ชื่อเต็มเก็บในแอป</span>` : ""}</span></div>`;
   const slot = S.slots.activeSlot;
+  const linked = S.current ? S.profiles.holding(S.current.wrapped) : [];
   const steps = (uid) => {
     const m = S.lib.get(uid);
     return m ? `${macroSteps(m.actions)} ขั้น · ${MACRO_MODE[m.mode] ?? m.mode}` : "";
@@ -1323,6 +1368,7 @@ export function review(S, D) {
     ${unsup.length ? `<div class="d-group"><div class="rule-head"><h2>ยังเขียนลงจอยไม่ได้</h2><span class="meta">เก็บเป็นร่างในหน้านี้ ไม่ส่งลงจอย</span></div>${unsup.map(row).join("")}</div>` : ""}
     ${nW ? "" : `<div class="d-group"><div class="rule-head thin"><h2>ที่เขียนลงจอยได้ตอนนี้</h2>${UNTESTED}</div>${WRITABLE_NOW.map((g) => `<div class="can-row"><b>${g.label}</b><span>${g.what}</span></div>`).join("")}</div>`}
     ${nW ? `<p class="notice" style="margin-top:24px;font-size:15px;color:var(--ink)">${ICON.file}<span><b>สำรองค่าบนจอยเป็นไฟล์อัตโนมัติก่อนเขียนทุกครั้ง</b> <span class="muted">· กู้คืนได้ที่ Device &amp; backup</span></span></p>` : ""}
+    ${nW && linked.length ? `<p class="notice" style="margin-top:12px;font-size:15px;color:var(--ink)">${ICON.file}<span><b>อัปเดต profile ${linked.map((p) => `“${esc(p.name)}”`).join(", ")} ในคลังด้วย</b> <span class="muted">· slot นี้มาจาก profile นั้น ค่าที่แก้จึงติดไปกับ profile</span></span></p>` : ""}
     <div class="d-actions"><button class="link" style="font-size:17px" data-act="close-sheet">กลับไปแก้</button>
       <button class="btn primary" data-act="write" ${nW && !errors.length ? "" : "disabled"}>เขียนลงจอย</button></div>`;
 }
@@ -1345,6 +1391,7 @@ export function done(W) {
     <p class="meta" style="font-size:14px;margin:6px 0 0 44px">อ่านกลับมาเทียบทุกไบต์แล้วตรงกัน</p>
     <div style="margin-top:20px">
       <div class="kv"><span class="k">Slot ${W.slot + 1}${W.name ? ` · ${esc(W.name)}` : ""}</span><span class="v mono">crc16 ${W.crc}</span></div>
+      ${W.profiles?.length ? `<div class="kv"><span class="k">อัปเดต profile ในคลัง</span><span class="v">${W.profiles.map((n) => `“${esc(n)}”`).join(", ")}</span></div>` : ""}
       ${W.backupAt ? `<div class="kv"><span class="k">ไฟล์สำรอง</span><span class="v">${fmtWhen(W.backupAt)} · กู้คืนได้</span></div>` : ""}
       ${W.commitStatus ? `<div class="kv"><span class="k">จอยตอบตอนยืนยัน</span><span class="v mono">status ${W.commitStatus}</span></div><p class="notice" style="margin:12px 0 0;color:var(--ink)">${ICON.warn}<span>จอยเก็บข้อมูลครบแล้ว แต่ไม่ได้ตอบว่าสำเร็จ (status ไม่ใช่ 0) อาจยังไม่ได้นำไปใช้ ลองกดปุ่มจริงเพื่อเช็ก</span></p>` : ""}
       ${W.left ? `<div class="kv"><span class="k">ยังเป็นร่างในหน้านี้</span><span class="v">${W.left} จุด · ยังเขียนลงจอยไม่ได้</span></div>` : ""}

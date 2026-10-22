@@ -196,9 +196,11 @@ export function checkMotorCmd({ area, target, mode, params }) {
   if (mode === FEEDBACK_MODE ? params.join() !== FEEDBACK_PARAMS.join() : mode !== 0 || params.length) fail(`โหมด ${mode} กับค่า [${params}] ไม่ใช่แบบที่แอป Flydigi ส่ง`);
 }
 
-// Names live in TLV 0x20 (v1.9 only): u8 nameLen, name, u8 n, n × (layer, macro, len, name), UTF-8.
+// Names live in TLV 0x20 (v1.9): u8 nameLen, name, u8 n, n × (layer, macro, len, name), UTF-8.
 // A new name can change the TLV's size, so name edits splice the blob instead of patching bytes.
 // "profile.name" is the name of the slot the buffer came from; "macro.<layer>.<id>.name" a macro's.
+// A v1.8 profile has no TLV 0x20; naming it makes it v1.9, as the official codec does when it
+// encodes a profile with a name (version "1.9" whenever there is one). The rest of the blob is the same.
 // NAME_MAX is our own cap: the device limit is unknown, and the whole TLV must stay under 256 bytes.
 export const NAME_MAX = 40;
 const MACRO_NAME = /^macro\.(\d+)\.(\d+)\.name$/;
@@ -337,7 +339,6 @@ export function checkProfile(wrapped) {
 // Rebuilds TLV 0x20 with the new names and splices it into the wrapped buffer (length updated,
 // CRC16 left to the caller). Entries we don't touch keep their order and bytes.
 function withNames(wrapped, cfg, names) {
-  if (cfg.version !== "1.9") throw new Error("โปรไฟล์ v1.8 ไม่มีที่เก็บชื่อ ตั้งชื่อไม่ได้");
   const enc = new TextEncoder();
   const blob = wrapped.subarray(4);
   const { meta, end } = cfg.offsets;
@@ -393,6 +394,7 @@ function withNames(wrapped, cfg, names) {
   const nextBlob = new Uint8Array([...blob.subarray(0, from), 0x20, value.length, ...value, ...blob.subarray(to)]);
   const out = new Uint8Array(4 + nextBlob.length);
   out.set(nextBlob, 4);
+  out[8] = 9; // version u32le at blob offset 4: v1.8 → v1.9
   out[0] = out.length & 0xff;
   out[1] = out.length >> 8;
   return out;

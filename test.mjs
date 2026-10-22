@@ -750,33 +750,65 @@ console.log("app names ok");
 }
 console.log("live ok");
 
-// Profile library: stored as it will be written, so a slot's CRC16 tells which profile it holds.
+// Profile library: a profile is in one slot at most, found by its bytes (slot in use) or CRC16.
 {
-  const { Profiles, toWrite, crcOf, PROFILES_MAX } = await import("./profiles.js");
+  const { Profiles, toWrite, crcOf, named, slotsOf, PROFILES_MAX } = await import("./profiles.js");
   const { fit } = await import("./names.js");
   const { crc16: crc } = await import("./mapping-edit.js");
   const mem = () => { const m = new Map(); return { getItem: (k) => m.get(k) ?? null, setItem: (k, v) => m.set(k, v) }; };
   const cfgOf = (b) => unwrapMapping(b).cfg;
+  const same = (a, b) => assert.deepEqual([...a], [...b]);
   const st = mem();
   const P = new Profiles(st);
-  const long = "โปรไฟล์สำหรับเกมยิงระยะไกลมากๆ"; // > 40 bytes
-  const { profile: p, existed } = P.add(long, sample, 1);
+
+  // Saving the slot in use keeps its bytes, so that slot holds the new profile right away.
+  const { profile: p, existed } = P.add("Race", sample);
   assert.equal(existed, false);
-  const d = P.data(p);
-  assert.equal(cfgOf(d).name, fit(long), "the profile carries its name, cut to what the controller holds");
-  assert.equal(p.crc, crcOf(d));
-  assert.equal(crcOf(toWrite(d)), p.crc, "writing it gives the slot the CRC the library keeps");
-  assert.deepEqual(P.inSlot(p.crc), [p]);
-  assert.deepEqual(P.inSlot(null), []);
-  assert.equal(P.add(long, sample).existed, true, "the same slot saved again adds nothing");
-  assert.equal(P.add(long, d).existed, true, "nor does the profile read back from a slot it was put into");
+  same(P.data(p), sample);
+  assert.equal(p.crc, crcOf(sample));
+  assert.deepEqual(slotsOf(p, [0, 0, 0, 0], { slot: 1, wrapped: sample }), [1], "the slot in use: equal bytes");
+  assert.deepEqual(slotsOf(p, [0, 0, 0, p.crc], { slot: 1, wrapped: sample }), [1, 3], "other slots: CRC16");
+  assert.deepEqual(slotsOf(p, [p.crc, 0, 0, 0], { slot: 0, wrapped: toWrite(applyEdits(sample, { "stick.left.deadzone": 21 })) }), [], "the slot in use is read in full: its bytes win over its CRC16");
+  assert.equal(P.add("Other name", sample).existed, true, "the same slot saved again adds nothing, whatever the name");
+  assert.deepEqual(P.holding(sample), [p]);
   assert.equal(new Profiles(st).list().length, 1, "persisted");
-  P.rename(p.uid, "Race");
-  assert.equal(cfgOf(P.data(p)).name, "Race");
-  assert.equal(p.crc, crcOf(P.data(p)), "a rename moves the CRC with the name");
   assert.throws(() => P.add("   ", sample), /ตั้งชื่อ/);
-  P.remove(p.uid);
-  assert.equal(P.list().length, 0);
+
+  // A rename is the app's: the bytes (and so the slot that holds it) stay.
+  P.rename(p.uid, "Race 2");
+  assert.equal(p.name, "Race 2");
+  same(P.data(p), sample);
+
+  // What goes into a slot carries the profile's name; the copy then takes the bytes read back.
+  const out = toWrite(named(P.data(p), p.name));
+  assert.equal(cfgOf(out).name, "Race 2");
+  P.update(p.uid, out);
+  same(P.data(p), out);
+  assert.equal(p.crc, crcOf(out));
+  assert.equal(p.name, "Race 2", "the name stays unless the slot was renamed");
+
+  // A slot that holds the profile, edited and written: the profile follows the slot.
+  const edited = applyEdits(out, { "stick.left.deadzone": 21, "profile.name": "Race 3" });
+  P.update(p.uid, edited, "Race 3");
+  same(P.data(p), edited);
+  assert.equal(p.name, "Race 3");
+  assert.equal(new Profiles(st).get(p.uid).crc, crcOf(edited), "persisted");
+  assert.equal(P.list().length, 1);
+
+  // A profile named for the controller: v1.8 has no name block, so it becomes v1.9, as the
+  // official codec encodes any profile with a name.
+  const { DEFAULT_PROFILE } = await import("./defaults.js");
+  const long = "โปรไฟล์สำหรับเกมยิงระยะไกลมากๆ"; // > 40 bytes
+  const n8 = named(DEFAULT_PROFILE, long);
+  assert.equal(cfgOf(DEFAULT_PROFILE).version, "1.8");
+  // "Move to library" writes the default as it is: it must pass the hardware rules unchanged.
+  same(toWrite(DEFAULT_PROFILE), DEFAULT_PROFILE);
+  assert.deepEqual(cfgOf(DEFAULT_PROFILE).layers.map((l) => [l.layer_id, l.mappings.length, l.macros.length]), [[0, 0, 0]]);
+  assert.equal(cfgOf(DEFAULT_PROFILE).gyroscope.mode, "disable");
+  assert.equal(cfgOf(n8).version, "1.9");
+  assert.equal(cfgOf(n8).name, fit(long));
+  const strip = (c) => ({ ...c, version: 0, name: 0, offsets: 0, macro_names: 0 });
+  assert.deepEqual(strip(cfgOf(n8)), strip(cfgOf(DEFAULT_PROFILE)), "only the version and the name change");
 
   // A slot the official app left with layers out of order is stored, and written, in order.
   const three = applyEdits(sample, { "layer.2.new": true, "map.0.M1.simple": { type: "layer_hold", layer: 2 } });
@@ -786,8 +818,8 @@ console.log("live ok");
   gap[2] = c & 255; gap[3] = c >> 8;
   assert.deepEqual(cfgOf(gap).layers.map((l) => l.layer_id), [0, 1, 3]);
   assert.deepEqual(cfgOf(toWrite(gap)).layers.map((l) => l.layer_id), [0, 1, 2], "a whole-profile write puts layers in order too");
-  const { profile: q } = P.add("Gap", gap);
-  assert.deepEqual(cfgOf(P.data(q)).layers.map((l) => l.layer_id), [0, 1, 2]);
+  const { profile: g } = P.add("Gap", gap);
+  assert.deepEqual(cfgOf(P.data(g)).layers.map((l) => l.layer_id), [0, 1, 2]);
   // A profile the rules refuse is not kept, and a whole-profile write of it stops.
   // A hold to a layer there is not: find the hold's layer byte by comparing with a hold to layer 1.
   const to1 = applyEdits(three, { "map.0.M1.simple": { type: "layer_hold", layer: 1 } });
@@ -797,7 +829,43 @@ console.log("live ok");
   broken[2] = bc & 255; broken[3] = bc >> 8;
   assert.throws(() => toWrite(broken), /ไม่เขียนลงจอย: ปุ่ม M1 ใน Base layer สลับไป layer 7 ที่ไม่มี/);
   assert.throws(() => P.add("Broken", broken));
-  assert.equal(P.list().length, 1);
+  assert.equal(P.list().length, 2);
   assert.ok(PROFILES_MAX >= 16);
 }
 console.log("profiles ok");
+
+// 0xA1 on the owner's controller (2026-10-23): slot 2 in use, and Slot 3 holding the same profile
+// the app had put there. The CRC16 list runs slot 1..4: the slot in use is at its own index, equal
+// to the wrapper CRC of the RAM 0x05 read, and two slots with equal bytes report equal CRC16s.
+{
+  const { parseSlotStatus } = await import("./protocol.js");
+  const f = new Uint8Array(63);
+  f.set([0x5a, 0xa5, 0xa1, 0x01, 0x00, 0x01, 0x47, 0x66, 0x61, 0x57, 0x61, 0x57, 0x81, 0x51, 0xb5, 0xd4]);
+  f[31] = 0x1b;
+  const s = parseSlotStatus(parseReply(f).payload);
+  assert.equal(s.activeSlot, 1);
+  assert.deepEqual(s.slotCrc16, [0x6647, 0x5761, 0x5761, 0x5181]);
+  const wrapperHead = [0xf4, 0x04, 0x61, 0x57]; // first 0xA3 chunk of RAM 0x05 in the same log
+  assert.equal(s.slotCrc16[s.activeSlot], wrapperHead[2] | (wrapperHead[3] << 8));
+  const { slotsOf } = await import("./profiles.js");
+  assert.deepEqual(slotsOf({ crc: 0x5761, data: "" }, s.slotCrc16), [1, 2], "the profile shows in both slots that hold it");
+}
+console.log("slot status ok");
+
+// A slot's name while another slot is in use: the name it had when read, as long as its CRC16 holds.
+{
+  const { SlotSeen } = await import("./names.js");
+  const { resolveNames } = await import("./model.js");
+  const { Names } = await import("./names.js");
+  const mem = () => { const m = new Map(); return { getItem: (k) => m.get(k) ?? null, setItem: (k, v) => m.set(k, v) }; };
+  const st = mem();
+  const named = applyEdits(sample, { "profile.name": "Helldriver2" });
+  const crc = named[2] | (named[3] << 8);
+  const S = { uuid: "U", names: new Names(mem()), seen: new SlotSeen(st), current: { cfg: unwrapMapping(named).cfg, slot: 1, wrapped: named } };
+  resolveNames(S); // reading slot 2 remembers its name
+  assert.equal(new SlotSeen(st).name("U", 1, crc), "Helldriver2", "persisted, found while slot 2 is unchanged");
+  assert.equal(S.seen.name("U", 1, crc ^ 1), undefined, "changed since (official app, another PC): not shown");
+  assert.equal(S.seen.name("V", 1, crc), undefined, "per controller");
+  assert.equal(S.seen.name("U", 2, crc), undefined, "per slot");
+}
+console.log("slot names ok");

@@ -339,6 +339,17 @@ select.field { appearance: none; padding-right: 36px; background: #fff url("data
 .slot-acts { display: flex; align-items: center; gap: 10px; }
 .icon-btn { display: inline-grid; place-content: center; width: 28px; height: 28px; border: 0; background: none; border-radius: 6px; }
 .icon-btn:hover { background: #f1f1f1; }
+/* Slot row ⋯ menu. Flat like the rest (DESIGN.md: no shadows): an ink rule around it. */
+.menu-wrap { position: relative; display: inline-flex; }
+.icon-btn[aria-expanded="true"] { background: #f1f1f1; }
+.menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 20; display: flex; flex-direction: column; width: 280px; padding: 6px 0; background: var(--ground); border: 1px solid var(--ink); }
+.menu [role="menuitem"] { display: flex; flex-direction: column; gap: 2px; padding: 10px 16px; border: 0; background: none; text-align: left; font: inherit; color: var(--ink); cursor: pointer; }
+.menu [role="menuitem"] b { font-size: 15px; line-height: 20px; font-weight: 600; }
+.menu [role="menuitem"] span { font-size: 13px; line-height: 18px; color: var(--ink-2); font-weight: 500; }
+.menu [role="menuitem"]:hover:not(:disabled), .menu [role="menuitem"]:focus-visible { background: #f1f1f1; outline: none; }
+.menu [role="menuitem"]:disabled { cursor: default; }
+.menu [role="menuitem"]:disabled b, .menu [role="menuitem"]:disabled span { color: var(--ink-3); }
+.menu-why { padding: 6px 16px 8px; font-size: 13px; line-height: 18px; color: var(--ink-2); font-weight: 500; border-bottom: 1px solid var(--hairline); margin-bottom: 4px; }
 
 /* Timeline (macros) */
 .timeline { margin-top: 8px; }

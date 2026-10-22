@@ -44,6 +44,6 @@ None beyond the product name "Apex 6 Pro". The UI copy is mostly Thai, and Engli
 
 ## Product Principles
 1. What the screen shows must match the controller. Pending edits and sync state are never hidden.
-2. Edit the device directly. The profile library sits beside the slots, never between: edits go to a slot, never to a library copy, and a slot shows which library profile it holds by CRC16.
+2. Edit the device directly. Settings belong to a profile; a slot only carries one, and a profile is in one slot at most. Edits go to a slot, and when the slot holds a library profile (same bytes) the write updates that profile too. A profile's name and its slot's name are one name: renaming either renames both. Each slot row has a ⋯ menu: "Move to library" keeps the slot's profile in the library and writes the official default profile into the slot; "Reset to default" writes the default without keeping it (the backup file still has it). Both items stay in the menu, disabled, for a slot that already holds the default. Restoring a backup or importing a file replaces what the slot holds and changes no profile. Non-active slots show which profile they hold by CRC16.
 3. Every write is reversible: back up, verify, restore.
 4. Make every action respond. A control that can't confirm its effect says so.

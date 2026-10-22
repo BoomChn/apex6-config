@@ -2,9 +2,10 @@ import { Apex6, RAM, hex, crc32 } from "./protocol.js";
 import { decodeMapping } from "./mapping.js";
 import { unwrapMapping, applyEdits, sameBytes, deadzoneMax, curveEndMin, curveStartMax, MACRO_STEPS_MAX, motorCmd, motorMode, FEEDBACK_MODE, gyroByte, gyroPct, GYRO_MIDS_MAX } from "./mapping-edit.js";
 import { Drafts, meta, esc, resolveNames, resolveMacros, macroPlan, writeEdits, macroUses, openMacro, layerMoves, nameId, evalCurve, layerKey, layerList, nextLayerId, LAYER_NAME, btnName } from "./model.js";
-import { Names, fit } from "./names.js";
+import { Names, SlotSeen, fit } from "./names.js";
 import { Library } from "./macros.js";
-import { Profiles, toWrite } from "./profiles.js";
+import { Profiles, toWrite, named, slotsOf } from "./profiles.js";
+import { DEFAULT_PROFILE } from "./defaults.js";
 import * as V from "./views.js";
 
 const $ = (s) => document.querySelector(s);
@@ -23,13 +24,14 @@ const S = {
   connectError: null,
   tab: tabFromHash(),
   // ui.macro: uid of the library macro the Macros page has open; macroQ/pickQ: list filters.
-  ui: { layer: 0, layerMode: "hold", sel: "M1", press: "simple", outType: null, dpad: "D-pad ↑", renaming: null, macro: null, step: 0, macroQ: "", pickQ: "" },
+  ui: { layer: 0, layerMode: "hold", sel: "M1", press: "simple", outType: null, dpad: "D-pad ↑", renaming: null, slotMenu: null, macro: null, step: 0, macroQ: "", pickQ: "" },
   log: [],
   backups: [],
   dump: null,
   dumpStatus: "",
   writing: false,
   names: new Names(), // full names kept by the app, see names.js
+  seen: new SlotSeen(), // each slot's name when last read, see names.js
   lib: new Library(), // the macro library, see macros.js
   profiles: new Profiles(), // the profile library, see profiles.js
   plan: null, // what the next write does to the slot's macros, see macroPlan
@@ -299,38 +301,96 @@ async function switchSlot(i, { asked = false } = {}) {
 
 // ---------------- Profile library ----------------
 
-function saveProfile() {
-  if (!S.current) return;
-  const slot = S.current.slot;
+// Gives a slot back the official app's defaults, so it can be set up again from scratch. keep:
+// move the slot's profile into the library first ("ย้ายเข้าคลัง"); without it the profile is only in
+// the backup file every write makes ("คืนค่าเริ่มต้น"). The profile is kept before the slot is
+// written, so if the write fails the slot still holds it.
+async function resetSlot(slot, { keep }) {
+  if (!S.current || S.writing) return;
+  const fresh = toWrite(DEFAULT_PROFILE);
+  const verb = keep ? `ย้าย Slot ${slot + 1} เข้าคลัง` : `คืน Slot ${slot + 1} เป็นค่าเริ่มต้น`;
+  if (slot !== S.current.slot) {
+    const n = slotDrafts().length;
+    const ask = [`${verb}?`, "", `แอปต้องสลับจอยไปใช้ Slot ${slot + 1} ก่อนเพื่ออ่านค่าในนั้น`];
+    if (!S.demo) ask.push("คำสั่งสลับ slot (0xA2) ยังไม่ได้ทดสอบกับจอยจริง ถ้าไม่สลับ แอปจะหยุดและไม่แก้อะไร");
+    if (n) ask.push(`ร่างที่ยังไม่ได้เขียน ${n} จุดใน Slot ${S.current.slot + 1} จะหายไป`);
+    if (!confirm(ask.join("\n"))) return;
+    if (!(await switchSlot(slot, { asked: true }))) return;
+  }
+  const cur = S.current.wrapped;
+  if (sameBytes(cur, fresh)) return toast(`Slot ${slot + 1} เป็นค่าเริ่มต้นอยู่แล้ว`);
+  const held = S.profiles.holding(cur)[0];
+  let name = "";
+  if (keep) {
+    name = prompt(`ชื่อ profile ที่จะเก็บในคลัง (ค่าทั้งหมดใน Slot ${slot + 1})`, held?.name ?? V.slotName(S, D, slot))?.trim();
+    if (!name) return;
+  }
   const n = slotDrafts().length;
-  const name = prompt(`ชื่อ profile ที่จะเก็บจาก Slot ${slot + 1}${n ? `\n(เก็บค่าที่อยู่บนจอยตอนนี้ ร่างที่ยังไม่ได้เขียน ${n} จุดไม่รวมด้วย)` : ""}`, V.slotName(S, D, slot));
-  if (name == null) return;
-  try {
-    const { existed } = S.profiles.add(name, S.current.wrapped);
-    toast(existed ? "มี profile นี้ในคลังอยู่แล้ว ไม่ได้เพิ่มซ้ำ" : `เก็บ "${name.trim()}" เข้าคลังแล้ว`);
-  } catch (e) {
-    toast(`เก็บไม่สำเร็จ: ${e.message}`, true);
+  const lines = [
+    keep ? `ย้าย “${name}” เข้าคลัง แล้วคืน Slot ${slot + 1} เป็นค่าเริ่มต้น?` : `คืน Slot ${slot + 1} (${V.slotName(S, D, slot)}) เป็นค่าเริ่มต้น?`,
+    "",
+    "ปุ่ม, layer, macro, stick, ไก, gyro และความแรงการสั่นใน slot นี้จะกลับเป็นค่าเริ่มต้นของแอปทางการ และ slot จะไม่มีชื่อ",
+    "ไฟ และบีบไกแล้วด้ามสั่น (เปิด/ปิด) ไม่เปลี่ยน",
+    keep ? "แอปจะสำรองค่าเดิมเป็นไฟล์ให้ก่อน" : held ? `“${held.name}” ยังอยู่ในคลัง · แอปจะสำรองค่าเดิมเป็นไฟล์ให้ก่อน` : "ค่าเดิมจะไม่อยู่ในคลัง แต่แอปจะสำรองเป็นไฟล์ให้ก่อน กู้คืนได้ที่ Device & backup",
+    ...(n ? [`ร่างที่ยังไม่ได้เขียน ${n} จุดใน slot นี้จะหายไป`] : []),
+  ];
+  if (!confirm(lines.join("\n"))) return;
+  if (keep) {
+    try {
+      if (held) S.profiles.rename(held.uid, name);
+      else S.profiles.add(name, cur);
+    } catch (e) {
+      return toast(`เก็บเข้าคลังไม่สำเร็จ ยังไม่ได้แก้ slot: ${e.message}`, true);
+    }
+  }
+  for (const it of slotDrafts()) D.map.delete(it.key);
+  D.map.delete(`slot.${slot}.name`);
+  runWrite({
+    data: fresh,
+    names: [[`slot.${slot}`, ""]],
+    reason: keep ? `ก่อนย้าย “${name}” เข้าคลัง` : "ก่อนคืนค่าเริ่มต้น",
+    title: `กำลังคืน Slot ${slot + 1} เป็นค่าเริ่มต้น`,
+    doneTitle: keep ? `ย้าย “${name}” เข้าคลังแล้ว · Slot ${slot + 1} เป็นค่าเริ่มต้น` : `Slot ${slot + 1} เป็นค่าเริ่มต้นแล้ว`,
+    failTitle: keep ? "คืนค่าเริ่มต้นไม่สำเร็จ · profile อยู่ในคลังแล้ว" : "คืนค่าเริ่มต้นไม่สำเร็จ",
+  });
+}
+
+// A rename in the library renames the slot holding the profile too (a draft to write).
+function renameProfile(p) {
+  const name = prompt("ชื่อใหม่ของ profile", p.name)?.trim();
+  if (!name || name === p.name) return;
+  S.profiles.rename(p.uid, name);
+  const slot = slotsOf(p, S.slots?.slotCrc16, S.current)[0];
+  if (slot != null) {
+    D.set(`slot.${slot}.name`, name);
+    toast(slot === S.current?.slot ? `เปลี่ยนชื่อแล้ว · กดเขียนลงจอยเพื่อเปลี่ยนชื่อ Slot ${slot + 1} ด้วย` : `เปลี่ยนชื่อแล้ว · ชื่อ Slot ${slot + 1} จะเขียนลงจอยได้ตอนสลับไปใช้ slot นั้น`);
   }
   render();
 }
 
 // Copies a library profile into a slot: switches the controller to it first when it isn't the one
 // in use, then writes like any other write (re-read, back up, write, read back). The controller
-// keeps using that slot afterwards.
+// keeps using that slot afterwards. A profile is in one slot at most, so one already in a slot
+// can't go into another; the profile the slot held stays in the library.
 async function applyProfile(p, slot) {
   if (!S.current || S.writing) return;
+  const crcs = S.slots?.slotCrc16;
+  const at = slotsOf(p, crcs, S.current);
+  if (at.length) return toast(`“${p.name}” อยู่ใน Slot ${at[0] + 1} แล้ว · 1 profile อยู่ได้ slot เดียว`, true);
   let data;
   try {
-    data = toWrite(S.profiles.data(p));
+    data = toWrite(named(S.profiles.data(p), p.name));
   } catch (e) {
     return toast(`ใส่ profile นี้ไม่ได้: ${e.message}`, true);
   }
   const other = slot !== S.current.slot;
   const n = slotDrafts().length;
+  const out = S.profiles.list().find((q) => slotsOf(q, crcs, S.current).includes(slot));
   const lines = [
     `ใส่ "${p.name}" ลง Slot ${slot + 1} (${V.slotName(S, D, slot)})?`,
     "",
     "ค่าทั้งหมดใน slot นั้นจะถูกแทนที่ แอปจะสำรองค่าเดิมเป็นไฟล์ให้ก่อน",
+    ...(out ? [`“${out.name}” จะออกจาก slot นี้ แต่ยังอยู่ในคลัง`] : []),
     ...(other ? [`แอปจะสลับจอยไปใช้ Slot ${slot + 1} ก่อน และจอยจะใช้ slot นั้นต่อหลังเขียนเสร็จ`] : []),
     ...(other && !S.demo ? ["คำสั่งสลับ slot (0xA2) ยังไม่ได้ทดสอบกับจอยจริง ถ้าไม่สลับ แอปจะหยุดและไม่เขียนอะไร"] : []),
     ...(n ? [`ร่างที่ยังไม่ได้เขียน ${n} จุดใน Slot ${S.current.slot + 1} จะหายไป`] : []),
@@ -338,7 +398,8 @@ async function applyProfile(p, slot) {
   if (!confirm(lines.join("\n"))) return;
   if (other && !(await switchSlot(slot, { asked: true }))) return;
   for (const it of slotDrafts()) D.map.delete(it.key);
-  runWrite({ data, names: [[`slot.${slot}`, p.name]], reason: `ก่อนใส่ profile "${p.name}"`, title: `กำลังใส่ "${p.name}"`, doneTitle: "ใส่ profile เสร็จ ตรงกับจอยแล้ว", failTitle: "ใส่ profile ไม่สำเร็จ" });
+  D.map.delete(`slot.${slot}.name`); // the profile brings its own name
+  runWrite({ data, profile: p.uid, names: [[`slot.${slot}`, p.name]], reason: `ก่อนใส่ profile "${p.name}"`, title: `กำลังใส่ "${p.name}"`, doneTitle: "ใส่ profile เสร็จ ตรงกับจอยแล้ว", failTitle: "ใส่ profile ไม่สำเร็จ" });
 }
 
 // ---------------- Backups ----------------
@@ -425,8 +486,9 @@ function openReview() {
 // edits: for applyEdits; drafts: the draft keys they take care of; links: the macro links after the
 // write (macroPlan), kept so each copy stays tied to its library macro; motor: trigger feedback
 // switches (Drafts.motorCmds), sent with 0x53 once the profile is in.
-// data: a whole profile written instead of edits; names: [id, full name] the app keeps once it is in.
-async function runWrite({ edits = null, drafts = null, links = null, data = null, names = [], motor = [], reason, title, doneTitle, failTitle }) {
+// data: a whole profile written instead of edits; names: [id, full name] the app keeps once it is in;
+// profile: the library profile data comes from, which takes the bytes read back.
+async function runWrite({ edits = null, drafts = null, links = null, data = null, names = [], profile = null, motor = [], reason, title, doneTitle, failTitle }) {
   const slot = S.current.slot;
   const steps = ["สำรองไฟล์", `ส่งข้อมูล Slot ${slot + 1}`, "ตรวจ CRC กับจอย", ...(motor.length ? ["ตั้งบีบไกแล้วด้ามสั่น"] : [])];
   W = { title, doneTitle, failTitle, slot, name: S.current.cfg.name || "", at: 0, steps, bytes: null };
@@ -446,6 +508,10 @@ async function runWrite({ edits = null, drafts = null, links = null, data = null
     // A whole profile (library, backup, file) goes through the same rules as an edit (toWrite).
     const next = edits ? applyEdits(fresh.data, edits) : toWrite(data);
     const sentNames = edits ? D.items().filter((i) => i.writable && i.key.endsWith(".name")) : [];
+    // An edit to a slot that holds a library profile changes the profile too: the profile is what
+    // the settings belong to, the slot only carries it. A whole-profile write (restore, import)
+    // replaces what the slot holds instead, so it changes no profile.
+    const linked = edits ? S.profiles.holding(fresh.data) : [];
     unwrapMapping(next);
     W.backupAt = backup(fresh.data, slot, reason);
     W.at = 1;
@@ -479,6 +545,10 @@ async function runWrite({ edits = null, drafts = null, links = null, data = null
     for (const { key, value } of sentNames) S.names.put(S.uuid, nameId(key), value, fit(value));
     for (const [id, full] of names) S.names.put(S.uuid, id, full, fit(full));
     if (links) S.lib.setLinks(S.uuid, slot, links);
+    const newName = sentNames.find((i) => i.key === `slot.${slot}.name`)?.value;
+    for (const p of linked) S.profiles.update(p.uid, back.data, newName);
+    if (profile) S.profiles.update(profile, back.data);
+    W.profiles = linked.map((p) => p.name);
     S.current = { wrapped: back.data, cfg: unwrapMapping(back.data).cfg, slot: back.activeSlot };
     resolveNames(S);
     resolveMacros(S);
@@ -903,22 +973,30 @@ const ACTIONS = {
     download(data, `apex6-macros-${S.lib.list().length}.json`);
   },
   "lib-import": () => $("#lib-in").click(),
-  "pf-save": saveProfile,
   "pf-apply": (el) => {
     const p = S.profiles.get(el.dataset.id);
     const slot = Number(document.querySelector(`[data-pf-slot="${el.dataset.id}"]`)?.value);
     if (p && slot >= 0 && slot < 4) applyProfile(p, slot);
   },
+  "slot-menu": (el) => {
+    const i = Number(el.dataset.slot);
+    S.ui.slotMenu = S.ui.slotMenu === i ? null : i;
+    render();
+    if (S.ui.slotMenu === i) document.querySelector(".menu [role=menuitem]:not(:disabled)")?.focus();
+  },
+  "pf-move": (el) => {
+    S.ui.slotMenu = null;
+    render();
+    resetSlot(Number(el.dataset.slot), { keep: true });
+  },
+  "pf-reset": (el) => {
+    S.ui.slotMenu = null;
+    render();
+    resetSlot(Number(el.dataset.slot), { keep: false });
+  },
   "pf-rename": (el) => {
     const p = S.profiles.get(el.dataset.id);
-    const name = p && prompt("ชื่อใหม่ของ profile", p.name);
-    if (!name?.trim()) return;
-    try {
-      S.profiles.rename(p.uid, name);
-    } catch (e) {
-      toast(`เปลี่ยนชื่อไม่สำเร็จ: ${e.message}`, true);
-    }
-    render();
+    if (p) renameProfile(p);
   },
   "pf-delete": (el) => {
     const p = S.profiles.get(el.dataset.id);
@@ -1011,6 +1089,10 @@ function hexdump(b) {
 }
 
 document.addEventListener("click", (e) => {
+  if (S.ui.slotMenu != null && !e.target.closest(".menu-wrap")) {
+    S.ui.slotMenu = null;
+    render();
+  }
   const el = e.target.closest("[data-act]");
   if (el && !el.disabled) {
     const fn = ACTIONS[el.dataset.act];
@@ -1025,6 +1107,13 @@ document.addEventListener("click", (e) => {
 });
 
 document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && S.ui.slotMenu != null) {
+    const i = S.ui.slotMenu;
+    S.ui.slotMenu = null;
+    render();
+    document.querySelector(`[data-act="slot-menu"][data-slot="${i}"]`)?.focus();
+    return;
+  }
   const co = e.target.closest?.("[data-pick]");
   if (co && (e.key === "Enter" || e.key === " ")) {
     e.preventDefault();

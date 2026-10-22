@@ -414,7 +414,7 @@ export class Apex6 {
   }
 }
 
-function parseSlotStatus(p) {
+export function parseSlotStatus(p) {
   return {
     activeSlot: p[0],
     slotCrc16: [u16le(p, 1), u16le(p, 3), u16le(p, 5), u16le(p, 7)],

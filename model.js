@@ -103,6 +103,9 @@ export function resolveNames(S) {
   const cfg = S.current?.cfg;
   if (!cfg || !S.names) return;
   Object.defineProperty(cfg, "shown", { value: { profile: S.names.resolve(S.uuid, `slot.${S.current.slot}`, cfg.name ?? "") }, configurable: true });
+  // Remembered for when another slot is in use (names.js SlotSeen).
+  const w = S.current.wrapped;
+  S.seen?.put(S.uuid, S.current.slot, w[2] | (w[3] << 8), cfg.shown.profile.name ?? "");
 }
 
 // Links the macros of the loaded slot to the library (macros.js) and hangs the links and the
@@ -323,8 +326,8 @@ export function editKey(key, S) {
   if (FEEDBACK_KEY.test(key)) return S.motor ? key : null;
   const k = key === `slot.${S.current?.slot}.name` ? "profile.name" : key;
   if (!isWritable(k)) return null;
-  // Names need TLV 0x20, which only v1.9 profiles have.
-  return k.endsWith(".name") && S.current?.cfg.version !== "1.9" ? null : k;
+  // Names need TLV 0x20: a v1.8 profile becomes v1.9 when it gets one (withNames).
+  return k;
 }
 
 export class Drafts {
