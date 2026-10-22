@@ -7,7 +7,7 @@ import {
   labelTarget, macroName, baseTarget, isIdentity, evalCurve,
 } from "./model.js";
 import { BUTTONS } from "./mapping.js";
-import { WRITABLE } from "./mapping-edit.js";
+import { WRITABLE, HW_TESTED } from "./mapping-edit.js";
 
 export const TABS = [
   { id: "profiles", label: "Profiles" },
@@ -35,6 +35,9 @@ const ICON = {
 };
 
 const UNSUP = `<span class="tag unsup">ยังเขียนลงจอยไม่ได้ · เก็บเป็นร่างในหน้านี้</span>`;
+// Writable, but only tried against the mock so far.
+const UNTESTED = `<span class="tag untested" title="เขียนได้แล้ว แต่ยังไม่เคยลองกับจอยจริง ทุกครั้งที่เขียนจะสำรองไฟล์ให้ก่อน">ยังไม่ทดสอบกับจอยจริง</span>`;
+const untested = (key) => (WRITABLE.has(key) && !HW_TESTED.has(key) ? UNTESTED : "");
 const pendCls = (on) => (on ? " pending" : "");
 
 // ---------------- Top bar & tabs ----------------
@@ -164,6 +167,7 @@ export function profiles(S, D) {
     <div>
       <div class="rule-head" style="display:grid;grid-template-columns:112px 1fr auto"><span class="label">Slot</span><span class="label">ชื่อและสิ่งที่ตั้งไว้</span><span class="label">จัดการ</span></div>
       ${rows}
+      <p class="meta" style="margin-top:12px">สลับ slot ใช้คำสั่ง 0xA2 · ${UNTESTED} · แอปจะถามก่อนส่ง</p>
       ${renamePending ? `<p class="meta" style="margin-top:12px">${UNSUP} · ชื่อ profile ผ่าน TLV 0x20 ยังไม่ได้ยืนยัน</p>` : ""}
       <section style="margin-top:56px">
         <div class="rule-head top"><h2>คัดลอก slot</h2><span class="meta">เลือกต้นทางและปลายทางชัดเจน ไม่สร้าง config ลอยๆ</span></div>
@@ -411,7 +415,7 @@ function timing(S, D) {
     return `<div class="ruled" style="flex:1"><label for="f-${key}">${label}</label><input id="f-${key}" class="${D.has(key) ? "pending" : ""}" type="number" inputmode="numeric" min="50" max="${key.endsWith("long") ? 2000 : 1000}" step="10" value="${v}" data-key="${key}" data-num><span class="unit">ms</span></div>`;
   };
   return `<section style="margin-top:40px">
-    <div class="rule-head top"><h2>เวลาตัดสินการกด</h2><span class="meta">ใช้กับทุกปุ่มใน slot ${S.slots.activeSlot + 1}</span></div>
+    <div class="rule-head top"><h2>เวลาตัดสินการกด</h2><span class="meta">ใช้กับทุกปุ่มใน slot ${S.slots.activeSlot + 1} ${untested("runtime.long")}</span></div>
     <div style="display:flex;gap:24px;margin-top:14px">${ruled("runtime.long", "กดค้าง")}${ruled("runtime.double", "ดับเบิลคลิก")}</div>
   </section>`;
 }
@@ -452,7 +456,7 @@ export function slider(key, label, D, { min = 0, max = 255, disabled = false, fm
   const v = D.get(key);
   const p = D.has(key);
   const shown = fmt ? fmt(v) : `${pct(v)}  ·  ${v}`;
-  return `<div class="slider"><div class="slider-head"><b>${label}</b><span class="num${pendCls(p)}" data-out="${key}">${shown}</span></div>
+  return `<div class="slider"><div class="slider-head"><span><b>${label}</b>${untested(key) ? ` ${untested(key)}` : ""}</span><span class="num${pendCls(p)}" data-out="${key}">${shown}</span></div>
     <input type="range" min="${min}" max="${max}" value="${v ?? min}" data-key="${key}" class="${p ? "pending" : ""}" style="--p:${(((v ?? min) - min) / (max - min || 1)) * 100}%" aria-label="${label}" ${disabled ? "disabled" : ""}></div>`;
 }
 
@@ -460,6 +464,9 @@ function check(key, label, D, { disabled = false } = {}) {
   const v = !!D.get(key);
   return `<label class="check"><input type="checkbox" data-key="${key}" ${v ? "checked" : ""} class="${D.has(key) ? "pending" : ""}" ${disabled ? "disabled" : ""}>${label}</label>`;
 }
+
+// One tag for a row of checkboxes that are all writable but untested.
+const checksTag = (...keys) => (keys.some((k) => untested(k)) ? `<span style="align-self:center">${UNTESTED}</span>` : "");
 
 function presetTabs(key, names, D) {
   const v = D.get(key);
@@ -491,7 +498,7 @@ export function sticks(S, D) {
         ${presetTabs(`stick.${side}.preset`, PRESET, D)}
         ${slider(`stick.${side}.deadzone`, "Deadzone ด้านใน", D, { max: 127 })}
         ${slider(`stick.${side}.max`, "ระยะสูงสุด", D, { min: 128 })}
-        <div class="checks">${check(`stick.${side}.invertX`, "กลับแกน X", D)}${check(`stick.${side}.invertY`, "กลับแกน Y", D)}${check(`stick.${side}.round`, "ขอบวงกลม", D)}</div>
+        <div class="checks">${check(`stick.${side}.invertX`, "กลับแกน X", D)}${check(`stick.${side}.invertY`, "กลับแกน Y", D)}${check(`stick.${side}.round`, "ขอบวงกลม", D)}${checksTag(`stick.${side}.invertX`)}</div>
       </div>
     </div>`;
   };
@@ -703,7 +710,7 @@ export function vibration(S, D) {
       const writable = WRITABLE.has(`${r.k}.max`);
       return `<div class="vib-row${en ? "" : " off"}">
         ${inset(r.inset, { w: 136, h: 88, mark: r.inset.startsWith("trig") ? [TRIG_MARK[r.inset][0] - 20, TRIG_MARK[r.inset][1]] : null, title: r.name })}
-        <div><h3 class="${pend ? "pending" : ""}">${r.name}</h3><div class="muted" style="font-size:15px">${r.sub}${en ? "" : " · ปิดอยู่"}</div>${!writable && pend ? `<div style="margin-top:4px">${UNSUP}</div>` : ""}</div>
+        <div><h3 class="${pend ? "pending" : ""}">${r.name}</h3><div class="muted" style="font-size:15px">${r.sub}${en ? "" : " · ปิดอยู่"}</div>${!writable && pend ? `<div style="margin-top:4px">${UNSUP}</div>` : ""}${writable ? `<div style="margin-top:4px">${untested(`${r.k}.max`)}</div>` : ""}</div>
         <div>${check(`${r.k}.enabled`, `<span class="sr">เปิด ${r.name}</span>`, D)}</div>
         <div>${mini}</div>
         <div style="display:flex;align-items:center;gap:16px">
@@ -777,7 +784,7 @@ export function gyro(S, D) {
       </section>
     </div>
     <div>
-      <div class="rule-head"><h2>Gyro ทำหน้าที่เป็น</h2></div>
+      <div class="rule-head"><h2>Gyro ทำหน้าที่เป็น</h2>${untested("gyro.mode")}</div>
       <div class="utabs" style="margin-top:16px;gap:40px">${modes}</div>
       <div style="margin-top:28px;display:grid;gap:14px">
         <div><b style="font-size:16px">ทำงานเมื่อ</b> <span class="meta">ตั้งได้สูงสุด 4 ปุ่ม · ไม่ตั้ง = ทำงานตลอด</span></div>
@@ -791,7 +798,7 @@ export function gyro(S, D) {
           <label><span class="meta" style="display:block;margin-bottom:6px">ซ้าย–ขวา ใช้</span>${sel("gyro.axisX", AXIS)}</label>
           <label><span class="meta" style="display:block;margin-bottom:6px">บน–ล่าง ใช้</span>${sel("gyro.axisY", AXIS)}</label>
         </div>
-        <div class="checks">${check("gyro.invertX", "กลับซ้าย–ขวา", D)}${check("gyro.invertY", "กลับบน–ล่าง", D)}</div>
+        <div class="checks">${check("gyro.invertX", "กลับซ้าย–ขวา", D)}${check("gyro.invertY", "กลับบน–ล่าง", D)}${checksTag("gyro.invertX")}</div>
         ${anyUnsup ? `<p style="margin:0">${UNSUP}</p>` : ""}
       </div>
     </div>
@@ -940,7 +947,7 @@ export function review(S, D) {
   const slotItems = items.filter((i) => i.group === "slot" && i.writable);
   const unsup = items.filter((i) => !i.writable);
   const nW = slotItems.length;
-  const row = (i) => `<div class="diff-row${i.writable ? "" : " unsup"}"><b>${esc(i.label)}</b><span class="old">${esc(i.base === undefined ? "ไม่ทราบ" : i.fmt(i.base))}</span><span>→</span>
+  const row = (i) => `<div class="diff-row${i.writable ? "" : " unsup"}"><b>${esc(i.label)}${untested(i.key) ? `<br>${untested(i.key)}` : ""}</b><span class="old">${esc(i.base === undefined ? "ไม่ทราบ" : i.fmt(i.base))}</span><span>→</span>
     <span class="new">${i.key === "led.color" ? `<span class="swatch-dot" style="background:${esc(i.value)}"></span>` : ""}${esc(i.fmt(i.value))}</span></div>`;
   const slot = S.slots.activeSlot;
   return `<h2 class="d-title" id="sheet-title">${nW ? `เขียน ${nW} การเปลี่ยนแปลงลงจอย` : "ยังไม่มีอะไรที่เขียนลงจอยได้"}</h2>

@@ -85,6 +85,9 @@ function range(v, lo, hi) {
 }
 
 export const WRITABLE = new Set(Object.keys(FIELDS));
+// Fields confirmed by a write to a real Apex 6 Pro. None yet: every write path is only tested
+// against the mock, so the UI labels all of them. Add a key here once it has been tried on hardware.
+export const HW_TESTED = new Set();
 
 // Returns a new wrapped buffer with the given edits applied and the CRC16 updated.
 // edits: { "stick.left.deadzone": 20, "gyro.mode": "mouse", ... }
