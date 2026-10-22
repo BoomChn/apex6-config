@@ -1,7 +1,7 @@
 import { Apex6, RAM, hex, crc32 } from "./protocol.js";
 import { decodeMapping } from "./mapping.js";
 import { unwrapMapping, applyEdits, sameBytes, deadzoneMax, curveEndMin, curveStartMax, motorMaxMin, MACRO_MAX, MACRO_STEPS_MAX } from "./mapping-edit.js";
-import { Drafts, esc, resolveNames, nameId, macroKey, nextMacroId, evalCurve } from "./model.js";
+import { Drafts, esc, resolveNames, nameId, macroKey, nextMacroId, evalCurve, layerKey, layerList, nextLayerId, LAYER_NAME } from "./model.js";
 import { Names, fit } from "./names.js";
 import * as V from "./views.js";
 
@@ -19,7 +19,7 @@ const S = {
   loadError: null,
   connectError: null,
   tab: tabFromHash(),
-  ui: { side: "back", layer: 0, sel: "M1", press: "simple", outType: null, dpad: "D-pad ↑", renaming: null, macro: null, step: 0 },
+  ui: { side: "back", layer: 0, layerMode: "hold", sel: "M1", press: "simple", outType: null, dpad: "D-pad ↑", renaming: null, macro: null, step: 0 },
   log: [],
   backups: [],
   dump: null,
@@ -218,7 +218,7 @@ async function loadAll() {
     if (!S.slots) S.slots = { activeSlot, slotCrc16: [0, 0, 0, 0] };
     S.readAt = new Date();
     D.prune();
-    if (!cfg.layers.some((l) => l.layer_id === S.ui.layer)) S.ui.layer = 0;
+    if (!layerList(S, D).some((l) => l.id === S.ui.layer)) S.ui.layer = 0;
   } catch (e) {
     console.warn(e);
     S.current = null;
@@ -373,10 +373,11 @@ async function runWrite({ edits = null, data = null, reason, title, doneTitle, f
     showSheet(V.writing(W));
     if (!sameBytes(fresh.data, next)) {
       started = true;
-      await S.pad.writeRam(RAM.MAPPING, next, (i, n) => {
+      const ack = await S.pad.writeRam(RAM.MAPPING, next, (i, n) => {
         W.bytes = [Math.min(i * 16, next.length), next.length];
         showSheet(V.writing(W));
       });
+      W.commitStatus = ack.status;
     }
     W.at = 2;
     W.bytes = null;
@@ -457,6 +458,7 @@ function setOutput(el) {
   else if (type === "turbo") v = { type: "turbo_gamepad", button: el.dataset.btn, interval_ms: cur?.type === "turbo_gamepad" ? cur.interval_ms : 80 };
   else if (type === "mouse") v = { type: "btn_mouse", mouse: Number(el.dataset.mouse) };
   else if (type === "macro") v = { type: "macro", macro: Number(el.dataset.macro), layer };
+  else if (type === "layer") v = { type: el.dataset.mode === "toggle" ? "layer_toggle" : "layer_hold", layer: Number(el.dataset.to) };
   else if (type === "none") v = { type: "none" };
   else if (type === "unset") v = undefined;
   if (v === undefined) {
@@ -508,6 +510,44 @@ const ACTIONS = {
   },
   layer: (el) => {
     S.ui.layer = Number(el.dataset.layer);
+    render();
+  },
+  "layer-new": () => {
+    const id = nextLayerId(S, D);
+    if (id === null) return toast("โปรไฟล์นี้มี layer ครบแล้ว", true);
+    D.set(layerKey(id, "new"), true);
+    S.ui.layer = id;
+    render();
+    toast(`เพิ่ม ${LAYER_NAME(id)} แล้ว · ยังไม่ได้เขียนลงจอย`);
+  },
+  "layer-delete": (el) => {
+    const id = Number(el.dataset.layer);
+    // Drafts in that layer go with it, and so do drafted presses that switch to it.
+    D.clear(`map.${id}.`);
+    D.clear(`macro.${id}.`);
+    for (const k of D.pendingKeys("map.")) {
+      const v = D.map.get(k);
+      if ((v?.type === "layer_hold" || v?.type === "layer_toggle") && v.layer === id) D.map.delete(k);
+    }
+    // What is on the controller is only marked; a layer that was never written is just dropped.
+    if (D.has(layerKey(id, "new"))) D.map.delete(layerKey(id, "new"));
+    else {
+      D.set(layerKey(id, "delete"), true);
+      toast("ปุ่มที่สลับมา layer นี้จะกลับเป็นค่าเดิมตอนเขียนลงจอย");
+    }
+    S.ui.layer = D.has(layerKey(id, "delete")) ? id : 0;
+    if (S.ui.macro?.layer === id) S.ui.macro = null;
+    render();
+  },
+  "layer-undelete": (el) => {
+    D.map.delete(layerKey(Number(el.dataset.layer), "delete"));
+    render();
+  },
+  "layer-mode": (el) => {
+    const key = `map.${S.ui.layer}.${S.ui.sel}.${S.ui.press}`;
+    const cur = D.get(key);
+    S.ui.layerMode = el.dataset.mode;
+    if (cur?.type === "layer_hold" || cur?.type === "layer_toggle") D.set(key, { type: el.dataset.mode === "toggle" ? "layer_toggle" : "layer_hold", layer: cur.layer });
     render();
   },
   press: (el) => {

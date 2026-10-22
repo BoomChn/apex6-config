@@ -399,7 +399,9 @@ export class Apex6 {
     if (gotLen !== len || gotCrc !== crc) {
       throw new Error(`WRITE COMMIT mismatch: len ${gotLen}/${len} crc ${gotCrc.toString(16)}/${crc.toString(16)} status=${c[1]}`);
     }
-    return { activeSlot: c[3] ?? 0, len, crc32: crc };
+    // Status is not always 0 even when len + crc match (the official client lets it pass too);
+    // return it so the caller can say so instead of hiding it.
+    return { activeSlot: c[3] ?? 0, len, crc32: crc, status: c[1] ?? 255 };
   }
 }
 

@@ -93,9 +93,14 @@ const MACRO_NAME = /^macro\.(\d+)\.(\d+)\.name$/;
 const MACRO_OP = /^macro\.(\d+)\.(\d+)\.(new|delete)$/;
 const MACRO_MODE_KEY = /^macro\.(\d+)\.(\d+)\.mode$/;
 const isName = (key) => key === "profile.name" || MACRO_NAME.test(key);
+// "map.<layer>.<button>.<simple|long|double>" = target, or undefined to clear that press.
+const MAP_KEY = /^map\.(\d+)\.(.+)\.(simple|long|double)$/;
+// "layer.<id>.new" / "layer.<id>.delete" = true.
+const LAYER_OP = /^layer\.(\d+)\.(new|delete)$/;
+const isStructural = (key) => MACRO_OP.test(key) || MACRO_MODE_KEY.test(key) || MAP_KEY.test(key) || LAYER_OP.test(key);
 
 export const WRITABLE = new Set([...Object.keys(FIELDS), "profile.name"]);
-export const isWritable = (key) => WRITABLE.has(key) || MACRO_NAME.test(key) || MACRO_OP.test(key);
+export const isWritable = (key) => WRITABLE.has(key) || MACRO_NAME.test(key) || MACRO_OP.test(key) || MAP_KEY.test(key) || LAYER_OP.test(key);
 export const nameBytes = (s) => new TextEncoder().encode(s).length;
 // Fields confirmed by a write to a real Apex 6 Pro; the UI labels every other writable field.
 // Add a key here once it has been tried on hardware.
@@ -114,18 +119,24 @@ export const HW_TESTED = new Set([
 // Returns a new wrapped buffer with the given edits applied and the CRC16 updated.
 // edits: { "stick.left.deadzone": 20, "gyro.mode": "mouse", ... }
 export function applyEdits(wrapped, edits) {
-  // Creating and deleting macros moves bytes, so it goes first and everything else patches the result.
-  const ops = macroOps(edits);
+  // Layers, macros and button maps move bytes, so they go first and everything else patches the
+  // result. Layers first: a new layer can take macros and button maps in the same write.
+  const lops = layerOps(edits);
+  wrapped = lops.length ? withLayerOps(wrapped, lops) : wrapped;
+  const deadLayers = new Set(lops.filter((o) => o.kind === "delete").map((o) => o.layer));
+  // Edits to a layer that is being deleted go with it.
+  const ops = macroOps(edits).filter((o) => !deadLayers.has(o.layer));
   wrapped = ops.length ? withMacroOps(wrapped, ops) : wrapped;
+  wrapped = withMapEdits(wrapped, mapEdits(edits, deadLayers));
   const gone = new Set(ops.filter((o) => o.kind === "delete").map((o) => `${o.layer}.${o.id}`));
   const { cfg } = unwrapMapping(wrapped);
   let out = wrapped.slice();
   const names = {};
   for (const [name, v] of Object.entries(edits)) {
-    if (MACRO_OP.test(name) || MACRO_MODE_KEY.test(name)) continue;
+    if (isStructural(name)) continue;
     if (isName(name)) {
       const m = name.match(MACRO_NAME);
-      if (m && gone.has(`${m[1]}.${m[2]}`)) continue;
+      if (m && (gone.has(`${m[1]}.${m[2]}`) || deadLayers.has(Number(m[1])))) continue;
       names[name] = v;
       continue;
     }
@@ -153,6 +164,8 @@ export function applyEdits(wrapped, edits) {
   }
   // Byte patches first: the splice below moves everything after TLV 0x20.
   if (Object.keys(names).length) out = withNames(out, cfg, names);
+  // Only when layers change: a write that does not touch them keeps their order byte-for-byte.
+  if (lops.length || mapEdits(edits, deadLayers).size) out = sortLayers(out);
   const c = crc16(out.subarray(4));
   out[2] = c & 0xff;
   out[3] = c >> 8;
@@ -341,28 +354,229 @@ function deleteMacro(wrapped, layer, id) {
   }
   const at = cfg.offsets.layers[li];
   const blob = wrapped.subarray(4);
-  const repl = [{ from: at.macros[mi].from, to: at.macros[mi].to, bytes: new Uint8Array(0) }];
+  return splice(wrapped, [
+    { from: at.macros[mi].from, to: at.macros[mi].to, bytes: new Uint8Array(0) },
+    { from: at.macroCountAt, to: at.macroCountAt + 2, bytes: u16(cfg.layers[li].macros.length - 1) },
+    // target type 30 is a macro, its first byte the macro id
+    ...dropActivators(blob, at, (a) => a[1] === 30 && a[2] === id),
+  ]);
+}
+
+// Activator bytes: type (0 simple, 1 timing_single, 2 timing_long, 3 timing_double, …), target[4].
+const ACT_SIZE = 5;
+const activatorsOf = (blob, e) => Array.from({ length: e.n }, (_, j) => blob.slice(e.from + 4 + j * ACT_SIZE, e.from + 4 + (j + 1) * ACT_SIZE));
+const entryBytes = (src, acts) => Uint8Array.from([src, acts.length, 0, 0, ...acts.flatMap((a) => [...a])]);
+// A normal press waits to tell itself apart from a long or double press only when the button has one.
+function settleNormalPress(acts) {
+  const timed = acts.some((a) => a[0] === 2 || a[0] === 3);
+  for (const a of acts) if (a[0] === 0 || a[0] === 1) a[0] = timed ? 1 : 0;
+}
+// Only a normal press of the button itself: the same as having no entry.
+const isDefault = (src, acts) => acts.length === 1 && [...acts[0]].join() === [0, 0, src, 0, 0].join();
+
+// Splice ranges that drop the activators `drop(bytes)` matches from one layer's button maps.
+// A button left with nothing else to do goes back to its default.
+function dropActivators(blob, at, drop) {
+  const repl = [];
   let maps = at.maps.length;
   for (const e of at.maps) {
-    const kept = [];
-    for (let j = 0; j < e.n; j++) {
-      const o = e.from + 4 + j * 5;
-      // activator type, then target: type 30 is a macro, its first byte the macro id
-      if (!(blob[o + 1] === 30 && blob[o + 2] === id)) kept.push(blob.subarray(o, o + 5));
-    }
-    if (kept.length === e.n) continue;
-    if (kept.length) {
-      const head = blob.slice(e.from, e.from + 4);
-      head[1] = kept.length;
-      repl.push({ from: e.from, to: e.to, bytes: Uint8Array.from([...head, ...kept.flatMap((k) => [...k])]) });
+    const acts = activatorsOf(blob, e);
+    const kept = acts.filter((a) => !drop(a));
+    if (kept.length === acts.length) continue;
+    settleNormalPress(kept);
+    if (kept.length && !isDefault(e.src, kept)) {
+      repl.push({ from: e.from, to: e.to, bytes: entryBytes(e.src, kept) });
     } else {
       repl.push({ from: e.from, to: e.to, bytes: new Uint8Array(0) });
       maps--;
     }
   }
-  repl.push({ from: at.macroCountAt, to: at.macroCountAt + 2, bytes: u16(cfg.layers[li].macros.length - 1) });
   if (maps !== at.maps.length) repl.push({ from: at.mapCountAt, to: at.mapCountAt + 2, bytes: u16(maps) });
+  return repl;
+}
+
+// ---- Adding and deleting layers ----
+// A profile holds 1–4 layers. Layer 0 is the base and always there; the official app gives new
+// layers the first free id of 1–3 and appends them after the last one, which is what we do too.
+export const LAYER_MAX = 4;
+
+function layerOps(edits) {
+  const ops = [];
+  for (const k of Object.keys(edits)) {
+    const m = k.match(LAYER_OP);
+    if (m) ops.push({ kind: m[2], layer: Number(m[1]) });
+  }
+  // Deletes first: a profile with 4 layers can swap one in the same write.
+  return ops.sort((a, b) => (a.kind === b.kind ? 0 : a.kind === "delete" ? -1 : 1));
+}
+
+function withLayerOps(wrapped, ops) {
+  for (const op of ops) wrapped = op.kind === "delete" ? deleteLayer(wrapped, op.layer) : addLayer(wrapped, op.layer);
+  return wrapped;
+}
+
+function addLayer(wrapped, id) {
+  const { cfg } = unwrapMapping(wrapped);
+  if (!Number.isInteger(id) || id < 1 || id >= LAYER_MAX) throw new Error(`id ของ layer ต้องอยู่ระหว่าง 1–${LAYER_MAX - 1}`);
+  if (layerAt(cfg, id) >= 0) throw new Error(`โปรไฟล์นี้มี layer ${id} อยู่แล้ว`);
+  if (cfg.layers.length >= LAYER_MAX) throw new Error(`โปรไฟล์นี้มี layer ครบ ${LAYER_MAX} อันแล้ว`);
+  const end = cfg.offsets.layersEnd;
+  return splice(wrapped, [
+    { from: cfg.offsets.layerCountAt, to: cfg.offsets.layerCountAt + 1, bytes: Uint8Array.of(cfg.layers.length + 1) },
+    // id, pad, map count u16, macro count u16, pad u16, then the four zone blocks marked absent.
+    { from: end, to: end, bytes: Uint8Array.of(id, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0) },
+  ]);
+}
+
+// Removes the layer with its button maps, macros and macro names, and the presses in other layers
+// that switched to it: a button left with nothing else to do goes back to its default.
+function deleteLayer(wrapped, id) {
+  if (id === 0) throw new Error("ลบ Base layer ไม่ได้");
+  let { cfg } = unwrapMapping(wrapped);
+  if (layerAt(cfg, id) < 0) throw new Error(`โปรไฟล์นี้ไม่มี layer ${id}`);
+  // Names first: withNames needs the macros to still be there.
+  const named = cfg.version === "1.9" ? (cfg.macro_names ?? []).filter((n) => n.layerId === id) : [];
+  if (named.length) {
+    wrapped = withCrc(withNames(wrapped, cfg, Object.fromEntries(named.map((n) => [`macro.${id}.${n.macroId}.name`, ""]))));
+    cfg = unwrapMapping(wrapped).cfg;
+  }
+  const li = layerAt(cfg, id);
+  const blob = wrapped.subarray(4);
+  const at = cfg.offsets.layers[li];
+  const repl = [
+    { from: cfg.offsets.layerCountAt, to: cfg.offsets.layerCountAt + 1, bytes: Uint8Array.of(cfg.layers.length - 1) },
+    { from: at.from, to: at.to, bytes: new Uint8Array(0) },
+  ];
+  // target types 20 (hold) and 21 (toggle) switch layers, their first byte the layer id
+  cfg.offsets.layers.forEach((o, i) => {
+    if (i !== li) repl.push(...dropActivators(blob, o, (a) => (a[1] === 20 || a[1] === 21) && a[2] === id));
+  });
   return splice(wrapped, repl);
+}
+
+// Puts the layer sections in id order (0, 1, 2, 3). Profiles from the official app can hold them
+// out of order (it appends a re-added layer), and on hardware a hold to "layer 2" in a profile
+// stored as 0, 2, 3, 1 did not reach layer 2. Same bytes, only moved; CRC left to the caller.
+function sortLayers(wrapped) {
+  const { cfg } = unwrapMapping(wrapped);
+  const ats = cfg.offsets.layers;
+  const order = cfg.layers.map((l, i) => i).sort((a, b) => cfg.layers[a].layer_id - cfg.layers[b].layer_id);
+  if (order.every((v, i) => v === i)) return wrapped;
+  const blob = wrapped.subarray(4);
+  const from = ats[0].from;
+  const parts = [blob.subarray(0, from), ...order.map((i) => blob.subarray(ats[i].from, ats[i].to)), blob.subarray(cfg.offsets.layersEnd)];
+  const out = new Uint8Array(wrapped.length);
+  out.set(wrapped.subarray(0, 4));
+  let o = 4;
+  for (const p of parts) {
+    out.set(p, o);
+    o += p.length;
+  }
+  return out;
+}
+
+// ---- Button maps ----
+// Each press type is one activator of the button's map entry: a normal press is "simple", or
+// "timing_single" when the button also has a long or double press; long is timing_long, double is
+// timing_double. Activators of other types (pulse, toggle) that the official app can set are kept.
+// A button whose only activator is a normal press of itself is the default and has no entry.
+const PRESS_ACTS = { simple: [0, 1], long: [2], double: [3] };
+
+function mapEdits(edits, deadLayers) {
+  const byLayer = new Map();
+  for (const [k, v] of Object.entries(edits)) {
+    const m = k.match(MAP_KEY);
+    if (!m) continue;
+    const layer = Number(m[1]);
+    if (deadLayers.has(layer)) continue;
+    if (!byLayer.has(layer)) byLayer.set(layer, new Map());
+    const srcs = byLayer.get(layer);
+    if (!srcs.has(m[2])) srcs.set(m[2], {});
+    srcs.get(m[2])[m[3]] = v;
+  }
+  return byLayer;
+}
+
+function withMapEdits(wrapped, byLayer) {
+  for (const [layer, srcs] of byLayer) wrapped = editLayerMaps(wrapped, layer, srcs);
+  return wrapped;
+}
+
+function editLayerMaps(wrapped, layer, srcs) {
+  const { cfg } = unwrapMapping(wrapped);
+  const li = layerAt(cfg, layer);
+  if (li < 0) throw new Error(`โปรไฟล์นี้ไม่มี layer ${layer}`);
+  const at = cfg.offsets.layers[li];
+  const blob = wrapped.subarray(4);
+  const repl = [];
+  const added = [];
+  let count = at.maps.length;
+  for (const [src, presses] of srcs) {
+    const id = BUTTONS.indexOf(src);
+    if (id < 0) throw new Error(`ไม่รู้จักปุ่ม ${src}`);
+    const e = at.maps.find((x) => x.src === id);
+    let acts = e ? activatorsOf(blob, e) : [Uint8Array.of(0, 0, id, 0, 0)];
+    for (const [press, v] of Object.entries(presses)) {
+      acts = acts.filter((a) => !PRESS_ACTS[press].includes(a[0]));
+      if (v === undefined) continue;
+      if (v?.type === "none") {
+        if (press !== "simple") throw new Error(`ปุ่ม ${src}: ปิดปุ่มได้เฉพาะการกดปกติ`);
+        continue;
+      }
+      if (press === "double" && v?.type === "layer_hold") throw new Error(`ปุ่ม ${src}: ดับเบิลคลิกใช้กดค้างเข้า layer ไม่ได้ ใช้แบบสลับแทน`);
+      acts.push(Uint8Array.of(PRESS_ACTS[press][0], ...encodeTarget(v, cfg, li)));
+    }
+    settleNormalPress(acts);
+    acts.sort((a, b) => a[0] - b[0]);
+    const dflt = isDefault(id, acts);
+    const bytes = dflt ? new Uint8Array(0) : entryBytes(id, acts);
+    if (e) {
+      repl.push({ from: e.from, to: e.to, bytes });
+      if (dflt) count--;
+    } else if (!dflt) {
+      added.push(...bytes);
+      count++;
+    }
+  }
+  // New entries go after the last one, just before the layer's macros.
+  if (added.length) repl.push({ from: at.macrosFrom, to: at.macrosFrom, bytes: Uint8Array.from(added) });
+  if (count !== at.maps.length) repl.push({ from: at.mapCountAt, to: at.mapCountAt + 2, bytes: u16(count) });
+  return repl.length ? splice(wrapped, repl) : wrapped;
+}
+
+// target[4] for one button press, in layer cfg.layers[li]. See the target types in PROTOCOL.md.
+function encodeTarget(t, cfg, li) {
+  const btn = (b) => {
+    const i = BUTTONS.indexOf(b);
+    if (i < 0) throw new Error(`ไม่รู้จักปุ่ม ${b}`);
+    return i;
+  };
+  const layer = cfg.layers[li];
+  switch (t?.type) {
+    case "btn_gamepad":
+      return [0, btn(t.button), 0, 0];
+    case "btn_keyboard":
+      return [1, t.key, t.modifier ?? 0, 0];
+    case "btn_mouse":
+      if (!Number.isInteger(t.mouse) || t.mouse < 0 || t.mouse > 4) throw new Error(`ปุ่มเมาส์ไม่รู้จัก: ${t.mouse}`);
+      return [2, t.mouse, 0, 0];
+    case "turbo_gamepad": {
+      const iv = Math.round(t.interval_ms / 10); // stored in 10 ms steps
+      if (!(iv >= 1 && iv <= 0xffff)) throw new Error(`Turbo ต้องรอบละอย่างน้อย 10 ms (ได้ ${t.interval_ms})`);
+      return [10, btn(t.button), iv & 0xff, iv >> 8];
+    }
+    case "layer_hold":
+    case "layer_toggle":
+      if (layerAt(cfg, t.layer) < 0) throw new Error(`โปรไฟล์นี้ไม่มี layer ${t.layer} ให้สลับไป`);
+      return [t.type === "layer_hold" ? 20 : 21, t.layer, 0, 0];
+    case "macro":
+      // A macro target plays the macro of the button's own layer.
+      if ((t.layer ?? layer.layer_id) !== layer.layer_id) throw new Error("ปุ่มเล่นได้เฉพาะ macro ใน layer เดียวกัน");
+      if (!layer.macros.some((m) => m.macro_id === t.macro)) throw new Error(`layer ${layer.layer_id} ไม่มี macro #${t.macro + 1}`);
+      return [30, t.macro, 0, 0];
+    default:
+      throw new Error(`ยังเขียนปุ่มแบบ ${t?.type} ลงจอยไม่ได้`);
+  }
 }
 
 // Kept for callers that only touch deadzones.

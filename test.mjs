@@ -317,6 +317,101 @@ console.log("names ok");
 }
 console.log("macro create/delete ok");
 
+// --- Button maps and layers: entries and layers change the blob's length ---
+{
+  const { LAYER_MAX } = await import("./mapping-edit.js");
+  const cfgOf = (buf) => unwrapMapping(buf).cfg;
+  const L = (buf, id) => cfgOf(buf).layers.find((l) => l.layer_id === id);
+  const maps = (buf, id) => L(buf, id).mappings.map((m) => [m.source, ...m.activators.map((a) => `${a.type}:${a.target.type}:${a.target.button ?? a.target.layer ?? a.target.macro ?? a.target.mouse ?? ""}`)]);
+  const rest = (c) => JSON.stringify({ ...c, layers: c.layers.map((l) => ({ ...l, mappings: undefined })) });
+  const base = cfgOf(sample);
+  assert.deepEqual(base.layers.map((l) => l.layer_id), [0, 1]);
+  assert.deepEqual(maps(sample, 0), []);
+
+  // A remap adds an entry, only that layer's maps change, and putting it back gives the original bytes.
+  const m1 = applyEdits(sample, { "map.0.M1.simple": { type: "btn_gamepad", button: "A" } });
+  assert.deepEqual(maps(m1, 0), [["M1", "simple:btn_gamepad:A"]]);
+  assert.equal(rest(cfgOf(m1)), rest(base));
+  assert.deepEqual(L(m1, 0).macros, base.layers[0].macros, "macros after the new entry are intact");
+  assert.ok(sameBytes(applyEdits(m1, { "map.0.M1.simple": { type: "btn_gamepad", button: "M1" } }), sample));
+  // Long and double press: the normal press becomes timing_single and keeps the button itself.
+  const m2 = applyEdits(m1, { "map.0.M2.long": { type: "turbo_gamepad", button: "B", interval_ms: 80 }, "map.0.M1.double": { type: "btn_mouse", mouse: 1 } });
+  assert.deepEqual(maps(m2, 0), [["M1", "timing_single:btn_gamepad:A", "timing_double:btn_mouse:1"], ["M2", "timing_single:btn_gamepad:M2", "timing_long:turbo_gamepad:B"]]);
+  assert.equal(L(m2, 0).mappings[1].activators[1].target.interval_ms, 80);
+  // Clearing the long press leaves the default, so the entry goes; turning a button off keeps an empty one.
+  const m3 = applyEdits(m2, { "map.0.M2.long": undefined, "map.0.M1.double": undefined, "map.0.B.simple": { type: "none" } });
+  assert.deepEqual(maps(m3, 0), [["M1", "simple:btn_gamepad:A"], ["B"]]);
+  assert.deepEqual(maps(applyEdits(m3, { "map.0.B.simple": { type: "btn_gamepad", button: "B" } }), 0), [["M1", "simple:btn_gamepad:A"]]);
+
+  // Layers: add one, map into it, and switch to it from the base layer.
+  const l1 = applyEdits(sample, {
+    "layer.2.new": true,
+    "map.2.A.simple": { type: "btn_gamepad", button: "B" },
+    "map.0.M3.simple": { type: "layer_hold", layer: 2 },
+    "map.0.M4.double": { type: "layer_toggle", layer: 1 },
+  });
+  const c1 = cfgOf(l1);
+  assert.deepEqual(c1.layers.map((l) => l.layer_id), [0, 1, 2]);
+  assert.equal(l1[4 + c1.offsets.layerCountAt], 3, "layer_count follows");
+  assert.deepEqual(maps(l1, 2), [["A", "simple:btn_gamepad:B"]]);
+  assert.deepEqual(maps(l1, 0), [["M3", "simple:layer_hold:2"], ["M4", "timing_single:btn_gamepad:M4", "timing_double:layer_toggle:1"]]);
+  assert.equal(JSON.stringify({ ...c1, layers: c1.layers.slice(0, 2).map((l) => ({ ...l, mappings: undefined })) }), rest(base), "the rest of the profile did not move");
+  // Adding then deleting a layer gives the original bytes back.
+  assert.ok(sameBytes(applyEdits(applyEdits(sample, { "layer.3.new": true }), { "layer.3.delete": true }), sample));
+  // Deleting a layer takes its macros, their names and the presses that switched to it.
+  const named = applyEdits(l1, { "macro.2.0.new": { mode: "press_once", actions: [{ action: "press", target: { type: "btn_gamepad", button: "A" }, at_ms: 0 }, { action: "release", target: { type: "btn_gamepad", button: "A" }, at_ms: 50 }] }, "macro.2.0.name": "Peek" });
+  assert.deepEqual(cfgOf(named).macro_names, [{ layerId: 2, macroId: 0, name: "Peek" }]);
+  const d1 = applyEdits(named, { "layer.2.delete": true, "map.2.B.simple": { type: "none" }, "macro.2.0.name": "x" });
+  const dc = cfgOf(d1);
+  assert.deepEqual(dc.layers.map((l) => l.layer_id), [0, 1]);
+  assert.deepEqual(dc.macro_names, []);
+  assert.deepEqual(maps(d1, 0), [["M4", "timing_single:btn_gamepad:M4", "timing_double:layer_toggle:1"]], "M3 only switched to layer 2: back to default");
+  // Deleting layer 1 too: M4 is back to a plain normal press of itself, so the entry goes.
+  assert.ok(sameBytes(applyEdits(d1, { "layer.1.delete": true, "layer.1.new": true }), sample));
+  // Full: 4 layers, the free id goes to a new one only after a delete.
+  const full = applyEdits(sample, { "layer.2.new": true, "layer.3.new": true });
+  assert.equal(cfgOf(full).layers.length, LAYER_MAX);
+  assert.throws(() => applyEdits(full, { "layer.2.new": true }), /มี layer 2 อยู่แล้ว/);
+  assert.deepEqual(cfgOf(applyEdits(full, { "layer.2.delete": true, "layer.2.new": true })).layers.map((l) => l.layer_id), [0, 1, 2, 3], "layers are kept in id order");
+
+  // Things it must refuse.
+  assert.throws(() => applyEdits(sample, { "layer.0.delete": true }), /Base layer/);
+  assert.throws(() => applyEdits(sample, { "layer.4.new": true }), /1–3/);
+  assert.throws(() => applyEdits(sample, { "layer.3.delete": true }), /ไม่มี layer 3/);
+  assert.throws(() => applyEdits(sample, { "map.3.A.simple": { type: "btn_gamepad", button: "B" } }), /ไม่มี layer 3/);
+  assert.throws(() => applyEdits(sample, { "map.0.A.simple": { type: "layer_hold", layer: 3 } }), /ไม่มี layer 3 ให้สลับไป/);
+  assert.throws(() => applyEdits(sample, { "map.0.A.double": { type: "layer_hold", layer: 1 } }), /ใช้แบบสลับแทน/);
+  assert.throws(() => applyEdits(sample, { "map.0.A.long": { type: "none" } }), /เฉพาะการกดปกติ/);
+  assert.throws(() => applyEdits(sample, { "map.1.A.simple": { type: "macro", macro: 0, layer: 1 } }), /ไม่มี macro #1/);
+  assert.throws(() => applyEdits(sample, { "map.0.A.simple": { type: "macro", macro: 0, layer: 1 } }), /layer เดียวกัน/);
+  assert.throws(() => applyEdits(sample, { "map.0.LM.simple": { type: "btn_gamepad", button: "A" } }), /ไม่รู้จักปุ่ม LM/);
+  // A macro target to a macro being deleted in the same write.
+  assert.throws(() => applyEdits(sample, { "macro.0.0.delete": true, "map.0.A.simple": { type: "macro", macro: 0, layer: 0 } }), /ไม่มี macro #1/);
+  assert.ok(applyEdits(sample, { "map.0.A.simple": { type: "macro", macro: 1, layer: 0 } }));
+}
+{
+  // The Buttons page's view of it: layer drafts, switches, the review rows, the write, prune.
+  const { Drafts, layerList, nextLayerId, layerSwitches, layerKey, labelTarget } = await import("./model.js");
+  const S3 = { current: { cfg: unwrapMapping(sample).cfg, slot: 1, wrapped: sample } };
+  const D3 = new Drafts(S3);
+  assert.equal(nextLayerId(S3, D3), 2);
+  D3.set(layerKey(2, "new"), true);
+  D3.set(layerKey(1, "delete"), true);
+  assert.deepEqual(layerList(S3, D3), [{ id: 0, isNew: false, deleted: false }, { id: 1, isNew: false, deleted: true }, { id: 2, isNew: true, deleted: false }]);
+  assert.equal(nextLayerId(S3, D3), 3, "a layer awaiting deletion keeps its id");
+  D3.set("map.0.M1.simple", { type: "layer_hold", layer: 2 });
+  D3.set("map.2.A.simple", { type: "btn_gamepad", button: "B" });
+  assert.equal(labelTarget(D3.get("map.0.M1.simple")), "กดค้างเข้า Layer 2");
+  assert.deepEqual(layerSwitches(S3, D3).map((s) => [s.layer, s.source, s.type, s.to]), [[0, "M1", "layer_hold", 2]]);
+  assert.deepEqual(D3.items().map((i) => [i.writable, i.label]), [[true, "เพิ่ม Layer 2"], [true, "ลบ Shift layer"], [true, "ปุ่ม M1 · กดปกติ"], [true, "ปุ่ม A (Layer 2) · กดปกติ"]]);
+  const out = applyEdits(sample, D3.writable());
+  assert.deepEqual(unwrapMapping(out).cfg.layers.map((l) => l.layer_id), [0, 2]);
+  S3.current = { cfg: unwrapMapping(out).cfg, slot: 1, wrapped: out };
+  D3.prune();
+  assert.equal(D3.count(), 0, "after the write every draft is done with");
+}
+console.log("button maps and layers ok");
+
 // --- App-side names (names.js): full name in the app, what fits on the controller ---
 {
   const { Names, fit } = await import("./names.js");
