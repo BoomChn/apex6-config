@@ -914,7 +914,8 @@ export function gyro(S, D) {
       </section>
       <section style="margin-top:28px;border-top:1px solid var(--ink-2);padding-top:24px">
         <div class="rule-head"><h2>ค่าเซนเซอร์สด</h2><span class="meta">อ่านจากจอยโดยตรง ไม่ขึ้นกับการตั้งค่า</span></div>
-        <div data-live="turn" style="display:flex;gap:28px;align-items:center;margin:16px 0 24px">${liveTurn(null)}</div>
+        <div data-live="turn" style="display:flex;gap:28px;align-items:center;margin:16px 0 24px">${liveAim(g, null)}</div>
+        <p style="margin:-12px 0 24px"><button class="link" data-act="aim-center">ให้จุดกลับกลาง</button></p>
         <div data-live="imu">${liveImu(null)}</div>
       </section>
     </div>
@@ -966,18 +967,18 @@ export function gyroStick(g, v) {
   </div>`;
 }
 
-// How fast the controller is turning now, from the gyro: yaw (channel 1) across, pitch (channel 2)
-// up and down. Signs not checked yet. Full scale is a brisk turn.
-export function liveTurn(imu) {
+// Where the gyro would aim: the turn added up while the gyro is on (app.js AIM), yaw across and
+// pitch up and down. a: { x, y } in -1..1 and on, or null before the first frame.
+export function liveAim(g, a) {
   const frame = `<rect x="-100" y="-100" width="200" height="200" fill="none" stroke="#111"/><path d="M-100 0H100M0 -100V100" stroke="#E2E2E2"/>`;
-  const FULL = 6000;
-  const clamp = (v) => Math.max(-1, Math.min(1, v));
-  const x = imu ? clamp(imu[0] / FULL) : 0, y = imu ? clamp(imu[1] / FULL) : 0;
-  const still = Math.hypot(x, y) < 0.03;
-  return `<svg width="200" height="200" viewBox="-102 -102 204 204" style="flex:none" aria-hidden="true">${frame}${imu ? `<circle cx="${Math.round(x * 100)}" cy="${Math.round(y * 100)}" r="7" fill="#2140D9"/>` : ""}</svg>
-    <div><b style="font-size:18px">${!imu ? "ยังไม่ได้รับค่าจากจอย" : still ? "จอยนิ่ง" : "กำลังหมุน"}</b>
-      <p class="muted" style="margin:4px 0 0">จุดน้ำเงินคือการหมุนจอยตอนนี้ · ซ้าย–ขวา = หมุนแบบพวงมาลัย · บน–ล่าง = ก้ม–เงย</p>
-      <p class="meta" style="margin:4px 0 0">อ่านจาก gyro โดยตรง ทำงานแม้ไม่ได้กดปุ่มเปิด gyro · หมุนจอยค้างไว้ จุดค้าง หยุดหมุน จุดกลับกลาง</p></div>`;
+  const acts = g?.activation ?? [];
+  const how = acts.map((x) => `${x.activation === "hold" ? "กดค้าง" : "กดสลับ"} ${esc(btnName(x.button))}`).join(" หรือ ");
+  const dot = a ? `<circle cx="${Math.round(a.x * 100)}" cy="${Math.round(a.y * 100)}" r="7" fill="${a.on ? "#2140D9" : "#BDBDBD"}"/>` : "";
+  const title = !a ? "ยังไม่ได้รับค่าจากจอย" : a.on ? "gyro ทำงาน · เอียงจอยเพื่อเล็ง" : `gyro ยังไม่ทำงาน · ${how}`;
+  return `<svg width="200" height="200" viewBox="-102 -102 204 204" style="flex:none" aria-hidden="true">${frame}${dot}</svg>
+    <div><b style="font-size:18px">${title}</b>
+      <p class="muted" style="margin:4px 0 0">จุดคือทิศที่เล็ง · หมุนแบบพวงมาลัย หรือ เอียงซ้าย–ขวา = ซ้าย–ขวา · ก้ม–เงย = บน–ล่าง${acts.length ? ` · จุดขยับเฉพาะตอน${how}` : " · ไม่ได้ตั้งปุ่ม จึงทำงานตลอด"}</p>
+      <p class="meta" style="margin:4px 0 0">คำนวณจาก gyro ในแอป ใช้ดูว่าเซนเซอร์กับปุ่มเปิดทำงาน ความไวไม่ตรงกับในเกม</p></div>`;
 }
 
 const IMU_NAME = ["หมุนแบบพวงมาลัย", "ก้ม–เงย", "เอียงซ้าย–ขวา", "ความเอียง 1", "ความเอียง 2", "ความเอียง 3"];
