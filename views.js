@@ -934,7 +934,7 @@ function gyroSettings(S, D, g, modes, sel) {
   const acts = D.get("gyro.activation") ?? [];
   const pa = D.has("gyro.activation");
   const chips = acts.length
-    ? acts.map((a, i) => `<span class="keytag${pa ? " pending" : ""}" style="height:44px;padding:0 6px 0 14px;font-size:16px;gap:6px">${a.activation === "toggle" ? "กดสลับ" : "กดค้าง"} ${esc(btnName(a.button))}<button class="link" style="width:28px;height:28px;text-decoration:none;font-size:18px" data-act="gyro-act-del" data-i="${i}" aria-label="เอาปุ่ม ${esc(btnName(a.button))} ออก">×</button></span>`).join("")
+    ? acts.map((a, i) => `<span class="keytag${pa ? " pending" : ""}" style="height:44px;padding:0 6px 0 14px;font-size:16px;gap:6px">${a.activation === "toggle" ? "กดสลับ" : "กดค้าง"} ${esc(btnName(a.button))}${acts.length > 1 ? `<button class="link" style="width:28px;height:28px;text-decoration:none;font-size:18px" data-act="gyro-act-del" data-i="${i}" aria-label="เอาปุ่ม ${esc(btnName(a.button))} ออก">×</button>` : `<span style="width:8px"></span>`}</span>`).join("")
     : `<span class="meta">ยังไม่ตั้งปุ่ม · gyro ทำงานตลอดเวลา</span>`;
   const free = BUTTONS.filter((b) => !acts.some((a) => a.button === b));
   const adder = acts.length < 4
@@ -947,7 +947,7 @@ function gyroSettings(S, D, g, modes, sel) {
     `<div class="utabs" style="gap:28px">${modes}</div>
     <div style="margin-top:24px"><div class="slider-head"><b>ปุ่มเปิด gyro</b>${untested("gyro.activation")}</div>
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px">${chips}</div>${adder}
-      ${hint("กดค้าง = ทำงานเฉพาะตอนกดปุ่มค้างไว้ · กดสลับ = กดครั้งแรกเปิด กดอีกครั้งปิด · ตั้งได้สูงสุด 4 ปุ่ม")}</div>`,
+      ${hint("กดค้าง = ทำงานเฉพาะตอนกดปุ่มค้างไว้ · กดสลับ = กดครั้งแรกเปิด กดอีกครั้งปิด · ต้องมี 1–4 ปุ่ม")}</div>`,
     { tag: untested("gyro.mode") });
 
   // 2. Which motion aims where.
@@ -959,24 +959,24 @@ function gyroSettings(S, D, g, modes, sel) {
         ${hint("ติ๊กเมื่อเอียงไปทางหนึ่งแล้วเป้าไปอีกทาง")}</div></div>`,
     { dim: off, tag: untested("gyro.axisX") });
 
-  // 3. Sensitivity and the still zone: the two ends of the gyro curve.
+  // 3. Sensitivity and dead zone, on the official app's scale (mapping-edit.js gyroPct). Stick
+  // modes use the curve's end_x and start_x; mouse mode uses end_y and the mouse window radius.
+  const mouse = mode === "mouse";
+  const pctFmt = { min: 0, max: 100, fmt: (v) => `${v}%`, tag: false };
   const custom = g.curve.mid_points.length;
-  const g3 = group(3, "ความไว", `ปรับว่าเอียงจอยแค่ไหนแล้วเป้าขยับแค่ไหน${off ? " · มีผลเมื่อเปิด gyro" : ""}`,
-    `${slider("gyro.sens", "ความไว", D, { min: 0, max: 100, fmt: (v) => `${v}%`, tag: false })}
-    ${hint("ยิ่งมาก หมุนจอยนิดเดียวเป้าก็ไปไกล · ยิ่งน้อย ต้องหมุนเร็วกว่าเป้าจะไปสุด")}
-    <div style="margin-top:24px">${slider("gyro.deadzone", "ช่วงนิ่ง", D, { max: 127, tag: false })}</div>
-    ${hint("ไม่สนใจการขยับเล็ก ๆ ตอนมือสั่น · 0 = ตอบสนองทุกการขยับ")}
-    ${custom ? hint("โปรไฟล์นี้มี curve ที่ตั้งจากแอป Flydigi · แอปนี้ปรับได้แค่ความไวกับช่วงนิ่ง ส่วนรูปโค้งตรงกลางคงเดิม") : ""}`,
-    { dim: off, tag: untested("gyro.sens") });
-
-  // 4. Mouse mode only.
-  const showMouse = mode === "mouse" || g.mode === "mouse";
-  const g4 = showMouse
-    ? group(4, "โหมดเมาส์", "ใช้เฉพาะตอน gyro ทำหน้าที่เป็นเมาส์", 
-        `${slider("gyro.mouseRadius", "รัศมีเมาส์", D, { min: 1, max: 255, fmt: (v) => `${v}`, tag: false })}
-        ${hint("ค่าในจอยชื่อ mouse window radius · ยังไม่รู้ว่าหน่วยคืออะไร ลองปรับแล้วดูเคอร์เซอร์")}`, { tag: untested("gyro.mouseRadius") })
-    : "";
-  return g1 + g2 + g3 + g4;
+  const g3 = group(3, "ความไวและ Deadzone", `${mouse ? "ค่าของโหมดเมาส์" : "ค่าของโหมด Stick"} · ตัวเลขเดียวกับในเว็บ Flydigi${off ? " · มีผลเมื่อเปิด gyro" : ""}`,
+    mouse
+      ? `${slider("gyro.mouseSens", "ความไว", D, pctFmt)}
+        ${hint("ยิ่งมาก เคอร์เซอร์ยิ่งเร็ว")}
+        <div style="margin-top:24px">${slider("gyro.mouseRadius", "Deadzone เมาส์", D, pctFmt)}</div>
+        ${hint("ปรับช่วงที่เมาส์ตอบสนอง (เว็บ Flydigi เรียกว่า Mouse Dead Zone)")}`
+      : `${slider("gyro.sens", "ความไว", D, pctFmt)}
+        ${hint("ยิ่งมาก หมุนจอยนิดเดียวสติ๊กก็ไปสุด · ยิ่งน้อย ต้องหมุนเร็วกว่าสติ๊กจะไปสุด")}
+        <div style="margin-top:24px">${slider("gyro.deadzone", "Deadzone", D, pctFmt)}</div>
+        ${hint("ไม่สนใจการหมุนที่ช้ากว่านี้ สติ๊กอยู่กลางนิ่ง ๆ กันเป้าไหลตอนวางจอย")}
+        ${custom ? hint("โปรไฟล์นี้มี curve ที่ตั้งจากโหมด Pro ของเว็บ Flydigi · แอปนี้ปรับได้แค่ความไวกับ Deadzone ส่วนรูปโค้งตรงกลางคงเดิม") : ""}`,
+    { dim: off, tag: untested(mouse ? "gyro.mouseSens" : "gyro.sens") });
+  return g1 + g2 + g3;
 }
 
 // What the gyro drives with the mode on the controller now (not a pending edit), read from the

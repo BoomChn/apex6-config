@@ -1,6 +1,6 @@
 import { Apex6, RAM, hex, crc32 } from "./protocol.js";
 import { decodeMapping } from "./mapping.js";
-import { unwrapMapping, applyEdits, sameBytes, deadzoneMax, curveEndMin, curveStartMax, motorMaxMin, MACRO_STEPS_MAX, gyroSensEnd, gyroSensMax, GYRO_ACT_MAX } from "./mapping-edit.js";
+import { unwrapMapping, applyEdits, sameBytes, deadzoneMax, curveEndMin, curveStartMax, motorMaxMin, MACRO_STEPS_MAX, gyroByte, gyroPct, gyroSensMax, gyroDeadzoneMax, GYRO_ACT_MAX } from "./mapping-edit.js";
 import { Drafts, esc, resolveNames, resolveMacros, macroPlan, writeEdits, macroUses, openMacro, layerMoves, nameId, evalCurve, layerKey, layerList, nextLayerId, LAYER_NAME, btnName } from "./model.js";
 import { Names, fit } from "./names.js";
 import { Library } from "./macros.js";
@@ -132,7 +132,7 @@ function softUpdate(key) {
 function outText(key, label) {
   const v = D.get(key);
   if (key.startsWith("led.bright") || key.startsWith("screen.bright") || key === "gyro.sens") return `${v}%`;
-  if (key === "gyro.mouseRadius") return String(v);
+  if (key.startsWith("gyro.")) return `${v}%`;
   if (key.startsWith("motor.") || key.startsWith("vibtrig.")) return `${Math.round((v / 255) * 100)}%`;
   return `${Math.round((v / 255) * 100)}%  ·  ${v}`;
 }
@@ -456,7 +456,7 @@ const CLAMP = {
   "motor.left.max": (v) => Math.max(v, motorMaxMin(S.current.cfg.vibration_motor_left.curve)),
   "motor.right.max": (v) => Math.max(v, motorMaxMin(S.current.cfg.vibration_motor_right.curve)),
   // Gyro start and end limit each other, including an unwritten edit of the other one.
-  "gyro.deadzone": (v) => Math.min(v, deadzoneMax({ curve: gyroCurve() })),
+  "gyro.deadzone": (v) => Math.min(v, gyroDeadzoneMax(gyroCurve())),
   "gyro.sens": (v) => Math.min(v, gyroSensMax(gyroCurve())),
 };
 
@@ -465,9 +465,32 @@ function gyroCurve() {
   const c = S.current.cfg.gyroscope.curve;
   return {
     ...c,
-    start_x: D.has("gyro.deadzone") ? D.get("gyro.deadzone") : c.start_x,
-    end_x: D.has("gyro.sens") ? gyroSensEnd(D.get("gyro.sens")) : c.end_x,
+    start_x: D.has("gyro.deadzone") ? gyroByte(D.get("gyro.deadzone")) : c.start_x,
+    end_x: D.has("gyro.sens") ? gyroByte(100 - D.get("gyro.sens")) : c.end_x,
   };
+}
+
+// Picking a gyro mode sets the curve the way the official web app does: a stick mode keeps
+// end_y at 255 (sensitivity is end_x), mouse mode keeps end_x at 255 (sensitivity is end_y). A
+// slot that never had gyro set up (off, plain linear curve) gets the official defaults: end_x 145
+// for a stick, start_x 4 and end_y 51 for the mouse. Earlier unwritten curve edits are dropped.
+function setGyroMode(mode) {
+  const g = S.current.cfg.gyroscope;
+  const c = g.curve;
+  for (const k of ["gyro.sens", "gyro.deadzone", "gyro.mouseSens"]) D.map.delete(k);
+  setDraft("gyro.mode", mode);
+  if (mode === g.mode || mode === "disable") return;
+  const fresh = g.mode === "disable" && c.start_x === 0 && c.start_y === 0 && c.end_x === 255 && c.end_y === 255 && !c.mid_points.length;
+  if (mode === "mouse") {
+    setDraft("gyro.sens", 0);
+    if (fresh) {
+      setDraft("gyro.deadzone", gyroPct(4));
+      setDraft("gyro.mouseSens", gyroPct(51));
+    }
+  } else {
+    setDraft("gyro.mouseSens", 100);
+    if (fresh) setDraft("gyro.sens", 100 - gyroPct(145));
+  }
 }
 
 function setDraft(key, v) {
@@ -640,6 +663,11 @@ const ACTIONS = {
   },
   set: (el) => {
     const v = "numval" in el.dataset ? Number(el.dataset.val) : el.dataset.val;
+    if (el.dataset.key === "gyro.mode") {
+      setGyroMode(v);
+      render();
+      return;
+    }
     setDraft(el.dataset.key, v);
     render();
   },

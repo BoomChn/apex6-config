@@ -43,13 +43,21 @@ export function motorMaxMin(curve) {
 
 const GYRO_MODES = ["disable", "left_joystick", "right_joystick", "mouse"];
 
-// Gyro sensitivity as the app shows it, 0–100%, stored as the gyro curve's end_x: the turn speed
-// that gives a full stick. 0% = 255 (a fast turn is needed), 100% = 64. Our own scale.
-const SENS_END = [255, 64];
-export const gyroSensEnd = (v) => SENS_END[0] - Math.round((v * (SENS_END[0] - SENS_END[1])) / 100);
-export const gyroEndSens = (e) => Math.max(0, Math.min(100, Math.round(((SENS_END[0] - e) * 100) / (SENS_END[0] - SENS_END[1]))));
-// Highest sensitivity the curve allows: end_x must stay above the start and every mid point.
-export const gyroSensMax = (curve) => Math.max(0, Math.min(100, Math.floor(((SENS_END[0] - curveEndMin(curve)) * 100) / (SENS_END[0] - SENS_END[1]))));
+// Gyro sliders use the official web app's scale (GyroBody on space_station.flydigi.com): a percent
+// of a 0–255 byte, p = round(byte / 2.55), byte = round(p * 2.55).
+//   stick modes: sensitivity = 100 − end_x%, dead zone = start_x% (input ignored below it)
+//   mouse mode:  sensitivity = end_y%, "mouse dead zone" = mouse_window_radius%
+export const gyroPct = (b) => Math.round(Math.max(0, Math.min(255, b)) / 2.55);
+export const gyroByte = (p) => Math.round(Math.max(0, Math.min(100, p)) * 2.55);
+// Highest stick sensitivity / dead zone that keeps end_x above the start and every mid point.
+export const gyroSensMax = (curve) => {
+  for (let p = 100; p > 0; p--) if (gyroByte(100 - p) >= curveEndMin(curve)) return p;
+  return 0;
+};
+export const gyroDeadzoneMax = (curve) => {
+  for (let p = 100; p > 0; p--) if (gyroByte(p) <= deadzoneMax({ curve })) return p;
+  return 0;
+};
 
 // Gyro activation: 4 slots of (0 hold | 1 toggle, button id), an empty slot is (0, 0xFF).
 export const GYRO_ACT_MAX = 4;
@@ -63,6 +71,7 @@ function gyroActBytes(list) {
 }
 function gyroActCheck(_, list) {
   if (!Array.isArray(list) || list.length > GYRO_ACT_MAX) return `ตั้งได้ไม่เกิน ${GYRO_ACT_MAX} ปุ่ม`;
+  if (!list.length) return "ต้องมีปุ่มเปิด gyro อย่างน้อย 1 ปุ่ม";
   for (const a of list) {
     if (!BUTTONS.includes(a?.button)) return `ปุ่มไม่รู้จัก: ${a?.button}`;
     if (a.activation !== "hold" && a.activation !== "toggle") return `แบบการกดไม่รู้จัก: ${a.activation}`;
@@ -93,12 +102,13 @@ const FIELDS = {
   "gyro.mode": { key: "gyroscope", at: 12, enc: (v) => GYRO_MODES.indexOf(v), check: (_, v) => (GYRO_MODES.includes(v) ? null : `โหมด gyro ไม่รู้จัก: ${v}`) },
   "gyro.invertX": { key: "gyroscope", at: 11, bit: 1 },
   "gyro.invertY": { key: "gyroscope", at: 11, bit: 2 },
-  "gyro.deadzone": { key: "gyroscope", at: 0, check: (g, v) => range(v, 0, deadzoneMax(g)) },
-  "gyro.sens": { key: "gyroscope", at: 2, enc: gyroSensEnd, check: (g, v) => range(v, 0, gyroSensMax(g.curve)) },
+  "gyro.deadzone": { key: "gyroscope", at: 0, enc: gyroByte, check: (g, v) => range(v, 0, gyroDeadzoneMax(g.curve)) },
+  "gyro.sens": { key: "gyroscope", at: 2, enc: (v) => gyroByte(100 - v), check: (g, v) => range(v, 0, gyroSensMax(g.curve)) },
+  "gyro.mouseSens": { key: "gyroscope", at: 3, enc: gyroByte, check: (_, v) => range(v, 0, 100) },
   "gyro.activation": { key: "gyroscope", at: 13, bytes: gyroActBytes, check: gyroActCheck },
   "gyro.axisX": gyroAxis(21),
   "gyro.axisY": gyroAxis(22),
-  "gyro.mouseRadius": { key: "gyroscope", at: 23, check: (_, v) => range(v, 1, 255) },
+  "gyro.mouseRadius": { key: "gyroscope", at: 23, enc: gyroByte, check: (_, v) => range(v, 0, 100) },
   "motor.left.enabled": { key: "vibration_motor_left", at: 0, bit: 1 },
   "motor.right.enabled": { key: "vibration_motor_right", at: 0, bit: 1 },
   "motor.left.max": { key: "vibration_motor_left", at: 4, check: (m, v) => range(v, motorMaxMin(m.curve), 255) },
@@ -235,15 +245,14 @@ export function checkProfile(wrapped) {
         if (t.type === "macro" && !ids.includes(t.macro)) fail(`ปุ่ม ${m.source} ใน ${where(l)} เล่น macro #${t.macro + 1} ที่ไม่มีใน layer นี้`);
       }
   }
-  // Gyro block (TLV 5): only values the official app and the firmware know, and a curve that rises.
+  // Gyro block (TLV 5): only values the official app knows. Its schema wants 1–4 activation slots.
   const g = cfg.gyroscope;
   if (g) {
     if (!GYRO_MODES.includes(g.mode)) fail(`โหมด gyro ไม่รู้จัก (${g.mode})`);
     for (const k of ["axis_x", "axis_y"]) if (!GYRO_AXES.includes(g[k])) fail(`แกน gyro ไม่รู้จัก (${g[k]})`);
     for (const a of g.activation) if (!BUTTONS.includes(a.button)) fail(`ปุ่มเปิด gyro ไม่รู้จัก (${a.button})`);
     if (new Set(g.activation.map((a) => a.button)).size !== g.activation.length) fail("ปุ่มเปิด gyro ซ้ำกัน");
-    const xs = [g.curve.start_x, ...g.curve.mid_points.map((m) => m.x), g.curve.end_x];
-    if (xs.some((x, i) => i && x <= xs[i - 1])) fail("curve ของ gyro ต้องไล่จากน้อยไปมาก จุดเริ่มต้องน้อยกว่าจุดสุด");
+    if (!g.activation.length) fail("ไม่มีปุ่มเปิด gyro เลย แอป Flydigi ต้องมีอย่างน้อย 1 ปุ่ม");
   }
 }
 

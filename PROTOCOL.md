@@ -71,7 +71,12 @@ TLV until (0xFF,0x00):
     firmware may mix roll in; imu_z = roll is inferred, not tested. Same order as the 0xEF rate channels.
     Offsets in the 24 bytes: curve 0–10 (start_x 0, end_x 2), flags 11, mode 12, activation 13–20 as 4 × (0 hold | 1 toggle,
     button id), an empty slot is (0, 0xFF), axis_x 21, axis_y 22, mouse_window_radius 23 (sample profile: 32). The app writes all
-    of them; only mode is confirmed on hardware. The app's "ความไว" 0–100% is its own scale on end_x (255 → 64).
+    of them; only mode is confirmed on hardware.
+    The official web app (GyroBody-*.js, 2026-10-22) shows these as percents, p = round(byte / 2.55), byte = round(p * 2.55):
+    stick modes: sensitivity = 100 − end_x%, dead zone = start_x% (start_y set to 0), end_y kept at 255;
+    mouse mode: sensitivity = end_y%, "Mouse Dead Zone" = mouse_window_radius%, end_x kept at 255.
+    Picking a mode from "off" on an untouched linear curve gives end_x 145 (stick) or start_x 4, end_y 51 (mouse); picking a
+    mode also resets axis_x/axis_y to imu_x/imu_y there. Its schema needs 1–4 activation slots (default: hold A).
   6/7 trigger vibration (12B: pad + curve11), 8/9 motor (12B: enabled + curve11)
   0x20 metadata (v1.9): u8 nameLen name u8 n, n × (layer, macro, len, name)
 curve11 = start_x start_y end_x end_y mid_count (x,y)×2 pad2   (0..255 scale)

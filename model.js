@@ -2,7 +2,7 @@
 // Keys editKey() maps to a writable field (mapping-edit.js) can be written; everything else stays a draft in this page
 // until the protocol for it is known, and the UI says so.
 
-import { isWritable, LAYER_MAX, layerRenumber, gyroEndSens } from "./mapping-edit.js";
+import { isWritable, LAYER_MAX, layerRenumber, gyroPct } from "./mapping-edit.js";
 import { planMacros } from "./macros.js";
 import { fit } from "./names.js";
 import { targetLabel } from "./profile-view.js";
@@ -220,12 +220,13 @@ export function meta(key, S) {
       mode: ["ทำหน้าที่เป็น", g?.mode, (v) => GYRO_MODE[v] ?? v],
       invertX: ["กลับซ้าย–ขวา", g?.invert_x, onOff],
       invertY: ["กลับบน–ล่าง", g?.invert_y, onOff],
-      sens: ["ความไว", g && gyroEndSens(g.curve.end_x), (v) => `${v}%`],
-      deadzone: ["ช่วงนิ่ง", g?.curve.start_x, pct],
+      sens: ["ความไว", g && 100 - gyroPct(g.curve.end_x), (v) => `${v}%`],
+      deadzone: ["Deadzone", g && gyroPct(g.curve.start_x), (v) => `${v}%`],
+      mouseSens: ["ความไวเมาส์", g && gyroPct(g.curve.end_y), (v) => `${v}%`],
       activation: ["ปุ่มเปิด gyro", g?.activation, gyroActText],
       axisX: ["เล็งซ้าย–ขวาด้วย", g?.axis_x, (v) => AXIS[v] ?? v],
       axisY: ["เล็งบน–ล่างด้วย", g?.axis_y, (v) => AXIS[v] ?? v],
-      mouseRadius: ["รัศมีเมาส์", g?.mouse_window_radius, String],
+      mouseRadius: ["Deadzone เมาส์", g && gyroPct(g.mouse_window_radius), (v) => `${v}%`],
     }[b];
     return { tab: "gyro", group: "slot", label: `Gyro · ${map[0]}`, base: map[1], fmt: map[2] };
   }
