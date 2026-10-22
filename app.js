@@ -1073,6 +1073,8 @@ function tick() {
       const v = gp && { x: Number((gp.axes[ax] ?? 0).toFixed(2)), y: Number((gp.axes[ax + 1] ?? 0).toFixed(2)) };
       setLive(`[data-live="gyro-out"]`, V.liveStick(v, "เบราว์เซอร์ยังไม่เห็นจอย<br>กดปุ่มใดก็ได้บนจอยหนึ่งครั้ง"));
     }
+    // Every pad Chrome lists, to find where the gyro's stick output shows up when no standard pad does.
+    setLive(`[data-live="pads"]`, V.livePads(Array.from(navigator.getGamepads?.() ?? []).filter(Boolean)));
     setLive(`[data-live="keys"]`, V.liveKeys(LIVE.on ? [...LIVE.keys] : null));
   } else if (S.current && (S.tab === "sticks" || S.tab === "triggers")) {
     const gp = Array.from(navigator.getGamepads?.() ?? []).find(Boolean);
