@@ -1098,6 +1098,84 @@ window.addEventListener("beforeunload", (e) => {
   if (S.writing || D.count()) e.preventDefault();
 });
 
+// Gyro curve chart: drag a point, or press on the line to add a mid point there and drag it. The
+// chart is redrawn in place while dragging and the page once the pointer is let go.
+let gyroDrag = null;
+
+// Pointer position on the chart as curve bytes (0–255 on both axes).
+function chartPos(box, e) {
+  const svg = box.querySelector("svg");
+  const p = svg.createSVGPoint();
+  p.x = e.clientX;
+  p.y = e.clientY;
+  const q = p.matrixTransform(svg.getScreenCTM().inverse());
+  const b = (v) => Math.max(0, Math.min(255, Math.round((v / 300) * 255)));
+  return { x: b(q.x), y: b(300 - q.y) };
+}
+
+// Moves one point ("start", "end", "mid0", "mid1"); x stays between its neighbours.
+function moveCurvePoint(pt, { x, y }) {
+  const c = structuredClone(D.get("gyro.curve"));
+  const m = c.mid_points;
+  if (pt === "start") Object.assign(c, { start_x: Math.min(x, m[0]?.x ?? c.end_x), start_y: y });
+  else if (pt === "end") Object.assign(c, { end_x: Math.max(x, m.at(-1)?.x ?? c.start_x), end_y: y });
+  else {
+    const i = Number(pt.slice(3));
+    m[i] = { x: Math.max(i ? m[i - 1].x : c.start_x, Math.min(x, m[i + 1]?.x ?? c.end_x)), y };
+  }
+  setDraft("gyro.curve", c);
+}
+
+// Adds a mid point at the pointer, in order by x. Returns its index, or null when there are two.
+function addMidAt({ x, y }) {
+  const c = structuredClone(D.get("gyro.curve"));
+  const m = c.mid_points;
+  if (m.length >= GYRO_MIDS_MAX) return null;
+  const i = m.filter((p) => p.x < x).length;
+  m.splice(i, 0, { x: Math.max(i ? m[i - 1].x : c.start_x, Math.min(x, m[i]?.x ?? c.end_x)), y });
+  setDraft("gyro.curve", c);
+  return i;
+}
+
+function redrawGyroChart(box) {
+  box.innerHTML = V.gyroChart(D.get("gyro.curve"), D.has("gyro.curve"));
+  renderChrome();
+}
+
+document.addEventListener("pointerdown", (e) => {
+  const box = e.target.closest?.("[data-gyro-chart]");
+  if (!box || !S.current || e.button !== 0) return;
+  const pos = chartPos(box, e);
+  const pt = e.target.closest("[data-pt]")?.dataset.pt;
+  if (pt) gyroDrag = pt;
+  else if (e.target.closest("[data-gyro-line]")) {
+    const i = addMidAt(pos);
+    if (i == null) return;
+    gyroDrag = `mid${i}`;
+  } else return;
+  e.preventDefault();
+  // Keeps the drag going outside the chart; it throws if the pointer is already gone.
+  try {
+    box.setPointerCapture(e.pointerId);
+  } catch {}
+  moveCurvePoint(gyroDrag, pos);
+  redrawGyroChart(box);
+});
+document.addEventListener("pointermove", (e) => {
+  if (!gyroDrag) return;
+  const box = document.querySelector("[data-gyro-chart]");
+  if (!box) return;
+  moveCurvePoint(gyroDrag, chartPos(box, e));
+  redrawGyroChart(box);
+});
+for (const type of ["pointerup", "pointercancel"]) {
+  document.addEventListener(type, () => {
+    if (!gyroDrag) return;
+    gyroDrag = null;
+    render();
+  });
+}
+
 // ---------------- Live input ----------------
 // On Sticks, Triggers and Gyro, the app asks the controller itself for its stick stream (0xEF) and key
 // events (0x21), so testing works even when the browser does not see a gamepad. Elsewhere it

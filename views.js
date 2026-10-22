@@ -988,7 +988,7 @@ function gyroSettings(S, D, g, modes, sel) {
     ${sub("จุดกลาง", `Midpoints ${c.mid_points.length}/${GYRO_MIDS_MAX}`)}
     ${mids || hint("ไม่มีจุดกลาง · เส้นตรงจากจุดเริ่มถึงจุดสุด")}
     <div style="display:flex;gap:20px;margin-top:12px">${c.mid_points.length < GYRO_MIDS_MAX ? `<button class="link" data-act="gyro-mid-add">+ เพิ่มจุด</button>` : ""}<button class="link" data-act="gyro-curve-reset">รีเซ็ตเป็นเส้นตรง</button></div>
-    ${hint("x, y ของจุดกลางเป็นค่า 0–255 แบบเดียวกับในเว็บ Flydigi")}`,
+    ${hint("ลากจุดในกราฟได้ · กดบนเส้นเพื่อเพิ่มจุดกลาง · x, y เป็นค่า 0–255 แบบเดียวกับในเว็บ Flydigi")}`,
     { dim: off, tag: untested("gyro.curve") });
 
   // 4. Mouse mode only.
@@ -1000,9 +1000,23 @@ function gyroSettings(S, D, g, modes, sel) {
   return g1 + g2 + g3 + g4;
 }
 
-// The gyro curve chart, the same drawing as the stick and trigger curves.
+// The gyro curve chart. Points can be dragged and a click on the line adds a mid point, as on
+// the official Advanced page (app.js handles the pointer). Inputs are 0–255 on both axes.
 export function gyroChart(c, pending) {
-  return curveSvg(c, { pending, flat: true });
+  const S = 300;
+  const X = (x) => ((x / 255) * S).toFixed(1), Y = (y) => (S - (y / 255) * S).toFixed(1);
+  const ink = pending ? "#2140D9" : "#111111";
+  const pts = [["start", c.start_x, c.start_y], ...c.mid_points.map((m, i) => [`mid${i}`, m.x, m.y]), ["end", c.end_x, c.end_y]];
+  const line = [[0, 0], ...pts.map(([, x, y]) => [x, y]), [255, c.end_y]].map(([x, y]) => `${X(x)},${Y(y)}`).join(" ");
+  const full = c.mid_points.length >= GYRO_MIDS_MAX;
+  return `<svg viewBox="-14 -14 ${S + 28} ${S + 28}" style="touch-action:none;cursor:${full ? "default" : "copy"}" aria-label="กราฟ Response Curve ลากจุดได้">
+    <rect x="0" y="0" width="${S}" height="${S}" fill="#fff" stroke="#E2E2E2"/>
+    ${[1, 2, 3].map((i) => `<path d="M${(S / 4) * i} 0 V${S} M0 ${(S / 4) * i} H${S}" stroke="#E2E2E2"/>`).join("")}
+    <path d="M0 ${S} L${S} 0" stroke="#BDBDBD" stroke-dasharray="4 4"/>
+    <polyline points="${line}" fill="none" stroke="${ink}" stroke-width="2.2" stroke-linejoin="round"/>
+    ${full ? "" : `<polyline points="${line}" fill="none" stroke="transparent" stroke-width="18" data-gyro-line/>`}
+    ${pts.map(([id, x, y]) => `<circle cx="${X(x)}" cy="${Y(y)}" r="9" fill="#fff" stroke="${ink}" stroke-width="2" data-pt="${id}" style="cursor:grab"><title>${id === "start" ? "จุดเริ่ม" : id === "end" ? "จุดสุด" : `จุดกลาง ${Number(id.slice(3)) + 1}`} (${x}, ${y})</title></circle>`).join("")}
+  </svg>`;
 }
 
 // What the gyro drives with the mode on the controller now (not a pending edit), read from the
