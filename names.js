@@ -6,7 +6,8 @@
 // longer equals `dev` (renamed by the official app, a restore, …), the controller's name is shown
 // and the app's name is only offered back, never applied silently.
 //
-// Ids: "slot.<i>" for a profile, "macro.<slot>.<layer>.<id>" for a macro.
+// Ids: "slot.<i>" for a profile. "macro.<slot>.<layer>.<id>" names come from before the macro
+// library (macros.js), which now keeps macro names; they are read once, when a macro joins it.
 
 import { NAME_MAX, nameBytes } from "./mapping-edit.js";
 
@@ -14,12 +15,13 @@ const KEY = "apex6.names";
 // Longest name the app accepts, in characters. Only a guard for the layout.
 export const APP_NAME_MAX = 60;
 
-// The part of a name the controller can hold: whole graphemes, so Thai marks stay on their letter.
-export function fit(s) {
-  if (nameBytes(s) <= NAME_MAX) return s;
+// The part of a name the controller can hold (`max` bytes): whole graphemes, so Thai marks stay on
+// their letter.
+export function fit(s, max = NAME_MAX) {
+  if (nameBytes(s) <= max) return s;
   let out = "";
   for (const { segment } of new Intl.Segmenter().segment(s)) {
-    if (nameBytes(out + segment) > NAME_MAX) break;
+    if (nameBytes(out + segment) > max) break;
     out += segment;
   }
   return out.trimEnd();
