@@ -904,8 +904,8 @@ export function gyro(S, D) {
         <path d="M200 1010 l-6 -34 M200 1010 l32 -12 M1400 1010 l6 -34 M1400 1010 l-32 -12" stroke="${ink}" stroke-width="3.5" fill="none"/>
         <path d="M1500 420 C 1560 560, 1560 900, 1500 1060" stroke="${ink}" stroke-width="3.5" fill="none"/>
         <path d="M1500 420 l-30 14 M1500 420 l2 34 M1500 1060 l-30 -14 M1500 1060 l2 -34" stroke="${ink}" stroke-width="3.5" fill="none"/>
-        <text x="800" y="1185" text-anchor="middle" fill="${ink}" style="font:700 30px var(--sans)">หมุนซ้าย–ขวา (Z) → เล็งซ้าย–ขวา</text>
-        <text x="1500" y="395" text-anchor="end" fill="${ink}" style="font:700 30px var(--sans)">ก้ม–เงย (X) → เล็งบน–ล่าง</text>
+        <text x="800" y="1185" text-anchor="middle" fill="${ink}" style="font:700 30px var(--sans)">หมุนแบบพวงมาลัย (X) → เล็งซ้าย–ขวา</text>
+        <text x="1500" y="395" text-anchor="end" fill="${ink}" style="font:700 30px var(--sans)">ก้ม–เงย (Y) → เล็งบน–ล่าง</text>
       </svg></div>
       <section style="margin-top:28px;border-top:1px solid var(--ink-2);padding-top:24px">
         <div class="rule-head"><h2>ผลบนจอยตอนนี้</h2><span class="meta">ตามค่าที่เขียนอยู่บนจอย${pm ? " · ที่แก้ไว้ยังไม่ได้เขียน" : ""}</span></div>

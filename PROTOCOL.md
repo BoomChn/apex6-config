@@ -66,6 +66,9 @@ TLV until (0xFF,0x00):
   1/2 stick (12B: curve11 + flags invX|invY|round)
   3/4 trigger (curve11)
   5 gyro (24B: curve11, flags, mode, 4×(activation, btn), axis_x, axis_y, mouse_radius)
+    axis values 0 none, 1 imu_x, 2 imu_y, 3 imu_z. imu_x = yaw (steering-wheel turn), imu_y = pitch: with axis_x=imu_x, axis_y=imu_y
+    and gyro → right stick, yaw moved only Rx and pitch only Ry in joy.cpl (hardware, 2026-10-22). Roll moved both, so the
+    firmware may mix roll in; imu_z = roll is inferred, not tested. Same order as the 0xEF rate channels.
   6/7 trigger vibration (12B: pad + curve11), 8/9 motor (12B: enabled + curve11)
   0x20 metadata (v1.9): u8 nameLen name u8 n, n × (layer, macro, len, name)
 curve11 = start_x start_y end_x end_y mid_count (x,y)×2 pad2   (0..255 scale)
