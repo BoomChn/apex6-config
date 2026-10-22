@@ -503,7 +503,7 @@ const ACTIONS = {
   },
   side: (el) => {
     S.ui.side = el.dataset.side;
-    const onBack = ["M1", "M2", "M3", "M4", "LB", "RB", "LT (active)", "RT (active)", "LM", "RM"].includes(S.ui.sel);
+    const onBack = ["M1", "M2", "M3", "M4", "M5", "M6", "LB", "RB", "LT (active)", "RT (active)"].includes(S.ui.sel);
     if (S.ui.side === "back" && !onBack) selectSource("M1");
     if (S.ui.side === "front" && onBack) selectSource("A");
     render();
@@ -570,10 +570,23 @@ const ACTIONS = {
     S.ui.outType = null;
     render();
   },
+  // Back to the factory default, whatever the controller holds: a normal press of the button itself.
+  "factory-btn": () => {
+    const { layer, sel } = S.ui;
+    D.set(`map.${layer}.${sel}.simple`, { type: "btn_gamepad", button: sel });
+    for (const press of ["long", "double"]) {
+      const key = `map.${layer}.${sel}.${press}`;
+      if (D.base(key) === undefined) D.map.delete(key);
+      else D.map.set(key, undefined);
+    }
+    S.ui.press = "simple";
+    S.ui.outType = null;
+    render();
+  },
   "pick-src": (el) => {
     const src = el.dataset.src;
     S.ui.layer = Number(el.dataset.layer);
-    const back = ["M1", "M2", "M3", "M4", "LB", "RB", "LT (active)", "RT (active)"].includes(src);
+    const back = ["M1", "M2", "M3", "M4", "M5", "M6", "LB", "RB", "LT (active)", "RT (active)"].includes(src);
     S.ui.side = back ? "back" : "front";
     if (src.startsWith("D-pad")) S.ui.dpad = src;
     selectSource(src);
