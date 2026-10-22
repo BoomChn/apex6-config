@@ -894,7 +894,6 @@ export function gyro(S, D) {
   const sel = (key, opts) => `<select class="field${D.has(key) ? " pending" : ""}" data-key="${key}" style="height:56px;font-size:16px">${Object.entries(opts).map(([v, l]) => `<option value="${v}" ${D.get(key) === v ? "selected" : ""}>${l}</option>`).join("")}</select>`;
   const anyUnsup = ["gyro.sens", "gyro.preset", "gyro.axisX", "gyro.axisY"].some((k) => D.has(k));
   const ink = pm ? "#2140D9" : "#111";
-  const act = g.activation[0];
   return `${head("Gyro", `เอียงจอยเพื่อเล็ง · ${g.mode === "disable" ? "เดิมปิดอยู่ใน slot นี้" : `ค่าบนจอย: ${GYRO_MODE[g.mode]}`}`)}
   <div class="split wide-right">
     <div>
@@ -908,11 +907,15 @@ export function gyro(S, D) {
         <text x="800" y="1185" text-anchor="middle" fill="${ink}" style="font:700 30px var(--sans)">หมุนซ้าย–ขวา (Z) → เล็งซ้าย–ขวา</text>
         <text x="1500" y="395" text-anchor="end" fill="${ink}" style="font:700 30px var(--sans)">ก้ม–เงย (X) → เล็งบน–ล่าง</text>
       </svg></div>
-      <section style="margin-top:28px;display:flex;gap:28px;align-items:center;border-top:1px solid var(--ink-2);padding-top:24px">
-        <svg width="120" height="120" viewBox="-62 -62 124 124" aria-hidden="true"><circle r="60" fill="none" stroke="#111"/><path d="M-60 0H60M0 -60V60" stroke="#E2E2E2"/><path d="M0 0 C 10 -4, 18 -14, 24 -24" stroke="#2140D9" stroke-width="2" fill="none"/><circle cx="24" cy="-24" r="8" fill="#2140D9"/><circle r="4" fill="#111"/></svg>
-        <div><b style="font-size:18px">${mode === "disable" ? "gyro ปิดอยู่" : `${act ? `${act.activation === "hold" ? "กดค้าง" : "กดสลับ"} ${esc(btnName(act.button))} แล้ว` : ""}เอียงจอย`}</b>
-          <p class="muted" style="margin:4px 0 0">${mode === "disable" ? "เลือกหน้าที่ด้านขวาเพื่อเปิด" : `จุดน้ำเงินคือ ${esc(GYRO_MODE[mode])} ที่ gyro สร้างขึ้น`}</p>
-          <p class="meta" style="margin:2px 0 0">ความหมายของแกนยังไม่ยืนยันกับจอยจริง · ดูค่าสดยังไม่ได้เพราะ Gamepad API ไม่ส่งค่า gyro</p></div>
+      <section style="margin-top:28px;border-top:1px solid var(--ink-2);padding-top:24px">
+        <div class="rule-head"><h2>ผลบนจอยตอนนี้</h2><span class="meta">ตามค่าที่เขียนอยู่บนจอย${pm ? " · ที่แก้ไว้ยังไม่ได้เขียน" : ""}</span></div>
+        ${gyroOut(g)}
+        <div data-live="keys" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;min-height:48px;padding-top:8px">${liveKeys(null)}</div>
+      </section>
+      <section style="margin-top:28px;border-top:1px solid var(--ink-2);padding-top:24px">
+        <div class="rule-head"><h2>ค่าเซนเซอร์สด</h2><span class="meta">อ่านจากจอยโดยตรง · ยังไม่รู้ว่าช่องไหนคือแกนไหน</span></div>
+        <p class="muted" style="margin:8px 0 16px">วางจอยนิ่ง แล้วหมุนทีละแบบ: ก้ม–เงย, เอียงซ้าย–ขวา, หมุนแบบพวงมาลัย · ช่องที่ขยับอยู่จะเป็นสีน้ำเงิน</p>
+        <div data-live="imu">${liveImu(null)}</div>
       </section>
     </div>
     <div>
@@ -935,6 +938,39 @@ export function gyro(S, D) {
       </div>
     </div>
   </div>`;
+}
+
+// What the gyro drives with the mode on the controller now (not a pending edit). Whether the
+// 0xEF stick values include the gyro's part is not known yet; joy.cpl is the fallback.
+function gyroOut(g) {
+  const act = g.activation[0];
+  const when = act ? `${act.activation === "hold" ? "กดค้าง" : "กดสลับ"} ${esc(btnName(act.button))} แล้ว` : "";
+  if (g.mode === "disable") return `<p class="muted" style="margin:12px 0 0">gyro ปิดอยู่บนจอย · เลือกหน้าที่ด้านขวา แล้วเขียนลงจอยก่อน จึงจะเห็นผลตรงนี้</p>`;
+  if (g.mode === "mouse") return `<p style="margin:12px 0 0"><b>${when}เอียงจอย แล้วดูว่าเคอร์เซอร์บนจอขยับตาม</b></p>`;
+  return `<div style="display:flex;gap:28px;align-items:center;margin-top:12px">
+    <div class="live" style="flex:none;padding-top:0" data-live="gyro-out">${liveStick(null)}</div>
+    <div><b style="font-size:18px">${when}เอียงจอย</b>
+      <p class="muted" style="margin:4px 0 0">จุดคือ ${esc(GYRO_MODE[g.mode])} ที่จอยส่งออก ควรขยับตามการเอียง</p>
+      <p class="meta" style="margin:4px 0 0">ถ้าเอียงแล้วจุดไม่ขยับ ค่านี้อาจไม่รวม gyro · ลองดูใน joy.cpl อีกทาง</p></div>
+  </div>`;
+}
+
+// v: { imu: six i16 from 0xEF bytes 17..28, tail: bytes 29/30, move: how much each moves now,
+// peak: largest |value| seen } or null before the first frame.
+export function liveImu(v) {
+  if (!v) return `<p class="muted" style="margin:0">ยังไม่ได้รับค่าจากจอย</p>`;
+  const top = v.move.indexOf(Math.max(...v.move));
+  const rows = v.imu.map((x, i) => {
+    const on = i === top && v.move[i] > 30;
+    const w = (Math.abs(x) / v.peak[i]) * 50;
+    const color = on ? "#2140D9" : "#111";
+    return `<div style="display:grid;grid-template-columns:150px 1fr 90px;gap:16px;align-items:center;height:32px${on ? ";color:#2140D9;font-weight:700" : ""}">
+      <span>ช่อง ${i + 1} <span class="meta">ไบต์ ${17 + i * 2}–${18 + i * 2}</span></span>
+      <div style="position:relative;height:14px;border:1px solid #111"><div style="position:absolute;top:0;bottom:0;left:50%;border-left:1px solid #BDBDBD"></div>
+        <div style="position:absolute;top:0;bottom:0;${x < 0 ? `right:50%` : `left:50%`};width:${w}%;background:${color}"></div></div>
+      <span class="mono" style="text-align:right">${x}</span></div>`;
+  });
+  return `${rows.join("")}<p class="meta mono" style="margin:10px 0 0">ไบต์ 29–30: ${v.tail.map((b) => b.toString(16).padStart(2, "0").toUpperCase()).join(" ")}</p>`;
 }
 
 // ---------------- 07 Lighting & screen ----------------

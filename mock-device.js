@@ -46,6 +46,9 @@ export async function createMockDevice() {
     v.setInt16(5, Math.round(Math.sin(t) * 30000), true);
     f[15] = Math.round(Math.max(0, Math.sin(t)) * 255);
     f[16] = Math.round(Math.max(0, -Math.sin(t)) * 255);
+    // Bytes 17..28: made-up gyro (3 slow waves) and accel (gravity on the 6th) for the Gyro page.
+    [Math.sin(t * 2) * 3000, Math.sin(t * 0.7) * 800, 0, 40, -60, 4096 + Math.sin(t) * 200]
+      .forEach((x, i) => v.setInt16(17 + i * 2, Math.round(x), true));
     f[31] = sum(f, 2, 31);
     return f;
   };

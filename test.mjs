@@ -596,10 +596,11 @@ console.log("app names ok");
   const f = new Uint8Array(32), v = new DataView(f.buffer);
   f.set([0x5a, 0xa5, 0xef]);
   v.setInt16(3, 32767, true); v.setInt16(5, -100, true); v.setInt16(7, 5, true); v.setInt16(9, -32768, true); v.setUint32(11, 0x81, true); f[15] = 200; f[16] = 7;
+  [1, -1, 32767, -32768, 0, 4096].forEach((x, i) => v.setInt16(17 + i * 2, x, true)); f[29] = 0xab; f[30] = 0x01;
   f[31] = sum(f, 2, 31);
   push(f);
   const bad = f.slice(); bad[31] ^= 1; push(bad);
-  assert.deepEqual(sticks, [{ lx: 32767, ly: -100, rx: 5, ry: -32768, buttons: 0x81, lt: 200, rt: 7 }]);
+  assert.deepEqual(sticks, [{ lx: 32767, ly: -100, rx: 5, ry: -32768, buttons: 0x81, lt: 200, rt: 7, imu: [1, -1, 32767, -32768, 0, 4096], tail: [0xab, 0x01] }]);
   off(); push(f); assert.equal(sticks.length, 1);
 
   push(reply(0x21, [1, 0], [...new TextEncoder().encode("KEY_DOWN GP_M1"), 0, 0x41]));
