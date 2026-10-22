@@ -163,12 +163,40 @@ export function applyEdits(wrapped, edits) {
   }
   // Byte patches first: the splice below moves everything after TLV 0x20.
   if (Object.keys(names).length) out = withNames(out, cfg, names);
-  // Only when layers change: a write that does not touch them keeps their order byte-for-byte.
-  if (lops.length || mapEdits(edits, deadLayers).size) out = sortLayers(out);
+  // A layer out of place (see normalizeLayers) is fixed by any write; a profile whose layers are
+  // already 0, 1, 2, … in order is left byte-for-byte.
+  out = normalizeLayers(out);
   const c = crc16(out.subarray(4));
   out[2] = c & 0xff;
   out[3] = c >> 8;
+  checkProfile(out);
   return out;
+}
+
+// Rules the controller's firmware holds a profile to, as found on hardware (PROTOCOL.md). Every
+// write passes through here, so a bug in an edit stops the write instead of reaching the controller.
+// Add a rule here whenever the hardware teaches us one.
+export function checkProfile(wrapped) {
+  const { cfg } = unwrapMapping(wrapped);
+  const where = (l) => (l.layer_id ? `layer ${l.layer_id}` : "Base layer");
+  const fail = (msg) => {
+    throw new Error(`ไม่เขียนลงจอย: ${msg}`);
+  };
+  if (cfg.layers.length < 1 || cfg.layers.length > LAYER_MAX) fail(`มี ${cfg.layers.length} layer (ได้ 1–${LAYER_MAX})`);
+  // The firmware finds a layer by its position, so layer ids must be 0, 1, 2, … in order.
+  cfg.layers.forEach((l, i) => l.layer_id !== i && fail(`layer ลำดับที่ ${i + 1} มีเลข ${l.layer_id} จอยจะหา layer ผิดตัว`));
+  for (const l of cfg.layers) {
+    const ids = l.macros.map((m) => m.macro_id);
+    if (ids.length > MACRO_MAX) fail(`${where(l)} มี macro ${ids.length} ตัว (ได้ ${MACRO_MAX})`);
+    if (new Set(ids).size !== ids.length) fail(`${where(l)} มี macro เลขซ้ำกัน`);
+    for (const m of l.mappings)
+      for (const a of m.activators) {
+        const t = a.target;
+        // A layer switch must reach a layer there is; a macro target plays a macro of its own layer.
+        if ((t.type === "layer_hold" || t.type === "layer_toggle") && !(t.layer < cfg.layers.length)) fail(`ปุ่ม ${m.source} ใน ${where(l)} สลับไป layer ${t.layer} ที่ไม่มี`);
+        if (t.type === "macro" && !ids.includes(t.macro)) fail(`ปุ่ม ${m.source} ใน ${where(l)} เล่น macro #${t.macro + 1} ที่ไม่มีใน layer นี้`);
+      }
+  }
 }
 
 // Rebuilds TLV 0x20 with the new names and splices it into the wrapped buffer (length updated,
@@ -470,16 +498,42 @@ function deleteLayer(wrapped, id) {
   return splice(wrapped, repl);
 }
 
-// Puts the layer sections in id order (0, 1, 2, 3). Profiles from the official app can hold them
-// out of order (it appends a re-added layer), and on hardware a hold to "layer 2" in a profile
-// stored as 0, 2, 3, 1 did not reach layer 2. Same bytes, only moved; CRC left to the caller.
-function sortLayers(wrapped) {
+// The firmware finds the layer of a hold/toggle by its position in the blob, not by its id: on
+// hardware a hold to "layer 2" in a profile stored as 0, 2, 3, 1 reached layer 3. So every layer
+// must sit at the position of its id, which means ids 0, 1, 2, … with no gap (a profile with
+// layers 0, 2, 3 sends "layer 2" to layer 3 too). This puts the sections in id order and numbers
+// them again from 0, moving the layer of every hold/toggle and of every macro name along.
+// Profiles from the official app can hold layers out of order (it appends a re-added layer).
+// Same length; CRC left to the caller.
+export const layerRenumber = (ids) => new Map([...ids].sort((a, b) => a - b).map((id, i) => [id, i]));
+
+function normalizeLayers(wrapped) {
   // Not unwrapMapping: a name edit just before leaves the CRC to the caller.
   const cfg = decodeMapping(wrapped.subarray(4));
   const ats = cfg.offsets.layers;
   const order = cfg.layers.map((l, i) => i).sort((a, b) => cfg.layers[a].layer_id - cfg.layers[b].layer_id);
-  if (order.every((v, i) => v === i)) return wrapped;
-  const blob = wrapped.subarray(4);
+  const to = layerRenumber(cfg.layers.map((l) => l.layer_id));
+  if (order.every((v, i) => v === i) && cfg.layers.every((l) => to.get(l.layer_id) === l.layer_id)) return wrapped;
+  const blob = wrapped.slice(4);
+  cfg.layers.forEach((l, li) => {
+    const at = ats[li];
+    blob[at.from] = to.get(l.layer_id);
+    for (const e of at.maps)
+      for (let j = 0; j < e.n; j++) {
+        const p = e.from + 4 + j * ACT_SIZE;
+        if ((blob[p + 1] === 20 || blob[p + 1] === 21) && to.has(blob[p + 2])) blob[p + 2] = to.get(blob[p + 2]);
+      }
+  });
+  const meta = cfg.offsets.meta;
+  if (meta != null) {
+    const end = meta + blob[meta - 1];
+    let o = meta + 1 + blob[meta];
+    const n = blob[o++] ?? 0;
+    for (let i = 0; i < n && o + 3 <= end; i++) {
+      if (to.has(blob[o])) blob[o] = to.get(blob[o]);
+      o += 3 + blob[o + 2];
+    }
+  }
   const from = ats[0].from;
   const parts = [blob.subarray(0, from), ...order.map((i) => blob.subarray(ats[i].from, ats[i].to)), blob.subarray(cfg.offsets.layersEnd)];
   const out = new Uint8Array(wrapped.length);

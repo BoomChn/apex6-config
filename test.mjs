@@ -439,7 +439,7 @@ console.log("macro create/delete ok");
   assert.deepEqual(maps(l1, 0), [["M3", "simple:layer_hold:2"], ["M4", "timing_single:btn_gamepad:M4", "timing_double:layer_toggle:1"]]);
   assert.equal(JSON.stringify({ ...c1, layers: c1.layers.slice(0, 2).map((l) => ({ ...l, mappings: undefined })) }), rest(base), "the rest of the profile did not move");
   // Adding then deleting a layer gives the original bytes back.
-  assert.ok(sameBytes(applyEdits(applyEdits(sample, { "layer.3.new": true }), { "layer.3.delete": true }), sample));
+  assert.ok(sameBytes(applyEdits(applyEdits(sample, { "layer.2.new": true }), { "layer.2.delete": true }), sample));
   // Deleting a layer takes its macros, their names and the presses that switched to it.
   const named = applyEdits(l1, { "macro.2.0.set": { mode: "press_once", actions: [{ action: "press", target: { type: "btn_gamepad", button: "A" }, at_ms: 0 }, { action: "release", target: { type: "btn_gamepad", button: "A" }, at_ms: 50 }] }, "macro.2.0.name": "Peek" });
   assert.deepEqual(cfgOf(named).macro_names, [{ layerId: 2, macroId: 0, name: "Peek" }]);
@@ -487,10 +487,52 @@ console.log("macro create/delete ok");
   assert.deepEqual(layerSwitches(S3, D3).map((s) => [s.layer, s.source, s.type, s.to]), [[0, "M1", "layer_hold", 2]]);
   assert.deepEqual(D3.items().map((i) => [i.writable, i.label]), [[true, "เพิ่ม Layer 2"], [true, "ลบ Shift layer"], [true, "ปุ่ม M1 · กดปกติ"], [true, "ปุ่ม A (Layer 2) · กดปกติ"]]);
   const out = applyEdits(sample, D3.writable());
-  assert.deepEqual(unwrapMapping(out).cfg.layers.map((l) => l.layer_id), [0, 2]);
+  // Layers 0 and 2 are numbered again as 0 and 1 (the firmware finds layers by position).
+  assert.deepEqual(unwrapMapping(out).cfg.layers.map((l) => l.layer_id), [0, 1]);
+  assert.equal(unwrapMapping(out).cfg.layers[0].mappings.find((m) => m.source === "M1").activators[0].target.layer, 1);
   S3.current = { cfg: unwrapMapping(out).cfg, slot: 1, wrapped: out };
+  for (const k of Object.keys(D3.writable())) D3.map.delete(k); // as runWrite does
   D3.prune();
   assert.equal(D3.count(), 0, "after the write every draft is done with");
+}
+{
+  // The firmware finds a hold/toggle layer by position, so ids must run 0, 1, 2 with no gap.
+  const cfgOf = (b) => unwrapMapping(b).cfg;
+  const hold = (b, L, src) => cfgOf(b).layers.find((l) => l.layer_id === L).mappings.find((m) => m.source === src).activators[0].target.layer;
+  const mk = { mode: "press_once", actions: [{ action: "press", target: { type: "btn_gamepad", button: "A" }, at_ms: 0 }, { action: "release", target: { type: "btn_gamepad", button: "A" }, at_ms: 50 }] };
+  const three = applyEdits(sample, { "layer.2.new": true, "map.0.M1.simple": { type: "layer_hold", layer: 2 }, "map.2.B.simple": { type: "btn_gamepad", button: "X" }, "macro.2.0.set": mk, "macro.2.0.name": "Peek" });
+  assert.deepEqual(cfgOf(three).layers.map((l) => l.layer_id), [0, 1, 2]);
+  // Deleting layer 1 leaves 0, 2: layer 2 becomes layer 1, and so do the hold to it and its macro name.
+  const gap = applyEdits(three, { "layer.1.delete": true });
+  const g = cfgOf(gap);
+  assert.deepEqual(g.layers.map((l) => l.layer_id), [0, 1]);
+  assert.equal(hold(gap, 0, "M1"), 1);
+  assert.equal(g.layers[1].mappings[0].activators[0].target.button, "X", "the layer keeps its buttons");
+  assert.deepEqual(g.macro_names, [{ layerId: 1, macroId: 0, name: "Peek" }]);
+  // checkProfile refuses what the firmware would get wrong; a gap stored on the controller is one.
+  const { checkProfile, crc16: crc } = await import("./mapping-edit.js");
+  const bad = three.slice();
+  bad[4 + cfgOf(three).offsets.layers[2].from] = 3;
+  const bc = crc(bad.subarray(4));
+  bad[2] = bc & 255; bad[3] = bc >> 8;
+  assert.throws(() => checkProfile(bad), /ไม่เขียนลงจอย: layer ลำดับที่ 3 มีเลข 3/);
+  assert.equal(cfgOf(applyEdits(bad, {})).layers[2].layer_id, 2, "a write fixes it");
+  // A profile already stored with a gap or out of order is fixed by any write.
+  const { layerRenumber } = await import("./mapping-edit.js");
+  assert.deepEqual([...layerRenumber([0, 3, 2])], [[0, 0], [2, 1], [3, 2]]);
+  const fixed = applyEdits(three, { "stick.left.max": 240 });
+  assert.ok(sameBytes(fixed.subarray(0, 4 + cfgOf(three).offsets.layersEnd).slice(4), three.subarray(4, 4 + cfgOf(three).offsets.layersEnd)), "layers already 0, 1, 2 are left as they are");
+  // The app says so in the review, and moves the macro links with it.
+  const { Drafts, layerMoves, macroPlan, resolveMacros } = await import("./model.js");
+  const { Library } = await import("./macros.js");
+  const mem = () => { const m = new Map(); return { getItem: (k) => m.get(k) ?? null, setItem: (k, v) => m.set(k, v) }; };
+  const S = { current: { cfg: cfgOf(three), slot: 0, wrapped: three }, uuid: "G", lib: new Library(mem()) };
+  resolveMacros(S);
+  const D = new Drafts(S);
+  D.set("layer.1.delete", true);
+  assert.deepEqual(layerMoves(S, D), [{ from: 2, to: 1 }]);
+  D.set("map.2.A.simple", { type: "macro", uid: S.lib.list()[0].uid });
+  assert.deepEqual(Object.keys(macroPlan(S, D).links).map((k) => k.split(".")[0]).sort(), ["1"], "links use the new layer ids");
 }
 console.log("button maps and layers ok");
 
