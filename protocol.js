@@ -257,7 +257,7 @@ export class Apex6 {
 
   // 0xEF frames: 32 bytes, LX LY RX RY i16le, buttons u32le, sum8 of bytes 2..30 at byte 31.
   // Bytes 15/16 are LT/RT u8 (0..255), found on hardware; the official site ignores them. 17..30 are unknown;
-  // 17..28 are read as six i16le (`imu`) on the guess that they are gyro + accel, to find out on the Gyro page.
+  // 17..28 are six i16le (`imu`): rotation rates 1 yaw, 2 pitch, 3 roll (hardware), then 3 that look like accel.
   onStick(cb) {
     const l = (b) => {
       if (b.length < 32 || b[0] !== SYNC0 || b[1] !== SYNC1 || b[2] !== CMD.STICK_STREAM || b[31] !== sum8(b, 2, 31)) return;
