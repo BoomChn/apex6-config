@@ -161,7 +161,10 @@ function layer(r) {
   };
 }
 
-const TLV_KEYS = { 1: "joystick_left", 2: "joystick_right", 3: "trigger_left", 4: "trigger_right", 5: "gyroscope" };
+const TLV_KEYS = {
+  1: "joystick_left", 2: "joystick_right", 3: "trigger_left", 4: "trigger_right", 5: "gyroscope",
+  6: "vibration_trigger_left", 7: "vibration_trigger_right", 8: "vibration_motor_left", 9: "vibration_motor_right",
+};
 
 // `offsets` records where each known TLV's value starts in the blob, for in-place edits.
 function tlv(r, out, offsets) {

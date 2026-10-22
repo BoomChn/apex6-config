@@ -21,6 +21,7 @@ export const CMD = {
   SKU: 0x0f,
   THIRDPARTY_STATUS: 0x10,
   SLOT_STATUS: 0xa1,
+  SWITCH_SLOT: 0xa2,
   RAM_READ: 0xa3,
   RAM_WRITE: 0xa4,
   LCD_SETTINGS: 0xac,
@@ -251,12 +252,14 @@ export class Apex6 {
   }
 
   async getSlotStatus() {
-    const p = (await this.request(CMD.SLOT_STATUS)).payload;
-    return {
-      activeSlot: p[0],
-      slotCrc16: [u16le(p, 1), u16le(p, 3), u16le(p, 5), u16le(p, 7)],
-      globalCrc16: u16le(p, 9),
-    };
+    return parseSlotStatus((await this.request(CMD.SLOT_STATUS)).payload);
+  }
+
+  // 0xA2 <slot> makes a slot active; the reply has the 0xA1 layout. Not yet verified on hardware.
+  async switchSlot(slot) {
+    const s = parseSlotStatus((await this.request(CMD.SWITCH_SLOT, new Uint8Array([slot]))).payload);
+    if (s.activeSlot !== slot) throw new Error(`จอยยังใช้ slot ${s.activeSlot + 1} อยู่ (ขอ slot ${slot + 1})`);
+    return s;
   }
 
   // 0xA3 op 0: READ_CHUNK <ramId> <chunkIndex> <chunkSize>
@@ -351,6 +354,14 @@ export class Apex6 {
     }
     return { activeSlot: c[3] ?? 0, len, crc32: crc };
   }
+}
+
+function parseSlotStatus(p) {
+  return {
+    activeSlot: p[0],
+    slotCrc16: [u16le(p, 1), u16le(p, 3), u16le(p, 5), u16le(p, 7)],
+    globalCrc16: u16le(p, 9),
+  };
 }
 
 function isApex6(d) {

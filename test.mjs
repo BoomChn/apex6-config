@@ -121,3 +121,38 @@ const wb = await Apex6.open(bad);
 await assert.rejects(wb.writeRam(5, patched), /COMMIT mismatch/);
 assert.ok(sameBytes(bad.ram[5], sample), "rejected commit leaves RAM unchanged");
 console.log("write ok");
+
+// --- Byte-level edits beyond deadzone ---
+const { applyEdits, WRITABLE, curveEndMin } = await import("./mapping-edit.js");
+const edits = {
+  "stick.left.max": 240, "stick.right.round": !wcfg.joystick_right.is_round, "stick.left.invertY": true,
+  "trigger.left.start": 20, "trigger.right.end": 230,
+  "gyro.mode": "right_joystick", "gyro.invertY": true,
+  "runtime.long": 400, "runtime.double": 200,
+};
+const e1 = applyEdits(sample, edits);
+const c1 = unwrapMapping(e1).cfg; // CRC16 must still validate
+assert.equal(c1.joystick_left.curve.end_x, 240);
+assert.equal(c1.joystick_right.is_round, !wcfg.joystick_right.is_round);
+assert.equal(c1.joystick_left.invert_y, true);
+assert.equal(c1.joystick_left.invert_x, wcfg.joystick_left.invert_x, "other flag bits untouched");
+assert.equal(c1.trigger_left.curve.start_x, 20);
+assert.equal(c1.trigger_right.curve.end_x, 230);
+assert.equal(c1.gyroscope.mode, "right_joystick");
+assert.equal(c1.gyroscope.invert_y, true);
+assert.equal(c1.runtime.long_press_ms, 400);
+assert.equal(c1.runtime.double_press_ms, 200);
+assert.equal(c1.layers.length, wcfg.layers.length);
+const changed = [...e1].filter((b, i) => b !== sample[i]).length;
+assert.ok(changed <= Object.keys(edits).length + 4, `too many bytes changed: ${changed}`);
+if (wcfg.vibration_motor_left) {
+  const e2 = unwrapMapping(applyEdits(sample, { "motor.left.enabled": false, "motor.left.max": 200 })).cfg;
+  assert.equal(e2.vibration_motor_left.enabled, false);
+  assert.equal(e2.vibration_motor_left.curve.end_y, 200);
+}
+assert.throws(() => applyEdits(sample, { "stick.left.max": curveEndMin(wcfg.joystick_left.curve) - 1 }));
+assert.throws(() => applyEdits(sample, { "gyro.mode": "teleport" }));
+assert.throws(() => applyEdits(sample, { "led.color": "#ff0000" }), /ยังเขียน/);
+assert.ok(sameBytes(applyEdits(sample, {}), sample), "empty edit is byte-identical");
+assert.ok(WRITABLE.has("stick.left.deadzone") && !WRITABLE.has("led.color"));
+console.log("edits ok");
