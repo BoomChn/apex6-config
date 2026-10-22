@@ -289,6 +289,11 @@ select.field { appearance: none; padding-right: 36px; background: #fff url("data
 .co:focus { outline: none; }
 .co:focus-visible .ring { stroke: var(--cobalt); stroke-width: 2; }
 .co.nomap .val { fill: var(--ink-3); }
+/* Shoulder and back buttons on the front photo: dashed line, hollow point. */
+.co.behind .line { stroke-dasharray: 4 3; }
+.co.behind .pt { fill: #fff; stroke: var(--ink); stroke-width: 1.5; }
+.co.behind.pend .pt { stroke: var(--cobalt); }
+.co.behind.sel .pt { fill: var(--cobalt); stroke: var(--cobalt); }
 
 .inset {
   flex-shrink: 0; width: 176px; height: 88px; border: 1px solid var(--ink);

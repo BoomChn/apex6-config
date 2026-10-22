@@ -19,7 +19,7 @@ const S = {
   loadError: null,
   connectError: null,
   tab: tabFromHash(),
-  ui: { side: "back", layer: 0, layerMode: "hold", sel: "M1", press: "simple", outType: null, dpad: "D-pad ↑", renaming: null, macro: null, step: 0 },
+  ui: { layer: 0, layerMode: "hold", sel: "M1", press: "simple", outType: null, dpad: "D-pad ↑", renaming: null, macro: null, step: 0 },
   log: [],
   backups: [],
   dump: null,
@@ -441,8 +441,7 @@ function selectSource(src) {
 
 function pick(id) {
   const ui = S.ui;
-  if (ui.side === "back") selectSource(V.BACK_SRC[id] ?? id);
-  else selectSource(id === "DPAD" ? ui.dpad : V.FRONT_SRC[id]);
+  selectSource(id === "DPAD" ? ui.dpad : V.ALL_SRC[id] ?? id);
   render();
   const ed = document.querySelector(".head-inset");
   ed?.scrollIntoView({ block: "nearest" });
@@ -500,13 +499,6 @@ const ACTIONS = {
   "restore-last": () => {
     const b = S.backups.find((x) => x.slot === S.current.slot);
     if (b) restoreBackup(b);
-  },
-  side: (el) => {
-    S.ui.side = el.dataset.side;
-    const onBack = ["M1", "M2", "M3", "M4", "M5", "M6", "LB", "RB", "LT (active)", "RT (active)"].includes(S.ui.sel);
-    if (S.ui.side === "back" && !onBack) selectSource("M1");
-    if (S.ui.side === "front" && onBack) selectSource("A");
-    render();
   },
   layer: (el) => {
     S.ui.layer = Number(el.dataset.layer);
@@ -586,8 +578,6 @@ const ACTIONS = {
   "pick-src": (el) => {
     const src = el.dataset.src;
     S.ui.layer = Number(el.dataset.layer);
-    const back = ["M1", "M2", "M3", "M4", "M5", "M6", "LB", "RB", "LT (active)", "RT (active)"].includes(src);
-    S.ui.side = back ? "back" : "front";
     if (src.startsWith("D-pad")) S.ui.dpad = src;
     selectSource(src);
     render();
