@@ -388,8 +388,6 @@ function changedList(S, D) {
 }
 
 const OUT_KEYS = ["A", "B", "X", "Y", "LB", "RB", "LT (active)", "RT (active)", "LS", "RS", "Back", "Start", "D-pad ↑", "D-pad ↓", "D-pad ←", "D-pad →", "M1", "M2", "M3", "M4", "M5", "M6"];
-// LM/RM (M5/M6) ids come from the official desktop app's names, not yet from a write to the controller.
-const LMRM = new Set(["M5", "M6"]);
 const MOUSE = ["คลิกซ้าย", "คลิกขวา", "คลิกกลาง", "ปุ่มเมาส์ 4", "ปุ่มเมาส์ 5"];
 const OUT_TYPES = [
   { id: "gamepad", label: "ปุ่มจอย" },
@@ -492,7 +490,6 @@ function buttonEditor(S, D) {
         ${isFactory ? "" : `<button class="link" data-act="factory-btn" title="กดปกติส่ง ${esc(btnName(src))} เอง ไม่มีกดค้างหรือดับเบิลคลิก">ตั้งเป็นค่าเริ่มต้น</button>`}
       </span>
     </div>
-    ${LMRM.has(src) || LMRM.has(cur?.button) ? `<p class="meta" style="margin:12px 0 0;line-height:20px">${UNTESTED} ID ของ LM/RM เอามาจากแอป Flydigi Space Station (LM = M5, RM = M6) ยังไม่เคยเขียนลงจอยจริง ลองแล้วเช็คใน joy.cpl ก่อนใช้</p>` : ""}
     ${src.startsWith("D-pad") ? `<div class="seg" style="margin-top:16px">${["D-pad ↑", "D-pad ↓", "D-pad ←", "D-pad →"].map((d) => `<button class="${src === d ? "on" : ""}" data-act="dpad" data-dir="${esc(d)}">${btnName(d)}</button>`).join("")}</div>` : ""}
     <div style="padding-top:20px"><div class="label" style="padding-bottom:8px">เมื่อกด ${esc(btnName(src))} แบบ…</div>${rows}</div>
     <div style="padding-top:28px;display:grid;gap:14px">
