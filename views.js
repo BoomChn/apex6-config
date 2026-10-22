@@ -4,7 +4,7 @@
 import { BACK, FRONT, ALL, stageSvg, inset, TRIG_MARK, PHOTO, LED_PATH } from "./stage.js";
 import {
   esc, pct, same, btnName, PRESS, GYRO_MODE, LED_MODE, LAYER_NAME, PRESET, TPRESET, GPRESET, AXIS, MACRO_MODE, TIMEOUT,
-  labelTarget, macroName, baseTarget, isIdentity, evalCurve, macroLayers, macroKey, macroSteps, boundSources,
+  labelTarget, baseTarget, isIdentity, evalCurve, macroSteps, macroUses, macroList, openMacro,
   layerList, nextLayerId, layerSwitches, layerKey,
 } from "./model.js";
 import { BUTTONS } from "./mapping.js";
@@ -459,13 +459,17 @@ function buttonEditor(S, D) {
       (m, i) => `<button class="key" style="width:auto;padding:0 14px${cur?.type === "btn_mouse" && cur.mouse === i ? ";background:var(--cobalt);color:#fff;border-color:var(--cobalt)" : ""}" data-act="out" data-type="mouse" data-mouse="${i}">${m}</button>`,
     ).join("")}</div>`;
   } else if (type === "macro") {
-    // Macros drafted as new can be bound in the same write; ones drafted for deletion can't.
-    const macros = (macroLayers(S, D).find((g) => g.layer === layer)?.items ?? []).filter((m) => !m.deleted).map((m) => ({ layer, id: m.id }));
-    body = macros.length
-      ? `<p class="meta" style="margin:8px 0 0">macro ของ ${esc(LAYER_NAME(layer))}</p><div style="margin-top:8px">${macros.map(
-          (m) => `<button class="row" data-act="out" data-type="macro" data-macro="${m.id}"><span class="v" style="font-weight:700${cur?.type === "macro" && cur.macro === m.id && (cur.layer ?? layer) === layer ? ";color:var(--cobalt)" : ""}">${esc(macroName(cfg, m.layer, m.id))}</span>${ICON.chev}</button>`,
-        ).join("")}</div>`
-      : `<p class="empty-note">${esc(LAYER_NAME(layer))} ยังไม่มี macro · สร้างได้ที่หน้า Macros</p>`;
+    // Any macro of the library: the write puts a copy into this layer (macros.js).
+    const all = S.lib.list();
+    const q = (ui.pickQ ?? "").trim().toLowerCase();
+    const list = q ? all.filter((m) => m.name.toLowerCase().includes(q)) : all;
+    const used = S.plan?.used?.[layer] ?? 0;
+    body = all.length
+      ? `<div style="display:flex;gap:16px;align-items:center;margin-top:12px">${all.length > 6 ? `<input class="field" type="search" style="flex:1;height:40px" placeholder="ค้นหา macro" value="${esc(ui.pickQ ?? "")}" data-filter="pickQ" aria-label="ค้นหา macro">` : ""}<span class="meta">${esc(LAYER_NAME(layer))} ใช้ macro ${used}/${MACRO_MAX} ตัว</span></div>
+        <div style="margin-top:8px;max-height:360px;overflow:auto">${list.map(
+          (m) => `<button class="row" data-act="out" data-type="macro" data-uid="${esc(m.uid)}" ${m.actions.length ? "" : 'disabled title="ยังไม่มีขั้น เพิ่มที่หน้า Macros ก่อน"'}><span class="v" style="font-weight:700${cur?.type === "macro" && cur.uid === m.uid ? ";color:var(--cobalt)" : ""}">${esc(m.name)} <span class="small muted" style="font-weight:500">· ${m.actions.length ? `${macroSteps(m.actions)} ขั้น` : "ยังไม่มีขั้น"}</span></span>${ICON.chev}</button>`,
+        ).join("") || `<p class="empty-note">ไม่มี macro ที่ตรงกับที่ค้น</p>`}</div>`
+      : `<p class="empty-note">คลังยังไม่มี macro · สร้างได้ที่หน้า Macros</p>`;
   } else if (type === "layer") {
     body = layerPicker(S, D, cur);
   } else if (type === "keyboard") {
@@ -673,58 +677,51 @@ export function liveTrigger(v) {
 
 // ---------------- 04 Macros ----------------
 
+// One library for every slot (macros.js). The controller gets a copy of a macro in each layer
+// whose buttons play it, at the next write.
 export function macros(S, D) {
-  const cfg = S.current.cfg;
-  const groups = macroLayers(S, D);
-  const all = groups.flatMap((g) => g.items);
-  const sel = all.find((x) => x.layer === S.ui.macro?.layer && x.id === S.ui.macro?.id) ?? all[0];
-  const boundTo = (layer, id) => boundSources(cfg, D, layer, id)[0] ?? null;
-  const row = (it) => {
-    const { layer, id, m } = it;
-    const on = sel && sel.layer === layer && sel.id === id;
-    const nk = macroKey(layer, id, "name");
-    const dur = m.actions.at(-1)?.at_ms ?? 0;
-    const mode = it.isNew ? m.trigger_mode : D.get(macroKey(layer, id, "mode"));
-    const b = it.isNew ? null : boundTo(layer, id);
-    const state = it.isNew
-      ? `<span class="meta pending">ใหม่ · ยังไม่ได้เขียน</span>`
-      : it.deleted
-        ? `<span class="meta err">จะถูกลบ</span>`
-        : b
-          ? `<span class="keytag ink">${esc(btnName(b))}</span>`
-          : `<span class="meta">ยังไม่ผูกปุ่ม</span>`;
-    return `<button class="list-row" style="width:100%;border-left:0;border-right:0;border-top:0;background:none;text-align:left;justify-content:space-between" data-act="macro" data-layer="${layer}" data-id="${id}">
-      <span><span style="display:block;font-size:17px;font-weight:${on ? 700 : 600}${it.deleted ? ";text-decoration:line-through;color:var(--ink-2)" : ""}" class="${D.has(nk) || it.isNew ? "pending" : ""}">${esc(D.get(nk))}</span>
-      <span class="muted" style="font-size:14px">${macroSteps(m.actions)} ขั้น · ${dur} ms · ${esc(MACRO_MODE[mode] ?? "")}${on ? " · กำลังเปิดดู" : ""}</span></span>
+  const lib = S.lib.list();
+  const plan = S.plan ?? { rows: [], errors: [], used: {} };
+  const q = (S.ui.macroQ ?? "").trim().toLowerCase();
+  const list = macroList(S);
+  const sel = openMacro(S);
+  const stale = (uid) => plan.rows.some((r) => r.uid === uid && r.kind === "update");
+  const dur = (m) => m.actions.reduce((t, a) => Math.max(t, a.at_ms), 0);
+  const row = (m) => {
+    const on = sel?.uid === m.uid;
+    const srcs = [...new Set(macroUses(S, D, m.uid).map((u) => u.source))];
+    const state = stale(m.uid)
+      ? `<span class="meta pending">แก้แล้ว · ยังไม่ได้เขียน</span>`
+      : srcs.length
+        ? `<span style="display:flex;gap:4px;align-items:center">${srcs.slice(0, 3).map((s) => `<span class="keytag ink">${esc(btnName(s))}</span>`).join("")}${srcs.length > 3 ? `<span class="meta">+${srcs.length - 3}</span>` : ""}</span>`
+        : `<span class="meta">${m.actions.length ? "ยังไม่ได้ใช้" : "ยังไม่มีขั้น"}</span>`;
+    return `<button class="list-row" style="width:100%;border-left:0;border-right:0;border-top:0;background:none;text-align:left;justify-content:space-between" data-act="macro" data-uid="${esc(m.uid)}">
+      <span><span style="display:block;font-size:17px;font-weight:${on ? 700 : 600}">${esc(m.name)}</span>
+      <span class="muted" style="font-size:14px">${macroSteps(m.actions)} ขั้น · ${dur(m)} ms · ${esc(MACRO_MODE[m.mode] ?? "")}${on ? " · กำลังเปิดดู" : ""}</span></span>
       ${state}
     </button>`;
   };
-  const group = (g, i) => {
-    const pendingDelete = g.items.some((x) => x.deleted);
-    return `<section style="margin-top:${i ? 32 : 0}px">
-      <div class="rule-head"><h2>${esc(g.name)}</h2><span class="meta">${g.items.length}/${MACRO_MAX} ตัว</span></div>
-      ${g.items.map(row).join("") || `<p class="empty-note">layer นี้ยังไม่มี macro</p>`}
-      <p style="margin:12px 0 0">${
-        g.nextId === null
-          ? `<span class="meta">ครบ ${MACRO_MAX} ตัวแล้ว${pendingDelete ? " · เขียนการลบลงจอยก่อน ถึงจะสร้างเพิ่มได้" : ""}</span>`
-          : `<button class="link" data-act="macro-new" data-layer="${g.layer}">+ Macro ใหม่ใน ${esc(g.name)}</button>`
-      }</p></section>`;
-  };
-  // Names share one 255-byte block with the profile name: 3 bytes of layer, id and length per macro.
-  const used = 1 + nameBytes(cfg.name ?? "") + 1 + (cfg.macro_names ?? []).reduce((n, x) => n + 3 + nameBytes(x.name), 0);
+  const usage = layerList(S, D)
+    .filter((l) => !l.deleted)
+    .map((l) => `${esc(LAYER_NAME(l.id))} <span class="mono">${plan.used[l.id] ?? 0}/${MACRO_MAX}</span>`)
+    .join(" · ");
+  const uses = sel ? macroUses(S, D, sel.uid) : [];
   const left = `<div>
-    ${groups.map(group).join("")}
-    <p class="meta" style="margin-top:28px;line-height:20px">แต่ละ layer มี macro ได้ ${MACRO_MAX} ตัว${cfg.version === "1.9" ? ` · ชื่อทั้งหมดบนจอยใช้ไป <span class="mono">${used}/255</span> ไบต์ (รวมชื่อโปรไฟล์) ถ้าเกิน จะเขียนชื่อลงจอยไม่ได้ ต้องตั้งชื่อให้สั้นลง` : ""}</p>
-    ${sel && !sel.isNew && !sel.deleted && boundTo(sel.layer, sel.id) ? boundFigure(boundTo(sel.layer, sel.id), D.get(macroKey(sel.layer, sel.id, "name"))) : ""}
+    <div style="display:flex;gap:12px;align-items:center">
+      <input class="field" type="search" style="flex:1;height:44px" placeholder="ค้นหา macro" value="${esc(S.ui.macroQ ?? "")}" data-filter="macroQ" aria-label="ค้นหา macro">
+      <button class="btn" data-act="macro-new">+ Macro ใหม่</button>
+    </div>
+    <div class="rule-head" style="margin-top:20px"><h2>คลัง macro</h2><span class="meta">${lib.length} ตัว${q ? ` · ตรงกับที่ค้น ${list.length}` : ""}</span></div>
+    ${list.map(row).join("") || `<p class="empty-note">${lib.length ? "ไม่มี macro ที่ตรงกับที่ค้น" : "ยังไม่มี macro · กด + Macro ใหม่"}</p>`}
+    <p class="meta" style="margin-top:20px;line-height:20px">จอยจะมีเฉพาะ macro ที่ผูกกับปุ่ม เก็บได้ ${MACRO_MAX} ตัวต่อ layer · Slot ${S.slots.activeSlot + 1} ใช้อยู่ ${usage}</p>
+    <p class="meta" style="margin-top:8px;line-height:20px">คลังเก็บในเบราว์เซอร์นี้ ใช้ได้กับทุก slot · <button class="link" data-act="lib-export">ส่งออก</button> · <button class="link" data-act="lib-import">นำเข้า</button></p>
+    ${uses[0] ? boundFigure(uses[0].source, sel.name) : ""}
   </div>`;
-  const sub = `slot ${S.slots.activeSlot + 1} · แยกตาม layer · สร้าง ลบ และตั้งชื่อได้`;
+  const sub = "macro ทั้งหมดอยู่ในคลังเดียว ปุ่มใน layer ไหนก็เลือกใช้ได้";
   if (!sel) return `${head("Macros", sub)}<div style="max-width:440px">${left}</div>`;
-  const { layer, m } = sel;
-  const nk = macroKey(layer, sel.id, "name");
-  const mk = macroKey(layer, sel.id, "mode");
-  const name = D.get(nk);
+  const m = sel;
   const bars = macroBars(m);
-  const total = Math.max(100, m.actions.at(-1)?.at_ms ?? 0);
+  const total = Math.max(100, dur(m));
   const scaleMax = Math.ceil(total / 100) * 100;
   const ticks = Array.from({ length: scaleMax / 100 + 1 }, (_, i) => i * 100);
   const selStep = Math.min(S.ui.step ?? 0, bars.length - 1);
@@ -737,62 +734,52 @@ export function macros(S, D) {
     })
     .join("");
   const st = bars[selStep];
-  const b = sel.isNew ? null : boundTo(layer, sel.id);
-  const gone = sel.deleted
-    ? (() => {
-        const bound = boundSources(cfg, null, layer, sel.id);
-        return `<p class="notice" style="margin:0 0 20px;font-size:15px;color:var(--ink)">${ICON.warn}<span><b>จะถูกลบตอนเขียนลงจอย</b>${bound.length ? ` · ปุ่ม ${bound.map((s) => esc(btnName(s))).join(", ")} ที่ผูกไว้จะกลับเป็นค่าเดิม` : ""} · <button class="link" data-act="macro-undelete" data-layer="${layer}" data-id="${sel.id}">ยกเลิกการลบ</button></span></p>`;
-      })()
+  const where = (u) => `${btnName(u.source)}${u.layer ? ` (${LAYER_NAME(u.layer)})` : ""}`;
+  const notice = stale(m.uid)
+    ? `<p class="notice" style="margin:0 0 20px;font-size:15px;color:var(--ink)">${ICON.warn}<span><b>แก้แล้ว ยังไม่ได้เขียนลงจอย</b> · ปุ่ม ${esc([...new Set(uses.map(where))].join(", "))} ยังเล่นแบบเดิมจนกว่าจะเขียน</span></p>`
     : "";
-  const modes = sel.isNew
-    ? `<div class="utabs">${Object.entries(MACRO_MODE)
-        .map(([id, l]) => `<button class="utab${m.trigger_mode === id ? " on" : ""}" data-act="macro-mode" data-val="${id}">${l}</button>`)
-        .join("")}</div>`
-    : presetTabs(mk, MACRO_MODE, D);
-  const del = sel.deleted
-    ? ""
-    : `<button class="btn err sm" data-act="macro-delete" data-layer="${layer}" data-id="${sel.id}">${sel.isNew ? "ลบร่างนี้" : "ลบ macro นี้"}</button>`;
+  const modes = `<div class="utabs">${Object.entries(MACRO_MODE)
+    .map(([id, l]) => `<button class="utab${m.mode === id ? " on" : ""}" data-act="macro-mode" data-val="${id}">${l}</button>`)
+    .join("")}</div>`;
   const stepCount = macroSteps(m.actions);
-  const tool = sel.isNew
-    ? `<div style="border-top:3px solid var(--ink);margin:28px 0 24px;padding-top:16px">
-        <span class="label" style="display:block;margin-bottom:8px">เพิ่มขั้น · กดปุ่มที่ macro จะกด ตามลำดับ</span>
-        <div class="keys">${MACRO_PAD.map((p) => `<button class="key" style="width:auto;min-width:56px;padding:0 12px" data-act="step-add" data-btn="${esc(p)}">${esc(btnName(p))}</button>`).join("")}</div>
-        <div style="display:flex;align-items:end;gap:24px;margin-top:16px">
-          <label><span class="label" style="display:block;margin-bottom:6px">กดค้างขั้นละ (ms)</span><input class="field" type="number" min="10" max="2000" step="10" style="width:120px" value="${S.ui.hold ?? 50}" data-ui="hold"></label>
-          <label><span class="label" style="display:block;margin-bottom:6px">เว้นก่อนขั้นถัดไป (ms)</span><input class="field" type="number" min="0" max="2000" step="10" style="width:120px" value="${S.ui.gap ?? 50}" data-ui="gap"></label>
-          <span style="flex:1"></span>
-          <span class="muted">${stepCount} ขั้น · รวม ${m.actions.at(-1)?.at_ms ?? 0} ms</span>
-          <button class="link" data-act="step-undo" ${stepCount ? "" : "disabled"}>ลบขั้นล่าสุด</button>
-          ${del}
-        </div></div>`
-    : `<div style="border-top:3px solid var(--ink);margin-top:28px;padding-top:16px;display:flex;align-items:center;gap:16px">
-        <button class="btn" disabled title="ยังไม่รองรับ"><span style="width:12px;height:12px;border-radius:6px;background:var(--error);display:inline-block"></span>อัดจากจอย</button>
-        <button class="btn" disabled title="แก้ขั้นของ macro ที่มีอยู่แล้วยังไม่รองรับ ลบแล้วสร้างใหม่แทนได้">+ เพิ่มขั้น</button>
-        <span style="flex:1"></span><span class="muted">รวม ${m.actions.at(-1)?.at_ms ?? 0} ms</span>
-        ${del}
-        <button class="btn ink" disabled title="คำสั่งเล่น macro บนจอยยังไม่ยืนยัน">${ICON.play} ลองเล่นบนจอย</button>
-      </div>`;
+  const tool = `<div style="border-top:3px solid var(--ink);margin:28px 0 24px;padding-top:16px">
+      <span class="label" style="display:block;margin-bottom:8px">เพิ่มขั้น · กดปุ่มที่ macro จะกด ตามลำดับ</span>
+      <div class="keys">${MACRO_PAD.map((p) => `<button class="key" style="width:auto;min-width:56px;padding:0 12px" data-act="step-add" data-btn="${esc(p)}">${esc(btnName(p))}</button>`).join("")}</div>
+      <div style="display:flex;align-items:end;gap:24px;margin-top:16px">
+        <label><span class="label" style="display:block;margin-bottom:6px">กดค้างขั้นละ (ms)</span><input class="field" type="number" min="10" max="2000" step="10" style="width:120px" value="${S.ui.hold ?? 50}" data-ui="hold"></label>
+        <label><span class="label" style="display:block;margin-bottom:6px">เว้นก่อนขั้นถัดไป (ms)</span><input class="field" type="number" min="0" max="2000" step="10" style="width:120px" value="${S.ui.gap ?? 50}" data-ui="gap"></label>
+        <span style="flex:1"></span>
+        <span class="muted">${stepCount} ขั้น · รวม ${dur(m)} ms</span>
+        <button class="link" data-act="step-undo" ${stepCount ? "" : "disabled"}>ลบขั้นล่าสุด</button>
+      </div></div>`;
   const right = `<div>
-    ${gone}
+    ${notice}
     <div style="display:grid;grid-template-columns:1fr 300px;gap:28px">
-      <div data-name-field><label><span class="label" style="display:block;margin-bottom:8px">ชื่อ macro · ${esc(LAYER_NAME(layer))} ${untested(nk)}</span>
-        <input class="field${D.has(nk) ? " pending" : ""}" style="height:52px;font-size:20px" value="${esc(name)}" data-key="${nk}" data-default="${esc(`Macro ${sel.id + 1}`)}" maxlength="${APP_NAME_MAX}" ${sel.deleted ? "disabled" : ""}></label>
-        <div style="margin-top:6px">${nameFit(name)}</div>
-        ${D.has(nk) || sel.isNew ? "" : nameClash(nk, cfg.shown?.macros[`${layer}.${sel.id}`]?.other)}</div>
-      <label><span class="label" style="display:block;margin-bottom:8px">ผูกกับปุ่ม</span>
-        <div class="field" style="height:52px;display:flex;align-items:center;gap:12px;color:${b ? "inherit" : "var(--ink-2)"}">${b ? `<span class="keytag">${esc(btnName(b))}</span>${esc(BTN_TITLE[b] ?? "")}` : "ยังไม่ผูก · ผูกได้ที่หน้า Buttons → Macro"}</div></label>
+      <div data-name-field><label><span class="label" style="display:block;margin-bottom:8px">ชื่อ macro</span>
+        <input class="field" style="height:52px;font-size:20px" value="${esc(m.name)}" data-lib-name data-default="Macro" maxlength="${APP_NAME_MAX}"></label>
+        <div style="margin-top:6px">${nameFit(m.name)}</div></div>
+      <div><span class="label" style="display:block;margin-bottom:8px">ใช้กับปุ่ม · Slot ${S.slots.activeSlot + 1}</span>
+        <div class="field" style="min-height:52px;height:auto;display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding-top:8px;padding-bottom:8px;color:${uses.length ? "inherit" : "var(--ink-2)"}">${uses.length ? uses.map((u) => `<span class="keytag">${esc(btnName(u.source))}</span><span class="small muted">${esc(u.layer ? LAYER_NAME(u.layer) : "")}${u.press === "simple" ? "" : ` ${esc(PRESS.find((p) => p.id === u.press).label)}`}</span>`).join("") : "ยังไม่ได้ใช้ · เลือกได้ที่หน้า Buttons → Macro"}</div>
+        ${uses.length ? `<div style="margin-top:6px">${UNTESTED}</div>` : ""}</div>
     </div>
-    ${sel.deleted ? "" : `<div style="margin-top:24px"><span class="label" style="display:block;margin-bottom:8px">เล่นแบบ</span>${modes}</div>`}
-    ${sel.deleted ? "" : tool}
+    <div style="margin-top:24px"><span class="label" style="display:block;margin-bottom:8px">เล่นแบบ</span>${modes}</div>
+    ${tool}
     <div class="timeline">
       <div class="tl-scale"><div></div><div>${ticks.map((t) => `<span style="left:${(t / scaleMax) * 100}%">${t}${t === scaleMax ? " ms" : ""}</span>`).join("")}</div></div>
-      ${rows || `<p class="empty-note">${sel.isNew ? "ยังไม่มีขั้น · กดปุ่มด้านบนเพื่อเพิ่ม" : "macro นี้ไม่มีขั้น"}</p>`}
+      ${rows || `<p class="empty-note">ยังไม่มีขั้น · กดปุ่มด้านบนเพื่อเพิ่ม</p>`}
     </div>
     ${st ? `<div style="display:grid;grid-template-columns:300px 200px 200px;gap:24px;align-items:end;margin-top:28px">
       <label><span class="label" style="display:block;margin-bottom:8px">ขั้นที่เลือก</span><div class="field" style="display:flex;align-items:center">${esc(st.label)}</div></label>
       <div><span class="label" style="display:block;margin-bottom:8px">กดที่</span><div class="ruled"><label></label><span class="num" style="font-size:18px">${st.from}</span><span class="unit">ms</span></div></div>
       <div><span class="label" style="display:block;margin-bottom:8px">ปล่อยที่</span><div class="ruled"><label></label><span class="num" style="font-size:18px">${st.to}</span><span class="unit">ms</span></div></div>
-    </div>${sel.isNew ? "" : `<p class="meta" style="margin-top:12px">แก้ขั้นของ macro ที่มีอยู่แล้วยังเขียนลงจอยไม่ได้ · ถ้าอยากเปลี่ยนขั้น ลบแล้วสร้างใหม่แทน</p>`}` : ""}
+    </div>` : ""}
+    <div style="display:flex;gap:16px;align-items:center;margin-top:32px">
+      <button class="btn" disabled title="ยังไม่รองรับ"><span style="width:12px;height:12px;border-radius:6px;background:var(--error);display:inline-block"></span>อัดจากจอย</button>
+      <button class="btn ink" disabled title="คำสั่งเล่น macro บนจอยยังไม่ยืนยัน">${ICON.play} ลองเล่นบนจอย</button>
+      <span style="flex:1"></span>
+      <button class="link" data-act="macro-copy">ทำสำเนา</button>
+      <button class="btn err sm" data-act="macro-delete">ลบออกจากคลัง</button>
+    </div>
   </div>`;
   return `${head("Macros", sub)}<div style="display:grid;grid-template-columns:440px minmax(0,1fr);gap:56px">${left}${right}</div>`;
 }
@@ -1057,7 +1044,7 @@ export function device(S, D) {
         <p class="meta" style="margin-top:12px">กู้คืนได้เฉพาะ slot ที่ใช้อยู่บนจอย · นำเข้าไฟล์จะเขียนลง slot ${S.slots.activeSlot + 1}</p>
       </section>
       <section style="margin-top:40px">
-        <div class="rule-head" style="align-items:flex-end"><div><h2>ชื่อที่เก็บในแอป</h2><span class="meta">ชื่อเต็มของ slot และ macro ของจอยตัวนี้ จอยเก็บได้แค่ ${NAME_MAX} ไบต์ต่อชื่อ · ไฟล์ .bin ไม่มีชื่อเหล่านี้</span></div>
+        <div class="rule-head" style="align-items:flex-end"><div><h2>ชื่อที่เก็บในแอป</h2><span class="meta">ชื่อเต็มของ slot ของจอยตัวนี้ จอยเก็บได้แค่ ${NAME_MAX} ไบต์ต่อชื่อ · ไฟล์ .bin ไม่มีชื่อเหล่านี้ · ชื่อ macro อยู่ในคลังที่หน้า Macros</span></div>
           <span style="display:flex;gap:20px;white-space:nowrap"><button class="link" data-act="names-import">นำเข้าชื่อ</button><button class="link" data-act="names-export">ส่งออกชื่อ</button></span></div>
         <p class="meta" style="margin-top:12px">${Object.keys(S.names.export(S.uuid).names).length} ชื่อเก็บในเบราว์เซอร์นี้ · ส่งออกไว้ถ้าจะใช้แอปบนเครื่องอื่น</p>
       </section>
@@ -1100,8 +1087,7 @@ const WRITABLE_NOW = [
   { label: "มอเตอร์สั่น", what: "เปิด/ปิด · แรงสูงสุด" },
   { label: "เวลาตัดสินการกด", what: "กดค้าง · ดับเบิลคลิก" },
   { label: "ชื่อ profile", what: "เฉพาะ slot ที่ใช้อยู่" },
-  { label: "ชื่อ macro", what: "macro ที่มีอยู่แล้วใน slot" },
-  { label: "สร้าง / ลบ macro", what: "สร้างจากปุ่มจอย · ไม่เกิน 8 ตัวต่อ layer" },
+  { label: "Macro", what: "จากคลัง ใส่ลงทุก layer ที่ปุ่มเลือกใช้ · ไม่เกิน 8 ตัวต่อ layer" },
   { label: "ปุ่ม", what: "ปุ่มจอย · เมาส์ · Turbo · Macro · สลับ layer · ปิดปุ่ม · ทุก layer" },
   { label: "เพิ่ม / ลบ layer", what: "ไม่เกิน 4 layer ต่อ slot" },
 ];
@@ -1110,22 +1096,38 @@ export function review(S, D) {
   const items = D.items();
   const slotItems = items.filter((i) => i.group === "slot" && i.writable);
   const unsup = items.filter((i) => !i.writable);
-  const nW = slotItems.length;
-  const empty = slotItems.filter((i) => i.key.startsWith("macro.") && i.key.endsWith(".new") && !i.value.actions.length);
+  const plan = S.plan ?? { rows: [], errors: [] };
+  // Library macros edited since they were written count on their own; adding and removing copies
+  // comes with a button that was changed.
+  const nW = slotItems.length + plan.rows.filter((r) => r.kind === "update" || r.kind === "rename").length;
+  const errors = plan.errors;
   const row = (i) => `<div class="diff-row${i.writable ? "" : " unsup"}"><b>${esc(i.label)}${untested(i.editKey) ? `<br>${untested(i.editKey)}` : ""}</b><span class="old">${esc(i.baseText ?? (i.base === undefined ? "ไม่ทราบ" : i.fmt(i.base)))}</span><span>→</span>
     <span class="new">${i.key === "led.color" ? `<span class="swatch-dot" style="background:${esc(i.value)}"></span>` : ""}${esc(i.fmt(i.value))}${i.writable && i.key.endsWith(".name") && fit(i.value) !== i.value ? `<br><span class="meta">บนจอยจะเป็น “${esc(fit(i.value))}” · ชื่อเต็มเก็บในแอป</span>` : ""}</span></div>`;
   const slot = S.slots.activeSlot;
+  const steps = (uid) => {
+    const m = S.lib.get(uid);
+    return m ? `${macroSteps(m.actions)} ขั้น · ${MACRO_MODE[m.mode] ?? m.mode}` : "";
+  };
+  const diff = (label, old, nw) => `<div class="diff-row"><b>${esc(label)}<br>${UNTESTED}</b><span class="old">${esc(old)}</span><span>→</span><span class="new">${esc(nw)}</span></div>`;
+  const macroRow = (r) => {
+    const L = LAYER_NAME(r.layer);
+    if (r.kind === "add") return diff(`ใส่ ${r.name} ลง ${L}`, "ไม่มีในจอย", steps(r.uid));
+    if (r.kind === "update") return diff(`อัปเดต ${r.name} · ${L}`, "แบบเดิมในจอย", steps(r.uid));
+    if (r.kind === "remove") return diff(`เอา ${r.name} ออกจาก ${L}`, "อยู่ในจอย", "ไม่มีปุ่มเล่นแล้ว · ยังอยู่ในคลัง");
+    if (r.kind === "rename") return diff(`ชื่อ macro · ${L}`, "ชื่อเดิมในจอย", r.name || "ไม่มีชื่อ");
+    return diff("ชื่อ macro บนจอย", `ไม่เกิน ${NAME_MAX} ไบต์`, r.cap ? `ตัดเหลือ ${r.cap} ไบต์ต่อชื่อ ให้พอที่เก็บชื่อ 255 ไบต์` : "ไม่ใส่ชื่อ ที่เก็บชื่อ 255 ไบต์ไม่พอ");
+  };
   // Every pending edit is draft-only: say which ones, and what can be written today.
   const stuck = [...new Set(unsup.map((i) => i.label.split(" · ")[0]))].join(", ");
-  const sub = empty.length ? `${esc(empty.map((i) => i.label.replace(/^สร้าง /, "")).join(", "))} ยังไม่มีขั้น เพิ่มอย่างน้อย 1 ขั้นก่อนเขียน หรือลบร่างนั้นทิ้ง` : nW ? "ตรวจก่อนเขียน · อย่าถอดสายระหว่างเขียน" : `${esc(stuck)} ยังเขียนลงจอยไม่ได้ เลยเก็บเป็นร่างไว้ในหน้านี้ · ค่าบนจอยยังเหมือนเดิม`;
+  const sub = errors.length ? esc(errors.join(" · ")) : nW ? "ตรวจก่อนเขียน · อย่าถอดสายระหว่างเขียน" : `${esc(stuck)} ยังเขียนลงจอยไม่ได้ เลยเก็บเป็นร่างไว้ในหน้านี้ · ค่าบนจอยยังเหมือนเดิม`;
   return `<h2 class="d-title" id="sheet-title">${nW ? `เขียน ${nW} การเปลี่ยนแปลงลงจอย` : "ยังไม่มีอะไรที่เขียนลงจอยได้"}</h2>
     <p class="d-sub">${sub}</p>
-    ${nW ? `<div class="d-group"><div class="rule-head"><h2>Slot ${slot + 1}${D.get(`slot.${slot}.name`) ? ` · ${esc(D.get(`slot.${slot}.name`))}` : ""}</h2><span class="meta">ค่าบนจอย → ค่าใหม่</span></div>${slotItems.map(row).join("")}</div>` : ""}
+    ${nW ? `<div class="d-group"><div class="rule-head"><h2>Slot ${slot + 1}${D.get(`slot.${slot}.name`) ? ` · ${esc(D.get(`slot.${slot}.name`))}` : ""}</h2><span class="meta">ค่าบนจอย → ค่าใหม่</span></div>${slotItems.map(row).join("")}${plan.rows.map(macroRow).join("")}</div>` : ""}
     ${unsup.length ? `<div class="d-group"><div class="rule-head"><h2>ยังเขียนลงจอยไม่ได้</h2><span class="meta">เก็บเป็นร่างในหน้านี้ ไม่ส่งลงจอย</span></div>${unsup.map(row).join("")}</div>` : ""}
     ${nW ? "" : `<div class="d-group"><div class="rule-head thin"><h2>ที่เขียนลงจอยได้ตอนนี้</h2>${UNTESTED}</div>${WRITABLE_NOW.map((g) => `<div class="can-row"><b>${g.label}</b><span>${g.what}</span></div>`).join("")}</div>`}
     ${nW ? `<p class="notice" style="margin-top:24px;font-size:15px;color:var(--ink)">${ICON.file}<span><b>สำรองค่าบนจอยเป็นไฟล์อัตโนมัติก่อนเขียนทุกครั้ง</b> <span class="muted">· กู้คืนได้ที่ Device &amp; backup</span></span></p>` : ""}
     <div class="d-actions"><button class="link" style="font-size:17px" data-act="close-sheet">กลับไปแก้</button>
-      <button class="btn primary" data-act="write" ${nW && !empty.length ? "" : "disabled"}>เขียนลงจอย</button></div>`;
+      <button class="btn primary" data-act="write" ${nW && !errors.length ? "" : "disabled"}>เขียนลงจอย</button></div>`;
 }
 
 export function writing(W) {

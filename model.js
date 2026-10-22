@@ -2,7 +2,8 @@
 // Keys editKey() maps to a writable field (mapping-edit.js) can be written; everything else stays a draft in this page
 // until the protocol for it is known, and the UI says so.
 
-import { isWritable, MACRO_MAX, LAYER_MAX } from "./mapping-edit.js";
+import { isWritable, LAYER_MAX } from "./mapping-edit.js";
+import { planMacros } from "./macros.js";
 import { fit } from "./names.js";
 import { targetLabel } from "./profile-view.js";
 
@@ -30,7 +31,7 @@ export function labelTarget(t, cfg) {
   if (t === null || t?.type === "none") return "ปิดปุ่ม";
   if (t.type === "btn_gamepad") return `${btnName(t.button)}`;
   if (t.type === "turbo_gamepad") return `Turbo ${btnName(t.button)} · ${t.interval_ms} ms`;
-  if (t.type === "macro") return `Macro · ${macroName(cfg, t.layer ?? 0, t.macro)}`;
+  if (t.type === "macro") return `Macro · ${t.uid ? cfg?.lib?.get(t.uid)?.name ?? "ไม่มีในคลังแล้ว" : macroName(cfg, t.layer ?? 0, t.macro)}`;
   if (t.type === "layer_hold") return `กดค้างเข้า ${LAYER_NAME(t.layer)}`;
   if (t.type === "layer_toggle") return `สลับไป ${LAYER_NAME(t.layer)}`;
   return targetLabel(t);
@@ -78,75 +79,76 @@ export function layerSwitches(S, D, match = () => true) {
   return out;
 }
 
+// Name of a copy on the controller that is not linked to the library (see macros.js).
 export function macroName(cfg, layerId, macroId) {
-  return cfg?.shown?.macros[`${layerId}.${macroId}`]?.name || deviceMacroName(cfg, layerId, macroId) || `Macro ${macroId + 1}`;
+  return cfg?.macro_names?.find((n) => n.layerId === layerId && n.macroId === macroId)?.name || `Macro ${macroId + 1}`;
 }
-export const macroKey = (layer, id, f) => `macro.${layer}.${id}.${f}`;
 export const macroSteps = (actions) => actions.filter((a) => a.action === "press").length;
 
-// Buttons whose press plays this macro (macros belong to a layer, so only that layer's buttons count).
-// With D, buttons still in the draft count too.
-export function boundSources(cfg, D, layerId, macroId) {
-  const out = [];
-  const layer = cfg?.layers.find((l) => l.layer_id === layerId);
-  for (const mp of layer?.mappings ?? []) if (mp.activators.some((a) => a.target.type === "macro" && a.target.macro === macroId)) out.push(mp.source);
-  for (const k of D?.pendingKeys(`map.${layerId}.`) ?? []) {
-    const v = D.get(k);
-    const src = k.split(".").slice(2, -1).join(".");
-    if (v?.type === "macro" && v.macro === macroId && !out.includes(src)) out.push(src);
-  }
-  return out;
+// App-side id of a name draft key, for names.js: "slot.<i>".
+export function nameId(key) {
+  return `slot.${key.split(".")[1]}`;
 }
 
-// First free macro id in a layer, or null when all of them are taken. Ids of macros drafted for
-// deletion stay taken until the delete is written.
-export function nextMacroId(cfg, D, layerId) {
-  const used = new Set(cfg.layers.find((l) => l.layer_id === layerId)?.macros.map((m) => m.macro_id));
-  for (const k of D.pendingKeys(`macro.${layerId}.`)) if (k.endsWith(".new")) used.add(Number(k.split(".")[2]));
-  for (let i = 0; i < MACRO_MAX; i++) if (!used.has(i)) return i;
-  return null;
-}
-
-// The macros of the loaded slot grouped by layer, the way the Macros page lists them: what the
-// controller holds (marked when drafted for deletion) plus what is drafted as new.
-// Layers drafted as new come last and can take macros; layers drafted for deletion are left out.
-export function macroLayers(S, D) {
-  const cfg = S.current.cfg;
-  const layers = layerList(S, D).filter((x) => !x.deleted).map((x) => cfg.layers.find((l) => l.layer_id === x.id) ?? { layer_id: x.id, macros: [] });
-  return layers.map((l) => {
-    const items = l.macros.map((m) => ({ layer: l.layer_id, id: m.macro_id, m, deleted: D.has(macroKey(l.layer_id, m.macro_id, "delete")), isNew: false }));
-    for (const k of D.pendingKeys(`macro.${l.layer_id}.`)) {
-      const [, , id, f] = k.split(".");
-      if (f !== "new") continue;
-      const v = D.map.get(k);
-      items.push({ layer: l.layer_id, id: Number(id), m: { macro_id: Number(id), trigger_mode: v.mode, loop_interval_ms: 0, actions: v.actions }, deleted: false, isNew: true });
-    }
-    items.sort((a, b) => a.id - b.id);
-    return { layer: l.layer_id, name: LAYER_NAME(l.layer_id), items, nextId: nextMacroId(cfg, D, l.layer_id) };
-  });
-}
-
-const deviceMacroName = (cfg, layerId, macroId) => cfg?.macro_names?.find((n) => n.layerId === layerId && n.macroId === macroId)?.name ?? "";
-
-// App-side id of a name draft key, for names.js: "slot.<i>" or "macro.<slot>.<layer>.<id>".
-export function nameId(key, S) {
-  const p = key.split(".");
-  if (p[0] === "slot") return `slot.${p[1]}`;
-  return `macro.${S.current?.slot}.${p[1]}.${p[2]}`;
-}
-
-// Picks the names to show for the loaded slot (see names.js) and hangs them on cfg as `shown`:
-// { profile: { name, other? }, macros: { "<layer>.<id>": { name, other? } } }.
+// Picks the profile name to show for the loaded slot (see names.js) and hangs it on cfg as `shown`.
 export function resolveNames(S) {
   const cfg = S.current?.cfg;
   if (!cfg || !S.names) return;
+  Object.defineProperty(cfg, "shown", { value: { profile: S.names.resolve(S.uuid, `slot.${S.current.slot}`, cfg.name ?? "") }, configurable: true });
+}
+
+// Links the macros of the loaded slot to the library (macros.js) and hangs the links and the
+// library on cfg, so a press that plays a macro reads as { type: "macro", uid }.
+export function resolveMacros(S) {
+  const cfg = S.current?.cfg;
+  if (!cfg || !S.lib) return;
   const slot = S.current.slot;
-  const macros = {};
-  for (const l of cfg.layers)
-    for (const m of l.macros)
-      macros[`${l.layer_id}.${m.macro_id}`] = S.names.resolve(S.uuid, `macro.${slot}.${l.layer_id}.${m.macro_id}`, deviceMacroName(cfg, l.layer_id, m.macro_id));
-  const shown = { profile: S.names.resolve(S.uuid, `slot.${slot}`, cfg.name ?? ""), macros };
-  Object.defineProperty(cfg, "shown", { value: shown, configurable: true });
+  // Names the app kept for macros before the library existed.
+  const full = (l, id, dev) => S.names?.resolve(S.uuid, `macro.${slot}.${l}.${id}`, dev).name ?? "";
+  const links = S.lib.adopt(S.uuid, slot, cfg, S.current.wrapped.subarray(4), full);
+  Object.defineProperty(cfg, "links", { value: links, configurable: true });
+  Object.defineProperty(cfg, "lib", { value: S.lib, configurable: true });
+}
+
+// Buttons of a layer that may play something: the ones with an entry on the controller and the
+// ones with a draft.
+function layerSources(S, D, L) {
+  const out = new Set(S.current.cfg.layers.find((l) => l.layer_id === L)?.mappings.map((m) => m.source));
+  for (const k of D.pendingKeys(`map.${L}.`)) out.add(k.split(".").slice(2, -1).join("."));
+  return [...out];
+}
+
+// What the next write does to the macros of the loaded slot (planMacros in macros.js).
+export function macroPlan(S, D) {
+  const cfg = S.current.cfg;
+  const slot = S.current.slot;
+  return planMacros({
+    cfg, lib: S.lib, links: cfg.links ?? {},
+    layers: layerList(S, D).filter((l) => !l.deleted).map((l) => l.id),
+    sources: (L) => layerSources(S, D, L),
+    target: (L, src, press) => D.get(`map.${L}.${src}.${press}`),
+    profileName: D.has(`slot.${slot}.name`) ? fit(D.get(`slot.${slot}.name`)) : cfg.name ?? "",
+    layerName: LAYER_NAME,
+  });
+}
+
+// The edits for applyEdits: the drafts that can be written, with presses that play a library macro
+// replaced by the plan's (which knows the id of the copy in each layer). `drafts` are the draft
+// keys the write takes care of.
+export function writeEdits(D, plan) {
+  const edits = D.writable();
+  const drafts = Object.keys(edits);
+  for (const [k, v] of Object.entries(edits)) if (v?.type === "macro") delete edits[k];
+  return { edits: { ...edits, ...plan.edits }, drafts };
+}
+
+// Presses in the loaded slot that will play this library macro: [{ layer, source, press }].
+export function macroUses(S, D, uid) {
+  const out = [];
+  for (const l of layerList(S, D).filter((x) => !x.deleted))
+    for (const source of layerSources(S, D, l.id))
+      for (const p of PRESS) if (D.get(`map.${l.id}.${source}.${p.id}`)?.uid === uid) out.push({ layer: l.id, source, press: p.id });
+  return out;
 }
 
 // Activator target of a button for one press type, as read from the controller.
@@ -157,6 +159,10 @@ export function baseTarget(cfg, layerId, source, press) {
   if (!m) return press === "simple" ? { type: "btn_gamepad", button: source } : undefined;
   if (m.activators.length === 0) return press === "simple" ? { type: "none" } : undefined;
   const a = m.activators.find((x) => ACT_OF[press].includes(x.type));
+  if (a?.target.type === "macro") {
+    const uid = cfg.links?.[`${layerId}.${a.target.macro}`]?.uid;
+    if (uid) return { type: "macro", uid };
+  }
   return a ? a.target : undefined;
 }
 
@@ -231,26 +237,6 @@ export function meta(key, S) {
       ...(baseTarget(cfg, layer, source, press) === undefined ? { baseText: labelTarget(undefined) } : {}),
     };
   }
-  if (a === "macro") {
-    const layer = Number(b), id = Number(c), f = p[3];
-    const where = LAYER_NAME(layer);
-    if (f === "new") {
-      return {
-        tab: "macros", group: "slot", label: `สร้าง ${macroName(cfg, layer, id)} · ${where}`, base: undefined, baseText: "ยังไม่มี",
-        fmt: (v) => `${macroSteps(v.actions)} ขั้น · ${MACRO_MODE[v.mode] ?? v.mode}`,
-      };
-    }
-    if (f === "delete") {
-      const bound = boundSources(cfg, null, layer, id);
-      return {
-        tab: "macros", group: "slot", label: `ลบ ${macroName(cfg, layer, id)} · ${where}`, base: false,
-        fmt: (v) => (v ? `ลบ${bound.length ? ` · ปุ่ม ${bound.map(btnName).join(", ")} กลับเป็นค่าเดิม` : ""}` : "มีอยู่"),
-      };
-    }
-    const m = cfg?.layers.find((l) => l.layer_id === layer)?.macros.find((x) => x.macro_id === id);
-    const base = { name: macroName(cfg, layer, id), mode: m?.trigger_mode }[f];
-    return { tab: "macros", group: "slot", label: `${macroName(cfg, layer, id)} · ${f === "name" ? "ชื่อ" : "เล่นแบบ"}`, base, fmt: f === "mode" ? (v) => MACRO_MODE[v] ?? v : (v) => v };
-  }
   if (a === "layer") {
     const id = Number(b);
     if (c === "new") return { tab: "buttons", group: "slot", label: `เพิ่ม ${LAYER_NAME(id)}`, base: undefined, baseText: "ยังไม่มี", fmt: () => "layer ว่าง ทุกปุ่มเป็นค่าเดิม" };
@@ -323,17 +309,9 @@ export class Drafts {
   // Drop drafts that now equal the controller (after a re-read).
   prune() {
     for (const [k, v] of this.map) if (same(v, this.base(k))) this.map.delete(k);
-    // A create or delete that no longer fits what the controller holds (it was re-read after a restore, say).
+    // A layer create or delete that no longer fits what the controller holds (re-read after a restore, say).
     const cfg = this.S.current?.cfg;
     if (!cfg) return;
-    for (const k of [...this.map.keys()]) {
-      const m = k.match(/^macro\.(\d+)\.(\d+)\.(new|delete)$/);
-      if (!m) continue;
-      const layer = cfg.layers.find((l) => l.layer_id === Number(m[1]));
-      const has = layer?.macros.some((x) => x.macro_id === Number(m[2]));
-      // A macro in a layer drafted as new waits for that layer.
-      if (m[3] === "delete" ? !has : has || (!layer && !this.map.has(`layer.${m[1]}.new`))) this.map.delete(k);
-    }
     for (const k of [...this.map.keys()]) {
       const m = k.match(/^layer\.(\d+)\.(new|delete)$/);
       if (!m) continue;
@@ -341,8 +319,10 @@ export class Drafts {
       if (m[2] === "delete" ? !has : has) this.map.delete(k);
     }
   }
+  // Library macros edited since their copies were written count too (S.plan, see macroPlan).
   count(tab) {
-    return [...this.map.keys()].filter((k) => !tab || meta(k, this.S).tab === tab).length;
+    const stale = !tab || tab === "macros" ? (this.S.plan?.rows ?? []).filter((r) => r.kind === "update" || r.kind === "rename").length : 0;
+    return [...this.map.keys()].filter((k) => !tab || meta(k, this.S).tab === tab).length + stale;
   }
   writable() {
     // Names go to the controller cut to what it holds; the app keeps the full name (names.js).
@@ -368,3 +348,11 @@ export function evalCurve(c, x) {
   }
   return c.end_y;
 }
+
+// The library as the Macros page lists it (filtered by its search box), and the macro it has open:
+// the one picked, or the first in the list.
+export function macroList(S) {
+  const q = (S.ui.macroQ ?? "").trim().toLowerCase();
+  return q ? S.lib.list().filter((m) => m.name.toLowerCase().includes(q)) : S.lib.list();
+}
+export const openMacro = (S) => S.lib.get(S.ui.macro) ?? macroList(S)[0] ?? null;

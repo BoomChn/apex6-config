@@ -1,8 +1,9 @@
 import { Apex6, RAM, hex, crc32 } from "./protocol.js";
 import { decodeMapping } from "./mapping.js";
-import { unwrapMapping, applyEdits, sameBytes, deadzoneMax, curveEndMin, curveStartMax, motorMaxMin, MACRO_MAX, MACRO_STEPS_MAX } from "./mapping-edit.js";
-import { Drafts, esc, resolveNames, nameId, macroKey, nextMacroId, evalCurve, layerKey, layerList, nextLayerId, LAYER_NAME } from "./model.js";
+import { unwrapMapping, applyEdits, sameBytes, deadzoneMax, curveEndMin, curveStartMax, motorMaxMin, MACRO_STEPS_MAX } from "./mapping-edit.js";
+import { Drafts, esc, resolveNames, resolveMacros, macroPlan, writeEdits, macroUses, openMacro, nameId, evalCurve, layerKey, layerList, nextLayerId, LAYER_NAME, btnName } from "./model.js";
 import { Names, fit } from "./names.js";
+import { Library } from "./macros.js";
 import * as V from "./views.js";
 
 const $ = (s) => document.querySelector(s);
@@ -19,13 +20,16 @@ const S = {
   loadError: null,
   connectError: null,
   tab: tabFromHash(),
-  ui: { layer: 0, layerMode: "hold", sel: "M1", press: "simple", outType: null, dpad: "D-pad ↑", renaming: null, macro: null, step: 0 },
+  // ui.macro: uid of the library macro the Macros page has open; macroQ/pickQ: list filters.
+  ui: { layer: 0, layerMode: "hold", sel: "M1", press: "simple", outType: null, dpad: "D-pad ↑", renaming: null, macro: null, step: 0, macroQ: "", pickQ: "" },
   log: [],
   backups: [],
   dump: null,
   dumpStatus: "",
   writing: false,
   names: new Names(), // full names kept by the app, see names.js
+  lib: new Library(), // the macro library, see macros.js
+  plan: null, // what the next write does to the slot's macros, see macroPlan
 };
 const D = new Drafts(S);
 
@@ -41,7 +45,18 @@ const PAGES = {
   gyro: V.gyro, vibration: V.vibration, lighting: V.lighting, device: V.device,
 };
 
+// The macro plan follows the drafts and the library, so it is worked out again on every render.
+function refreshPlan() {
+  try {
+    S.plan = S.current ? macroPlan(S, D) : null;
+  } catch (e) {
+    console.warn(e);
+    S.plan = { edits: {}, rows: [], errors: [e.message], links: {}, used: {} };
+  }
+}
+
 function renderChrome() {
+  refreshPlan();
   $("#topbar").innerHTML = V.topbar(S, D);
   const tabs = $("#tabs");
   tabs.innerHTML = V.tabs(S, D);
@@ -215,6 +230,7 @@ async function loadAll() {
       D.map.delete(k);
     }
     resolveNames(S);
+    resolveMacros(S);
     if (!S.slots) S.slots = { activeSlot, slotCrc16: [0, 0, 0, 0] };
     S.readAt = new Date();
     D.prune();
@@ -349,7 +365,9 @@ function openReview() {
 }
 
 // Every write: re-read and confirm nothing changed since display, back up, write, read back and compare.
-async function runWrite({ edits = null, data = null, reason, title, doneTitle, failTitle }) {
+// edits: for applyEdits; drafts: the draft keys they take care of; links: the macro links after the
+// write (macroPlan), kept so each copy stays tied to its library macro.
+async function runWrite({ edits = null, drafts = null, links = null, data = null, reason, title, doneTitle, failTitle }) {
   const slot = S.current.slot;
   W = { title, doneTitle, failTitle, slot, name: S.current.cfg.name || "", at: 0, steps: ["สำรองไฟล์", `ส่งข้อมูล Slot ${slot + 1}`, "ตรวจ CRC กับจอย"], bytes: null };
   S.writing = true;
@@ -385,12 +403,13 @@ async function runWrite({ edits = null, data = null, reason, title, doneTitle, f
     const back = await S.pad.readRam(RAM.MAPPING);
     if (!sameBytes(back.data, next)) throw new Error("อ่านกลับแล้วไม่ตรงกับที่เขียน");
     W.crc = (back.data[2] | (back.data[3] << 8)).toString(16).padStart(4, "0").toUpperCase();
-    if (edits) for (const k of Object.keys(edits)) D.map.delete(k);
+    if (edits) for (const k of drafts ?? Object.keys(edits)) D.map.delete(k);
     // The controller now holds what fits of each name; the app keeps the full one.
-    for (const { key, value } of sentNames) S.names.put(S.uuid, nameId(key, S), value, fit(value));
-    for (const k of Object.keys(edits ?? {})) if (/^macro\.\d+\.\d+\.delete$/.test(k)) S.names.put(S.uuid, nameId(k, S), "", null);
+    for (const { key, value } of sentNames) S.names.put(S.uuid, nameId(key), value, fit(value));
+    if (links) S.lib.setLinks(S.uuid, slot, links);
     S.current = { wrapped: back.data, cfg: unwrapMapping(back.data).cfg, slot: back.activeSlot };
     resolveNames(S);
+    resolveMacros(S);
     S.readAt = new Date();
     S.slots = (await safe(() => S.pad.getSlotStatus())) ?? S.slots;
     D.prune();
@@ -456,14 +475,24 @@ function setOutput(el) {
   if (type === "gamepad") v = { type: "btn_gamepad", button: el.dataset.btn };
   else if (type === "turbo") v = { type: "turbo_gamepad", button: el.dataset.btn, interval_ms: cur?.type === "turbo_gamepad" ? cur.interval_ms : 80 };
   else if (type === "mouse") v = { type: "btn_mouse", mouse: Number(el.dataset.mouse) };
-  else if (type === "macro") v = { type: "macro", macro: Number(el.dataset.macro), layer };
+  else if (type === "macro") v = { type: "macro", uid: el.dataset.uid };
   else if (type === "layer") v = { type: el.dataset.mode === "toggle" ? "layer_toggle" : "layer_hold", layer: Number(el.dataset.to) };
   else if (type === "none") v = { type: "none" };
   else if (type === "unset") v = undefined;
+  const had = D.has(key) ? { v: D.map.get(key) } : null;
   if (v === undefined) {
     if (D.base(key) === undefined) D.map.delete(key);
     else D.map.set(key, undefined);
   } else D.set(key, v);
+  // A layer holds MACRO_MAX macros: a pick that needs one more copy than that is undone.
+  if (type === "macro") {
+    const err = macroPlan(S, D).errors.find((e) => e.startsWith(LAYER_NAME(layer)));
+    if (err) {
+      if (had) D.map.set(key, had.v);
+      else D.map.delete(key);
+      return toast(err, true);
+    }
+  }
   S.ui.outType = type === "unset" ? null : type;
   render();
 }
@@ -487,7 +516,12 @@ const ACTIONS = {
   },
   review: openReview,
   "close-sheet": () => sheet.close(),
-  write: () => runWrite({ edits: D.writable(), reason: "ก่อนเขียน", title: "กำลังเขียนลงจอย", doneTitle: "เขียนเสร็จ ตรงกับจอยแล้ว", failTitle: "เขียนไม่สำเร็จ" }),
+  write: () => {
+    const plan = macroPlan(S, D);
+    if (plan.errors.length) return toast(plan.errors[0], true);
+    const { edits, drafts } = writeEdits(D, plan);
+    runWrite({ edits, drafts, links: plan.links, reason: "ก่อนเขียน", title: "กำลังเขียนลงจอย", doneTitle: "เขียนเสร็จ ตรงกับจอยแล้ว", failTitle: "เขียนไม่สำเร็จ" });
+  },
   "see-log": () => {
     sheet.close();
     ACTIONS.tab({ dataset: { tab: "device" } });
@@ -516,7 +550,6 @@ const ACTIONS = {
     const id = Number(el.dataset.layer);
     // Drafts in that layer go with it, and so do drafted presses that switch to it.
     D.clear(`map.${id}.`);
-    D.clear(`macro.${id}.`);
     for (const k of D.pendingKeys("map.")) {
       const v = D.map.get(k);
       if ((v?.type === "layer_hold" || v?.type === "layer_toggle") && v.layer === id) D.map.delete(k);
@@ -528,7 +561,6 @@ const ACTIONS = {
       toast("ปุ่มที่สลับมา layer นี้จะกลับเป็นค่าเดิมตอนเขียนลงจอย");
     }
     S.ui.layer = D.has(layerKey(id, "delete")) ? id : 0;
-    if (S.ui.macro?.layer === id) S.ui.macro = null;
     render();
   },
   "layer-undelete": (el) => {
@@ -609,7 +641,7 @@ const ACTIONS = {
     input?.select();
   },
   macro: (el) => {
-    S.ui.macro = { layer: Number(el.dataset.layer), id: Number(el.dataset.id) };
+    S.ui.macro = el.dataset.uid;
     S.ui.step = 0;
     render();
   },
@@ -617,60 +649,80 @@ const ACTIONS = {
     S.ui.step = Number(el.dataset.i);
     render();
   },
-  "macro-new": (el) => {
-    const layer = Number(el.dataset.layer);
-    const id = nextMacroId(S.current.cfg, D, layer);
-    if (id === null) return toast(`layer นี้มี macro ครบ ${MACRO_MAX} ตัวแล้ว`, true);
-    D.set(macroKey(layer, id, "new"), { mode: "press_once", actions: [] });
-    S.ui.macro = { layer, id };
+  "macro-new": () => {
+    const names = new Set(S.lib.list().map((m) => m.name));
+    let n = S.lib.list().length + 1;
+    while (names.has(`Macro ${n}`)) n++;
+    const m = S.lib.add({ name: `Macro ${n}`, mode: "press_once", actions: [] });
+    S.ui.macro = m.uid;
+    S.ui.macroQ = "";
     S.ui.step = 0;
     render();
     const name = document.querySelector("[data-name-field] input");
     name?.focus();
     name?.select();
   },
-  "macro-delete": (el) => {
-    const layer = Number(el.dataset.layer), id = Number(el.dataset.id);
-    // What is on the controller is only marked; a macro that was never written is just dropped.
-    for (const f of ["name", "mode"]) D.map.delete(macroKey(layer, id, f));
-    if (D.has(macroKey(layer, id, "new"))) {
-      D.map.delete(macroKey(layer, id, "new"));
-      S.ui.macro = null;
-    } else D.set(macroKey(layer, id, "delete"), true);
-    S.ui.step = 0;
+  "macro-copy": () => {
+    const m = openMacro(S);
+    if (!m) return;
+    const c = S.lib.add({ ...structuredClone(m), name: `${m.name} (สำเนา)`.slice(0, 60), named: true });
+    S.ui.macro = c.uid;
     render();
   },
-  "macro-undelete": (el) => {
-    D.map.delete(macroKey(Number(el.dataset.layer), Number(el.dataset.id), "delete"));
+  // Only from the library: a macro that a button of this slot still plays has to be unbound first.
+  "macro-delete": () => {
+    const m = openMacro(S);
+    if (!m) return;
+    const uses = macroUses(S, D, m.uid);
+    if (uses.length) {
+      const where = uses.map((u) => `${btnName(u.source)}${u.layer ? ` (${LAYER_NAME(u.layer)})` : ""}`);
+      return toast(`ปุ่ม ${[...new Set(where)].join(", ")} ยังเล่น macro นี้อยู่ เปลี่ยนปุ่มนั้นที่หน้า Buttons ก่อน`, true);
+    }
+    if (!confirm(`ลบ "${m.name}" ออกจากคลัง?\n\nถ้ายังมีอยู่ใน slot อื่นของจอย แอปจะเอากลับเข้าคลังตอนเปิด slot นั้น`)) return;
+    S.lib.remove(m.uid);
+    S.ui.macro = null;
     render();
   },
   "macro-mode": (el) => {
-    const d = newMacro();
-    if (d) D.set(d.key, { ...d.v, mode: el.dataset.val });
+    const m = openMacro(S);
+    if (m) S.lib.update(m.uid, { mode: el.dataset.val });
     render();
   },
   // A step is a press and a release of one button. The next one starts after the gap.
   "step-add": (el) => {
-    const d = newMacro();
-    if (!d) return;
+    const m = openMacro(S);
+    if (!m) return;
     const hold = Math.min(2000, Math.max(10, Math.round(S.ui.hold ?? 50)));
     const gap = Math.min(2000, Math.max(0, Math.round(S.ui.gap ?? 50)));
-    const last = d.v.actions.at(-1);
-    const at = last ? last.at_ms + gap : 0;
-    if (d.v.actions.length + 2 > MACRO_STEPS_MAX) return toast("macro ยาวเกินที่จอยเก็บได้", true);
+    const end = m.actions.reduce((t, a) => Math.max(t, a.at_ms), -1);
+    const at = end < 0 ? 0 : end + gap;
+    if (m.actions.length + 2 > MACRO_STEPS_MAX) return toast("macro ยาวเกินที่จอยเก็บได้", true);
     if (at + hold > 0xffff) return toast("macro นี้ยาวเกิน 65 วินาที", true);
     const target = { type: "btn_gamepad", button: el.dataset.btn };
-    D.set(d.key, { ...d.v, actions: [...d.v.actions, { action: "press", target, at_ms: at }, { action: "release", target, at_ms: at + hold }] });
-    S.ui.step = d.v.actions.length / 2;
+    S.lib.update(m.uid, { actions: [...m.actions, { action: "press", target, at_ms: at }, { action: "release", target, at_ms: at + hold }] });
+    S.ui.step = Infinity;
     render();
   },
+  // Removes the step that starts last: its press and the release that ends it.
   "step-undo": () => {
-    const d = newMacro();
-    if (!d || !d.v.actions.length) return;
-    D.set(d.key, { ...d.v, actions: d.v.actions.slice(0, -2) });
+    const m = openMacro(S);
+    if (!m?.actions.length) return;
+    const acts = m.actions;
+    let p = -1;
+    acts.forEach((a, i) => {
+      if (a.action === "press" && (p < 0 || a.at_ms >= acts[p].at_ms)) p = i;
+    });
+    const k = p < 0 ? null : JSON.stringify(acts[p].target);
+    const r = p < 0 ? acts.length - 1 : acts.findIndex((a, i) => i > p && a.action === "release" && JSON.stringify(a.target) === k);
+    S.lib.update(m.uid, { actions: acts.filter((_, i) => i !== p && i !== r) });
     S.ui.step = 0;
     render();
   },
+  "lib-export": () => {
+    const data = new TextEncoder().encode(JSON.stringify(S.lib.export(), null, 2));
+    download(data, `apex6-macros-${S.lib.list().length}.json`);
+  },
+  "lib-import": () => $("#lib-in").click(),
   "bk-dl": (el) => {
     const b = S.backups.find((x) => x.id === el.dataset.id);
     if (b) download(unb64(b.data), `apex6-slot${b.slot + 1}-${b.at}.bin`);
@@ -699,8 +751,8 @@ const ACTIONS = {
   },
   "name-use-dev": (el) => {
     const { key } = el.dataset;
-    const dev = key.startsWith("slot.") ? S.current.cfg.name ?? "" : (S.current.cfg.macro_names?.find((n) => `macro.${n.layerId}.${n.macroId}.name` === key)?.name ?? "");
-    S.names.put(S.uuid, nameId(key, S), dev, dev);
+    const dev = S.current.cfg.name ?? "";
+    S.names.put(S.uuid, nameId(key), dev, dev);
     resolveNames(S);
     D.prune();
     render();
@@ -737,13 +789,6 @@ const ACTIONS = {
   },
   "dump-dl": () => S.dump && download(S.dump.data, `apex6-ram-0x${S.dump.ram.toString(16).padStart(2, "0")}-${Date.now()}.bin`),
 };
-
-// The drafted (not yet written) macro the Macros page has open, if any.
-function newMacro() {
-  const { layer, id } = S.ui.macro ?? {};
-  const key = macroKey(layer, id, "new");
-  return D.has(key) ? { key, v: D.map.get(key) } : null;
-}
 
 function restoreBackup(b) {
   if (sheet.open) sheet.close();
@@ -810,6 +855,25 @@ document.addEventListener("input", (e) => {
     S.ui[el.dataset.ui] = Number(el.value);
     return;
   }
+  if (el.dataset.filter) {
+    // Macro list filters: redraw the page and put the caret back where it was.
+    S.ui[el.dataset.filter] = el.value;
+    const at = el.selectionStart;
+    render();
+    const f = document.querySelector(`[data-filter="${el.dataset.filter}"]`);
+    f?.focus();
+    f?.setSelectionRange(at, at);
+    return;
+  }
+  if (el.dataset.libName != null) {
+    // The app keeps a library macro's name straight away; copies on the controller follow on the next write.
+    const m = openMacro(S);
+    if (m) S.lib.update(m.uid, { name: el.value.trim() || el.dataset.default });
+    const fitEl = el.closest("[data-name-field]")?.querySelector("[data-fit]");
+    if (fitEl) fitEl.outerHTML = V.nameFit(el.value);
+    renderChrome();
+    return;
+  }
   const key = el.dataset.key;
   if (!key || !S.current) return;
   if (el.type === "range") {
@@ -837,6 +901,8 @@ document.addEventListener("change", (e) => {
   const el = e.target;
   if (el.id === "file-in") return importFile(el);
   if (el.id === "names-in") return importNames(el);
+  if (el.id === "lib-in") return importLibrary(el);
+  if (el.dataset.libName != null) return render();
   const key = el.dataset.key;
   if (!key || !S.current) return;
   if (el.type === "checkbox") setDraft(key, el.checked);
@@ -869,6 +935,19 @@ async function importNames(el) {
     D.prune();
     render();
     toast(`นำเข้า ${n} ชื่อแล้ว`);
+  } catch (err) {
+    toast(`ใช้ไฟล์นี้ไม่ได้: ${err.message}`, true);
+  }
+}
+
+async function importLibrary(el) {
+  const file = el.files[0];
+  el.value = "";
+  if (!file) return;
+  try {
+    const n = S.lib.import(JSON.parse(await file.text()));
+    render();
+    toast(n ? `นำเข้า ${n} macro แล้ว` : "macro ในไฟล์นี้มีอยู่ในคลังแล้วทั้งหมด");
   } catch (err) {
     toast(`ใช้ไฟล์นี้ไม่ได้: ${err.message}`, true);
   }
