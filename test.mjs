@@ -157,6 +157,65 @@ assert.ok(sameBytes(applyEdits(sample, {}), sample), "empty edit is byte-identic
 assert.ok(WRITABLE.has("stick.left.deadzone") && !WRITABLE.has("led.color"));
 console.log("edits ok");
 
+// Gyro block: every field the Gyro page writes, and the rules checkProfile holds it to.
+{
+  const { applyEdits, checkProfile, crc16: crc, gyroPct, gyroByte } = await import("./mapping-edit.js");
+  const g0 = unwrapMapping(sample).cfg.gyroscope;
+  const acts = [{ activation: "hold", button: "LT (active)" }, { activation: "hold", button: "M5" }];
+  // The owner's curve from the official Advanced page: dead zone 1%, compensation 1%, mid point (29, 230).
+  const curve = { start_x: 3, start_y: 3, end_x: 255, end_y: 255, mid_points: [{ x: 29, y: 230 }] };
+  const out = applyEdits(sample, {
+    "gyro.curve": curve, "gyro.activation": acts, "gyro.axisX": "imu_z", "gyro.axisY": "none", "gyro.mouseRadius": 50,
+  });
+  const g = unwrapMapping(out).cfg.gyroscope;
+  assert.deepEqual(g.curve, curve);
+  const at0 = 4 + unwrapMapping(out).cfg.offsets.gyroscope;
+  assert.deepEqual([...out.subarray(at0, at0 + 11)], [3, 3, 255, 255, 1, 29, 230, 0, 0, 0, 0], "curve11 as the official encoder writes it");
+  assert.deepEqual(g.activation, acts);
+  assert.equal(g.axis_x, "imu_z");
+  assert.equal(g.axis_y, "none");
+  assert.equal(g.mouse_window_radius, 127, "50 * 2.55 rounds to 127 in JS, as in the official app");
+  assert.equal(g.mode, g0.mode, "untouched gyro bytes stay");
+  // Two mid points, then back to none: unused point bytes go back to 0.
+  const two = { ...curve, mid_points: [{ x: 29, y: 230 }, { x: 100, y: 240 }] };
+  assert.deepEqual(unwrapMapping(applyEdits(out, { "gyro.curve": two })).cfg.gyroscope.curve, two);
+  const flat = { start_x: 0, start_y: 0, end_x: 255, end_y: 255, mid_points: [] };
+  const fo = applyEdits(out, { "gyro.curve": flat });
+  assert.deepEqual([...fo.subarray(at0, at0 + 11)], [0, 0, 255, 255, 0, 0, 0, 0, 0, 0, 0]);
+  // The official percent scale: the stick default end_x 145 reads 57% and writes back as 145.
+  assert.equal(gyroPct(145), 57);
+  assert.equal(gyroByte(57), 145);
+  // Fewer buttons clear the slots after them to (0, 0xFF); none at all is refused.
+  assert.deepEqual(unwrapMapping(applyEdits(out, { "gyro.activation": [acts[0]] })).cfg.gyroscope.activation, [acts[0]]);
+  assert.throws(() => applyEdits(out, { "gyro.activation": [] }), /อย่างน้อย 1/);
+  // Curve values the editor can't make are refused.
+  assert.throws(() => applyEdits(sample, { "gyro.curve": { ...curve, mid_points: [{ x: 300, y: 0 }] } }), /0–255/);
+  assert.throws(() => applyEdits(sample, { "gyro.curve": { ...curve, start_x: 40 } }), /เรียง/);
+  assert.throws(() => applyEdits(sample, { "gyro.curve": { ...two, mid_points: [...two.mid_points, { x: 200, y: 250 }] } }), /ไม่เกิน 2/);
+  assert.throws(() => applyEdits(sample, { "gyro.axisX": "imu_w" }));
+  assert.throws(() => applyEdits(sample, { "gyro.activation": [acts[0], acts[0]] }), /ซ้ำ/);
+  assert.throws(() => applyEdits(sample, { "gyro.activation": [...acts, { activation: "hold", button: "A" }, { activation: "hold", button: "B" }, { activation: "hold", button: "X" }] }));
+  assert.throws(() => applyEdits(sample, { "gyro.activation": [{ activation: "hold", button: "Q" }] }));
+  assert.throws(() => applyEdits(sample, { "gyro.mouseRadius": 101 }));
+
+  // checkProfile: bytes the official app doesn't know in the gyro block stop a write.
+  const at = 4 + unwrapMapping(sample).cfg.offsets.gyroscope;
+  const poke = (pairs) => {
+    const b = sample.slice();
+    for (const [i, v] of pairs) b[at + i] = v;
+    const c = crc(b.subarray(4)); b[2] = c & 0xff; b[3] = c >> 8;
+    return b;
+  };
+  checkProfile(sample);
+  assert.throws(() => checkProfile(poke([[12, 9]])), /โหมด gyro/);
+  assert.throws(() => checkProfile(poke([[21, 4]])), /แกน gyro/);
+  assert.throws(() => checkProfile(poke([[22, 0xff]])), /แกน gyro/);
+  assert.throws(() => checkProfile(poke([[14, 40]])), /ปุ่มเปิด gyro ไม่รู้จัก/);
+  assert.throws(() => checkProfile(poke([[16, g0.activation.length ? 4 : 0xff]])), /ซ้ำ/);
+  assert.throws(() => checkProfile(poke([[14, 0xff], [16, 0xff], [18, 0xff], [20, 0xff]])), /อย่างน้อย 1/);
+}
+console.log("gyro edits ok");
+
 // --- Names (TLV 0x20): the blob changes length, everything else must survive ---
 const { NAME_MAX, isWritable } = await import("./mapping-edit.js");
 const strip = (c) => JSON.stringify({ ...c, name: undefined, macro_names: undefined });

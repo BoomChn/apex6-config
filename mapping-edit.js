@@ -1,7 +1,7 @@
 // In-place edits of the RAM-wrapped mapping buffer (RAM 0x05).
 // We patch single bytes instead of re-encoding, so everything we don't touch stays byte-identical.
 
-import { decodeMapping, BUTTONS } from "./mapping.js";
+import { decodeMapping, BUTTONS, GYRO_AXES } from "./mapping.js";
 
 // CRC-16/CCITT-FALSE (poly 0x1021, init 0xFFFF); the wrapper CRC covers the XMUL blob only.
 export function crc16(bytes) {
@@ -42,6 +42,48 @@ export function motorMaxMin(curve) {
 }
 
 const GYRO_MODES = ["disable", "left_joystick", "right_joystick", "mouse"];
+
+// The official web app shows gyro bytes as a percent of 255 (GyroBody on space_station.flydigi.com):
+// p = round(byte / 2.55), byte = round(p * 2.55).
+export const gyroPct = (b) => Math.round(Math.max(0, Math.min(255, b)) / 2.55);
+export const gyroByte = (p) => Math.round(Math.max(0, Math.min(100, p)) * 2.55);
+
+// The gyro curve is written whole, as the official encoder writes curve11: start_x start_y end_x
+// end_y n, two (x, y) mid points (unused ones 0, 0), two zero pad bytes.
+export const GYRO_MIDS_MAX = 2;
+function gyroCurveBytes(c) {
+  const m = c.mid_points;
+  return [c.start_x, c.start_y, c.end_x, c.end_y, m.length, m[0]?.x ?? 0, m[0]?.y ?? 0, m[1]?.x ?? 0, m[1]?.y ?? 0, 0, 0];
+}
+function gyroCurveCheck(_, c) {
+  const byte = (v) => Number.isInteger(v) && v >= 0 && v <= 255;
+  const m = c?.mid_points;
+  if (!Array.isArray(m) || m.length > GYRO_MIDS_MAX) return `จุดกลางได้ไม่เกิน ${GYRO_MIDS_MAX} จุด`;
+  if (![c.start_x, c.start_y, c.end_x, c.end_y, ...m.flatMap((p) => [p.x, p.y])].every(byte)) return "ค่าใน curve ต้องอยู่ระหว่าง 0–255";
+  const xs = [c.start_x, ...m.map((p) => p.x), c.end_x];
+  return xs.every((x, i) => !i || x >= xs[i - 1]) ? null : "จุดใน curve ต้องเรียงจากซ้ายไปขวา";
+}
+
+// Gyro activation: 4 slots of (0 hold | 1 toggle, button id), an empty slot is (0, 0xFF).
+export const GYRO_ACT_MAX = 4;
+function gyroActBytes(list) {
+  const out = [];
+  for (let i = 0; i < GYRO_ACT_MAX; i++) {
+    const a = list[i];
+    out.push(a ? (a.activation === "toggle" ? 1 : 0) : 0, a ? BUTTONS.indexOf(a.button) : 0xff);
+  }
+  return out;
+}
+function gyroActCheck(_, list) {
+  if (!Array.isArray(list) || list.length > GYRO_ACT_MAX) return `ตั้งได้ไม่เกิน ${GYRO_ACT_MAX} ปุ่ม`;
+  if (!list.length) return "ต้องมีปุ่มเปิด gyro อย่างน้อย 1 ปุ่ม";
+  for (const a of list) {
+    if (!BUTTONS.includes(a?.button)) return `ปุ่มไม่รู้จัก: ${a?.button}`;
+    if (a.activation !== "hold" && a.activation !== "toggle") return `แบบการกดไม่รู้จัก: ${a.activation}`;
+  }
+  return new Set(list.map((a) => a.button)).size === list.length ? null : "ปุ่มซ้ำกัน";
+}
+const gyroAxis = (at) => ({ key: "gyroscope", at, enc: (v) => GYRO_AXES.indexOf(v), check: (_, v) => (GYRO_AXES.includes(v) ? null : `แกน gyro ไม่รู้จัก: ${v}`) });
 const SIDE_KEY = { left: "_left", right: "_right" };
 
 // Every byte-level edit the app can write. Offsets are relative to the TLV value start
@@ -65,6 +107,11 @@ const FIELDS = {
   "gyro.mode": { key: "gyroscope", at: 12, enc: (v) => GYRO_MODES.indexOf(v), check: (_, v) => (GYRO_MODES.includes(v) ? null : `โหมด gyro ไม่รู้จัก: ${v}`) },
   "gyro.invertX": { key: "gyroscope", at: 11, bit: 1 },
   "gyro.invertY": { key: "gyroscope", at: 11, bit: 2 },
+  "gyro.curve": { key: "gyroscope", at: 0, bytes: gyroCurveBytes, check: gyroCurveCheck },
+  "gyro.activation": { key: "gyroscope", at: 13, bytes: gyroActBytes, check: gyroActCheck },
+  "gyro.axisX": gyroAxis(21),
+  "gyro.axisY": gyroAxis(22),
+  "gyro.mouseRadius": { key: "gyroscope", at: 23, enc: gyroByte, check: (_, v) => range(v, 0, 100) },
   "motor.left.enabled": { key: "vibration_motor_left", at: 0, bit: 1 },
   "motor.right.enabled": { key: "vibration_motor_right", at: 0, bit: 1 },
   "motor.left.max": { key: "vibration_motor_left", at: 4, check: (m, v) => range(v, motorMaxMin(m.curve), 255) },
@@ -156,6 +203,8 @@ export function applyEdits(wrapped, edits) {
     if (f.bit != null) {
       if (typeof v !== "boolean") throw new Error(`${name}: ต้องเป็นเปิด/ปิด`);
       out[at] = v ? out[at] | f.bit : out[at] & ~f.bit;
+    } else if (f.bytes) {
+      out.set(f.bytes(v), at);
     } else if (f.u16) {
       out[at] = v & 0xff;
       out[at + 1] = v >> 8;
@@ -198,6 +247,15 @@ export function checkProfile(wrapped) {
         if ((t.type === "layer_hold" || t.type === "layer_toggle") && !(t.layer < cfg.layers.length)) fail(`ปุ่ม ${m.source} ใน ${where(l)} สลับไป layer ${t.layer} ที่ไม่มี`);
         if (t.type === "macro" && !ids.includes(t.macro)) fail(`ปุ่ม ${m.source} ใน ${where(l)} เล่น macro #${t.macro + 1} ที่ไม่มีใน layer นี้`);
       }
+  }
+  // Gyro block (TLV 5): only values the official app knows. Its schema wants 1–4 activation slots.
+  const g = cfg.gyroscope;
+  if (g) {
+    if (!GYRO_MODES.includes(g.mode)) fail(`โหมด gyro ไม่รู้จัก (${g.mode})`);
+    for (const k of ["axis_x", "axis_y"]) if (!GYRO_AXES.includes(g[k])) fail(`แกน gyro ไม่รู้จัก (${g[k]})`);
+    for (const a of g.activation) if (!BUTTONS.includes(a.button)) fail(`ปุ่มเปิด gyro ไม่รู้จัก (${a.button})`);
+    if (new Set(g.activation.map((a) => a.button)).size !== g.activation.length) fail("ปุ่มเปิด gyro ซ้ำกัน");
+    if (!g.activation.length) fail("ไม่มีปุ่มเปิด gyro เลย แอป Flydigi ต้องมีอย่างน้อย 1 ปุ่ม");
   }
 }
 

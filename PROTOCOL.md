@@ -69,6 +69,18 @@ TLV until (0xFF,0x00):
     axis values 0 none, 1 imu_x, 2 imu_y, 3 imu_z. imu_x = yaw (steering-wheel turn), imu_y = pitch: with axis_x=imu_x, axis_y=imu_y
     and gyro → right stick, yaw moved only Rx and pitch only Ry in joy.cpl (hardware, 2026-10-22). Roll moved both, so the
     firmware may mix roll in; imu_z = roll is inferred, not tested. Same order as the 0xEF rate channels.
+    Offsets in the 24 bytes: curve 0–10 (start_x 0, end_x 2), flags 11, mode 12, activation 13–20 as 4 × (0 hold | 1 toggle,
+    button id), an empty slot is (0, 0xFF), axis_x 21, axis_y 22, mouse_window_radius 23 (sample profile: 32). The app writes all
+    of them; only mode is confirmed on hardware.
+    The official web app (GyroBody-*.js, 2026-10-22) shows these as percents, p = round(byte / 2.55), byte = round(p * 2.55):
+    stick modes: sensitivity = 100 − end_x%, dead zone = start_x% (start_y set to 0), end_y kept at 255;
+    mouse mode: sensitivity = end_y%, "Mouse Dead Zone" = mouse_window_radius%, end_x kept at 255.
+    Picking a mode from "off" on an untouched linear curve gives end_x 145 (stick) or start_x 4, end_y 51 (mouse); picking a
+    mode also resets axis_x/axis_y to imu_x/imu_y there. Its schema needs 1–4 activation slots (default: hold A).
+    Its Advanced page edits the gyro curve directly: Curve Dead Zone = start_x, Dead Zone Compensation = start_y, Maximum
+    Output Start = end_x, Maximum Output = end_y (each as %), up to 2 mid points as raw x/y; one hold/toggle for all slots,
+    a primary and a secondary button. The owner's slot 2 (2026-10-22): 1%, 1%, 100%, 100%, mid point (29, 230), so output
+    is ~90% by input 29 and the Basic sensitivity (end_x) barely changes anything.
   6/7 trigger vibration (12B: pad + curve11), 8/9 motor (12B: enabled + curve11)
   0x20 metadata (v1.9): u8 nameLen name u8 n, n × (layer, macro, len, name)
 curve11 = start_x start_y end_x end_y mid_count (x,y)×2 pad2   (0..255 scale)

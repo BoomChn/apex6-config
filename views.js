@@ -8,7 +8,7 @@ import {
   layerList, nextLayerId, layerSwitches, layerKey,
 } from "./model.js";
 import { BUTTONS } from "./mapping.js";
-import { isWritable, HW_TESTED, NAME_MAX, nameBytes, MACRO_MAX } from "./mapping-edit.js";
+import { isWritable, HW_TESTED, NAME_MAX, nameBytes, MACRO_MAX, gyroPct, GYRO_MIDS_MAX } from "./mapping-edit.js";
 import { fit, APP_NAME_MAX } from "./names.js";
 
 export const TABS = [
@@ -543,11 +543,11 @@ export function curveSvg(c, { pending = false, live = null, flat = true } = {}) 
   </svg>`;
 }
 
-export function slider(key, label, D, { min = 0, max = 255, disabled = false, fmt = null } = {}) {
+export function slider(key, label, D, { min = 0, max = 255, disabled = false, fmt = null, tag = true } = {}) {
   const v = D.get(key);
   const p = D.has(key);
   const shown = fmt ? fmt(v) : `${pct(v)}  ·  ${v}`;
-  return `<div class="slider"><div class="slider-head"><span><b>${label}</b>${untested(key) ? ` ${untested(key)}` : ""}</span><span class="num${pendCls(p)}" data-out="${key}">${shown}</span></div>
+  return `<div class="slider"><div class="slider-head"><span><b>${label}</b>${tag && untested(key) ? ` ${untested(key)}` : ""}</span><span class="num${pendCls(p)}" data-out="${key}">${shown}</span></div>
     <input type="range" min="${min}" max="${max}" value="${v ?? min}" data-key="${key}" class="${p ? "pending" : ""}" style="--p:${(((v ?? min) - min) / (max - min || 1)) * 100}%" aria-label="${label}" ${disabled ? "disabled" : ""}></div>`;
 }
 
@@ -880,7 +880,7 @@ export function gyro(S, D) {
   if (!g) return `${head("Gyro", "")}<p class="empty-note">โปรไฟล์นี้ไม่มีค่า gyro</p>`;
   const mode = D.get("gyro.mode");
   const pm = D.has("gyro.mode");
-  const sub = { disable: "ค่าบนจอยตอนนี้", left_joystick: "เดิน / ขับรถ", right_joystick: "เล็งในเกมจอย", mouse: "เกม PC ที่ใช้เมาส์" };
+  const sub = { disable: "ไม่ใช้ gyro", left_joystick: "เดิน / ขับรถ", right_joystick: "เล็งในเกมจอย", mouse: "เกม PC ที่ใช้เมาส์" };
   const modes = Object.entries(GYRO_MODE)
     .map(([id, l]) => {
       const on = mode === id;
@@ -888,11 +888,7 @@ export function gyro(S, D) {
       return `<button class="utab big${on ? " on" : ""}${on && pm ? " pending" : ""}" data-act="set" data-key="gyro.mode" data-val="${id}" style="${on && pm ? "color:var(--cobalt)" : ""}">${l}<small class="${on && pm ? "pending" : ""}">${on && pm ? `${sub[id]} · แก้แล้ว` : base ? "ค่าบนจอยตอนนี้" : sub[id]}</small></button>`;
     })
     .join("");
-  const acts = g.activation.length
-    ? g.activation.map((a) => `<span class="keytag" style="height:48px;padding:0 16px;font-size:16px;gap:12px">${a.activation === "hold" ? "กดค้าง" : "กดสลับ"} ${esc(btnName(a.button))}</span>`).join("")
-    : `<span class="meta">ไม่ได้ตั้ง · ทำงานตลอด</span>`;
-  const sel = (key, opts) => `<select class="field${D.has(key) ? " pending" : ""}" data-key="${key}" style="height:56px;font-size:16px">${Object.entries(opts).map(([v, l]) => `<option value="${v}" ${D.get(key) === v ? "selected" : ""}>${l}</option>`).join("")}</select>`;
-  const anyUnsup = ["gyro.sens", "gyro.preset", "gyro.axisX", "gyro.axisY"].some((k) => D.has(k));
+  const sel = (key, opts) => `<select class="field${D.has(key) ? " pending" : ""}" data-key="${key}" style="height:52px;font-size:16px;width:100%">${Object.entries(opts).map(([v, l]) => `<option value="${v}" ${D.get(key) === v ? "selected" : ""}>${l}</option>`).join("")}</select>`;
   const ink = pm ? "#2140D9" : "#111";
   return `${head("Gyro", `เอียงจอยเพื่อเล็ง · ${g.mode === "disable" ? "เดิมปิดอยู่ใน slot นี้" : `ค่าบนจอย: ${GYRO_MODE[g.mode]}`}`)}
   <div class="split wide-right">
@@ -920,25 +916,107 @@ export function gyro(S, D) {
       </section>
     </div>
     <div>
-      <div class="rule-head"><h2>Gyro ทำหน้าที่เป็น</h2>${untested("gyro.mode")}</div>
-      <div class="utabs" style="margin-top:16px;gap:40px">${modes}</div>
-      <div style="margin-top:28px;display:grid;gap:14px">
-        <div><b style="font-size:16px">ทำงานเมื่อ</b> <span class="meta">ตั้งได้สูงสุด 4 ปุ่ม · ไม่ตั้ง = ทำงานตลอด</span></div>
-        <div style="display:flex;gap:14px;flex-wrap:wrap">${acts}<span class="keytag" style="height:48px;padding:0 16px;border-style:dashed;color:var(--ink-3);border-color:var(--keycap)" title="ยังเขียนลงจอยไม่ได้">+ เพิ่มปุ่ม</span></div>
-      </div>
-      <div style="margin-top:32px">${slider("gyro.sens", "ความไว", D, { min: 0, max: 100, fmt: (v) => (v == null ? "ยังอ่านไม่ได้" : `${v}%`) })}</div>
-      <div style="margin-top:28px">${presetTabs("gyro.preset", GPRESET, D)}</div>
-      <div style="margin-top:36px;display:grid;gap:14px">
-        <b style="font-size:16px">แกน</b>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
-          <label><span class="meta" style="display:block;margin-bottom:6px">ซ้าย–ขวา ใช้</span>${sel("gyro.axisX", AXIS)}</label>
-          <label><span class="meta" style="display:block;margin-bottom:6px">บน–ล่าง ใช้</span>${sel("gyro.axisY", AXIS)}</label>
-        </div>
-        <div class="checks">${check("gyro.invertX", "กลับซ้าย–ขวา", D)}${check("gyro.invertY", "กลับบน–ล่าง", D)}${checksTag("gyro.invertX")}</div>
-        ${anyUnsup ? `<p style="margin:0">${UNSUP}</p>` : ""}
-      </div>
+      ${gyroSettings(S, D, g, modes, sel)}
     </div>
   </div>`;
+}
+
+// The settings column: every value in the profile's gyro block, laid out like the official web
+// app's Advanced Motion Control page (English names from there in small type, to match it up).
+function gyroSettings(S, D, g, modes, sel) {
+  const mode = D.get("gyro.mode");
+  const off = mode === "disable";
+  const group = (n, title, en, note, body, { dim = false, tag = "" } = {}) => `<section style="margin-top:${n === 1 ? 0 : 40}px${dim ? ";opacity:.55" : ""}">
+      <div class="rule-head"><h2>${n}. ${title} <span class="meta" style="font-weight:400">${en}</span></h2>${tag}</div>
+      <p class="muted" style="margin:8px 0 16px;line-height:22px">${note}</p>${body}</section>`;
+  const hint = (t) => `<p class="meta" style="margin:6px 0 0;line-height:20px">${t}</p>`;
+  const sub = (t, en, tag = "") => `<div class="slider-head" style="margin-top:24px"><b>${t} <span class="meta" style="font-weight:400">${en}</span></b>${tag}</div>`;
+
+  // 1. Mode and activation: one hold/toggle for all buttons, a primary and an optional secondary.
+  const acts = D.get("gyro.activation") ?? [];
+  const pa = D.has("gyro.activation");
+  const how = acts[0]?.activation ?? "hold";
+  const btnSel = (i) => {
+    const cur = acts[i]?.button ?? "";
+    const opts = BUTTONS.filter((b) => b === cur || !acts.some((a) => a.button === b));
+    return `<select class="field${pa ? " pending" : ""}" data-gyro-btn="${i}" style="height:44px;width:100%" aria-label="${i ? "ปุ่มรอง" : "ปุ่มหลัก"}">
+      ${i ? `<option value="" ${cur ? "" : "selected"}>ไม่ตั้ง</option>` : ""}${opts.map((b) => `<option value="${esc(b)}" ${b === cur ? "selected" : ""}>${esc(btnName(b))}</option>`).join("")}</select>`;
+  };
+  const g1 = group(1, "โหมด", "Motion Control Mode", "เอียงจอยแล้วให้ไปขยับอะไร",
+    `<div class="utabs" style="gap:28px">${modes}</div>
+    ${sub("แบบการกด", "Activation Mode", untested("gyro.activation"))}
+    <div class="utabs" style="margin-top:10px">${[["hold", "กดค้าง"], ["toggle", "กดสลับ"]].map(([id, l]) => `<button class="utab${how === id ? " on" : ""}${how === id && pa ? " pending" : ""}" data-act="gyro-act-mode" data-val="${id}">${l}</button>`).join("")}</div>
+    ${hint("กดค้าง = gyro ทำงานเฉพาะตอนกดปุ่มค้าง · กดสลับ = กดครั้งแรกเปิด กดอีกครั้งปิด")}
+    ${sub("ปุ่มเปิด gyro", "Activation Buttons")}
+    <div style="display:grid;grid-template-columns:56px 1fr;gap:10px;align-items:center;margin-top:10px">
+      <span class="meta">หลัก</span>${btnSel(0)}<span class="meta">รอง</span>${btnSel(1)}</div>
+    ${hint("กดปุ่มไหนก็ได้ใน 2 ปุ่มนี้ gyro ก็ทำงาน")}
+    ${acts.length > 2 ? hint(`โปรไฟล์นี้มีปุ่มเปิดเพิ่มอีก: ${esc(acts.slice(2).map((a) => btnName(a.button)).join(", "))} (คงไว้ตามเดิม)`) : ""}`,
+    { tag: untested("gyro.mode") });
+
+  // 2. Which motion aims where (not on the official page; it resets these on a mode change).
+  const g2 = group(2, "เล็งด้วยท่าไหน", "Axis", `ท่าไหนพาเป้าไปซ้าย–ขวา ท่าไหนพาไปบน–ล่าง · ปกติไม่ต้องแก้${off ? " · มีผลเมื่อเปิด gyro" : ""}`,
+    `<div style="display:grid;gap:16px">
+      <label><span class="slider-head"><b>เล็งซ้าย–ขวาด้วย</b></span><span style="display:block;margin-top:8px">${sel("gyro.axisX", AXIS)}</span></label>
+      <label><span class="slider-head"><b>เล็งบน–ล่างด้วย</b></span><span style="display:block;margin-top:8px">${sel("gyro.axisY", AXIS)}</span></label>
+      <div><b>กลับทิศ <span class="meta" style="font-weight:400">Direction Inversion</span></b>
+        <div class="checks" style="margin-top:10px">${check("gyro.invertX", "กลับซ้าย–ขวา", D)}${check("gyro.invertY", "กลับบน–ล่าง", D)}</div></div></div>`,
+    { dim: off, tag: untested("gyro.axisX") });
+
+  // 3. The response curve, as on the official Advanced page.
+  const c = D.get("gyro.curve");
+  const pc = D.has("gyro.curve");
+  const curveSlider = (part, label, en, note) => {
+    const p = gyroPct(c[part]);
+    return `<div class="slider" style="margin-top:20px"><div class="slider-head"><span><b>${label}</b> <span class="meta">${en}</span></span><span class="num${pc ? " pending" : ""}">${p}%</span></div>
+      <input type="range" min="0" max="100" value="${p}" data-curve="${part}" class="${pc ? "pending" : ""}" style="--p:${p}%" aria-label="${label}">${hint(note)}</div>`;
+  };
+  const mids = c.mid_points
+    .map((m, i) => `<div style="display:grid;grid-template-columns:28px 1fr 1fr 40px;gap:8px;align-items:center;margin-top:8px">
+      <span class="meta">#${i + 1}</span>
+      <label class="meta">x <input class="field${pc ? " pending" : ""}" type="number" min="0" max="255" value="${m.x}" data-mid="${i}" data-axis="x" style="width:70px;height:40px" aria-label="จุดกลาง ${i + 1} x"></label>
+      <label class="meta">y <input class="field${pc ? " pending" : ""}" type="number" min="0" max="255" value="${m.y}" data-mid="${i}" data-axis="y" style="width:70px;height:40px" aria-label="จุดกลาง ${i + 1} y"></label>
+      <button class="link" data-act="gyro-mid-del" data-i="${i}" aria-label="ลบจุดกลาง ${i + 1}">ลบ</button></div>`)
+    .join("");
+  const g3 = group(3, "Response Curve", "", `หมุนจอยเร็วแค่ไหน (แนวนอน) แล้วสติ๊กไปแค่ไหน (แนวตั้ง)${off ? " · มีผลเมื่อเปิด gyro" : ""}`,
+    `<div class="curve-box" data-gyro-chart>${gyroChart(c, pc)}</div>
+    <div class="cap">แนวนอน = ความเร็วที่หมุนจอย · แนวตั้ง = ค่าที่ส่งออก${mode === "mouse" ? " (ความเร็วเมาส์)" : " (ระยะสติ๊ก)"}</div>
+    ${curveSlider("start_x", "Deadzone", "Curve Dead Zone", "หมุนช้ากว่านี้ไม่นับ กันเป้าไหลตอนวางจอยนิ่ง")}
+    ${curveSlider("start_y", "ชดเชย Deadzone", "Dead Zone Compensation", "พอเริ่มนับ สติ๊กกระโดดไปที่ค่านี้ทันที ใช้ข้าม deadzone ของสติ๊กในเกม")}
+    ${curveSlider("end_x", "จุดที่ได้ค่าสูงสุด", "Maximum Output Start", "หมุนเร็วถึงค่านี้แล้วได้ค่าสูงสุด · ยิ่งน้อย ยิ่งไว")}
+    ${curveSlider("end_y", "ค่าสูงสุด", "Maximum Output", "ค่าที่ส่งออกได้มากที่สุด")}
+    ${sub("จุดกลาง", `Midpoints ${c.mid_points.length}/${GYRO_MIDS_MAX}`)}
+    ${mids || hint("ไม่มีจุดกลาง · เส้นตรงจากจุดเริ่มถึงจุดสุด")}
+    <div style="display:flex;gap:20px;margin-top:12px">${c.mid_points.length < GYRO_MIDS_MAX ? `<button class="link" data-act="gyro-mid-add">+ เพิ่มจุด</button>` : ""}<button class="link" data-act="gyro-curve-reset">รีเซ็ตเป็นเส้นตรง</button></div>
+    ${hint("ลากจุดในกราฟได้ · กดบนเส้นเพื่อเพิ่มจุดกลาง · x, y เป็นค่า 0–255 แบบเดียวกับในเว็บ Flydigi")}`,
+    { dim: off, tag: untested("gyro.curve") });
+
+  // 4. Mouse mode only.
+  const g4 = mode === "mouse" || g.mode === "mouse"
+    ? group(4, "โหมดเมาส์", "Mouse", "ใช้เฉพาะตอน gyro ทำหน้าที่เป็นเมาส์",
+        `${slider("gyro.mouseRadius", "Deadzone เมาส์", D, { min: 0, max: 100, fmt: (v) => `${v}%`, tag: false })}
+        ${hint("Mouse Dead Zone ในเว็บ Flydigi · ปรับช่วงที่เมาส์ตอบสนอง")}`, { tag: untested("gyro.mouseRadius") })
+    : "";
+  return g1 + g2 + g3 + g4;
+}
+
+// The gyro curve chart. Points can be dragged and a click on the line adds a mid point, as on
+// the official Advanced page (app.js handles the pointer). Inputs are 0–255 on both axes.
+export function gyroChart(c, pending) {
+  const S = 300;
+  const X = (x) => ((x / 255) * S).toFixed(1), Y = (y) => (S - (y / 255) * S).toFixed(1);
+  const ink = pending ? "#2140D9" : "#111111";
+  const pts = [["start", c.start_x, c.start_y], ...c.mid_points.map((m, i) => [`mid${i}`, m.x, m.y]), ["end", c.end_x, c.end_y]];
+  const line = [[0, 0], ...pts.map(([, x, y]) => [x, y]), [255, c.end_y]].map(([x, y]) => `${X(x)},${Y(y)}`).join(" ");
+  const full = c.mid_points.length >= GYRO_MIDS_MAX;
+  return `<svg viewBox="-14 -14 ${S + 28} ${S + 28}" style="touch-action:none;cursor:${full ? "default" : "copy"}" aria-label="กราฟ Response Curve ลากจุดได้">
+    <rect x="0" y="0" width="${S}" height="${S}" fill="#fff" stroke="#E2E2E2"/>
+    ${[1, 2, 3].map((i) => `<path d="M${(S / 4) * i} 0 V${S} M0 ${(S / 4) * i} H${S}" stroke="#E2E2E2"/>`).join("")}
+    <path d="M0 ${S} L${S} 0" stroke="#BDBDBD" stroke-dasharray="4 4"/>
+    <polyline points="${line}" fill="none" stroke="${ink}" stroke-width="2.2" stroke-linejoin="round"/>
+    ${full ? "" : `<polyline points="${line}" fill="none" stroke="transparent" stroke-width="18" data-gyro-line/>`}
+    ${pts.map(([id, x, y]) => `<circle cx="${X(x)}" cy="${Y(y)}" r="9" fill="#fff" stroke="${ink}" stroke-width="2" data-pt="${id}" style="cursor:grab"><title>${id === "start" ? "จุดเริ่ม" : id === "end" ? "จุดสุด" : `จุดกลาง ${Number(id.slice(3)) + 1}`} (${x}, ${y})</title></circle>`).join("")}
+  </svg>`;
 }
 
 // What the gyro drives with the mode on the controller now (not a pending edit), read from the

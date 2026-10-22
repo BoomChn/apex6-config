@@ -2,7 +2,7 @@
 // Keys editKey() maps to a writable field (mapping-edit.js) can be written; everything else stays a draft in this page
 // until the protocol for it is known, and the UI says so.
 
-import { isWritable, LAYER_MAX, layerRenumber } from "./mapping-edit.js";
+import { isWritable, LAYER_MAX, layerRenumber, gyroPct } from "./mapping-edit.js";
 import { planMacros } from "./macros.js";
 import { fit } from "./names.js";
 import { targetLabel } from "./profile-view.js";
@@ -22,6 +22,14 @@ export const PRESS = [
 ];
 const ACT_OF = { simple: ["simple", "timing_single"], long: ["timing_long"], double: ["timing_double"] };
 
+// The gyro curve in the official app's terms, e.g. "Deadzone 1% · ชดเชย 1% · สุดที่ 100% → 100% · จุดกลาง (29, 230)".
+export const gyroCurveText = (c) =>
+  c
+    ? `Deadzone ${gyroPct(c.start_x)}% · ชดเชย ${gyroPct(c.start_y)}% · สุดที่ ${gyroPct(c.end_x)}% → ${gyroPct(c.end_y)}%${c.mid_points.length ? ` · จุดกลาง ${c.mid_points.map((m) => `(${m.x}, ${m.y})`).join(" ")}` : ""}`
+    : "—";
+// "กดค้าง LT, กดสลับ RB", or "ไม่ตั้ง · ทำงานตลอด" for an empty list.
+export const gyroActText = (list) =>
+  list?.length ? list.map((a) => `${a.activation === "toggle" ? "กดสลับ" : "กดค้าง"} ${btnName(a.button)}`).join(", ") : "ไม่ตั้ง · ทำงานตลอด";
 export const GYRO_MODE = { disable: "ปิด", left_joystick: "Stick ซ้าย", right_joystick: "Stick ขวา", mouse: "เมาส์" };
 export const LED_MODE = { off: "ปิด", solid: "สีเดียว", breath: "หายใจ", cycle: "ไล่สี" };
 export const LAYER_NAME = (id) => (id === 0 ? "Base layer" : id === 1 ? "Shift layer" : `Layer ${id}`);
@@ -217,10 +225,11 @@ export function meta(key, S) {
       mode: ["ทำหน้าที่เป็น", g?.mode, (v) => GYRO_MODE[v] ?? v],
       invertX: ["กลับซ้าย–ขวา", g?.invert_x, onOff],
       invertY: ["กลับบน–ล่าง", g?.invert_y, onOff],
-      sens: ["ความไว", undefined, (v) => `${v}%`],
-      preset: ["รูปแบบ curve", g && (g.curve.mid_points.length ? "custom" : "linear"), (v) => GPRESET[v]],
-      axisX: ["แกนซ้าย–ขวา", g?.axis_x, (v) => AXIS[v] ?? v],
-      axisY: ["แกนบน–ล่าง", g?.axis_y, (v) => AXIS[v] ?? v],
+      curve: ["Response curve", g?.curve, gyroCurveText],
+      activation: ["ปุ่มเปิด gyro", g?.activation, gyroActText],
+      axisX: ["เล็งซ้าย–ขวาด้วย", g?.axis_x, (v) => AXIS[v] ?? v],
+      axisY: ["เล็งบน–ล่างด้วย", g?.axis_y, (v) => AXIS[v] ?? v],
+      mouseRadius: ["Deadzone เมาส์", g && gyroPct(g.mouse_window_radius), (v) => `${v}%`],
     }[b];
     return { tab: "gyro", group: "slot", label: `Gyro · ${map[0]}`, base: map[1], fmt: map[2] };
   }

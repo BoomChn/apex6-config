@@ -1,6 +1,6 @@
 import { Apex6, RAM, hex, crc32 } from "./protocol.js";
 import { decodeMapping } from "./mapping.js";
-import { unwrapMapping, applyEdits, sameBytes, deadzoneMax, curveEndMin, curveStartMax, motorMaxMin, MACRO_STEPS_MAX } from "./mapping-edit.js";
+import { unwrapMapping, applyEdits, sameBytes, deadzoneMax, curveEndMin, curveStartMax, motorMaxMin, MACRO_STEPS_MAX, gyroByte, gyroPct, GYRO_MIDS_MAX } from "./mapping-edit.js";
 import { Drafts, esc, resolveNames, resolveMacros, macroPlan, writeEdits, macroUses, openMacro, layerMoves, nameId, evalCurve, layerKey, layerList, nextLayerId, LAYER_NAME, btnName } from "./model.js";
 import { Names, fit } from "./names.js";
 import { Library } from "./macros.js";
@@ -131,7 +131,8 @@ function softUpdate(key) {
 
 function outText(key, label) {
   const v = D.get(key);
-  if (key.startsWith("led.bright") || key.startsWith("screen.bright") || key === "gyro.sens") return `${v}%`;
+  if (key.startsWith("led.bright") || key.startsWith("screen.bright")) return `${v}%`;
+  if (key.startsWith("gyro.")) return `${v}%`;
   if (key.startsWith("motor.") || key.startsWith("vibtrig.")) return `${Math.round((v / 255) * 100)}%`;
   return `${Math.round((v / 255) * 100)}%  ·  ${v}`;
 }
@@ -456,6 +457,60 @@ const CLAMP = {
   "motor.right.max": (v) => Math.max(v, motorMaxMin(S.current.cfg.vibration_motor_right.curve)),
 };
 
+// Gyro curve edits (one draft, "gyro.curve"). Points stay in order left to right, start ≤ mid
+// points ≤ end, as in the official editor; the value is pushed back inside if it would cross.
+// Returns the byte that was kept.
+function setCurvePart(part, v, i = 0) {
+  const c = structuredClone(D.get("gyro.curve"));
+  const m = c.mid_points;
+  const b = Math.max(0, Math.min(255, Math.round(v)));
+  let kept = b;
+  if (part === "start_x") kept = Math.min(b, ...m.map((p) => p.x), c.end_x);
+  else if (part === "end_x") kept = Math.max(b, ...m.map((p) => p.x), c.start_x);
+  else if (part === "mid_x") kept = Math.max(i ? m[i - 1].x : c.start_x, Math.min(b, m[i + 1]?.x ?? c.end_x));
+  if (part === "mid_x") m[i].x = kept;
+  else if (part === "mid_y") m[i].y = kept;
+  else c[part] = kept;
+  setDraft("gyro.curve", c);
+  return kept;
+}
+
+// Picking a gyro mode sets the curve the way the official web app does: a stick mode keeps
+// end_y at 255, mouse mode keeps end_x at 255. A slot that never had gyro set up (off, plain
+// linear curve) gets the official defaults: end_x 145 for a stick, start_x 4 and end_y 51 for the
+// mouse. An unwritten curve edit is dropped first.
+function setGyroMode(mode) {
+  const g = S.current.cfg.gyroscope;
+  D.map.delete("gyro.curve");
+  setDraft("gyro.mode", mode);
+  if (mode === g.mode || mode === "disable") return;
+  const c = structuredClone(g.curve);
+  const fresh = g.mode === "disable" && c.start_x === 0 && c.start_y === 0 && c.end_x === 255 && c.end_y === 255 && !c.mid_points.length;
+  if (mode === "mouse") {
+    if (fresh) Object.assign(c, { start_x: 4, end_y: 51 });
+    c.end_x = 255;
+  } else {
+    if (fresh) c.end_x = 145;
+    c.end_y = 255;
+  }
+  setDraft("gyro.curve", c);
+}
+
+// Gyro activation as the official Advanced page sets it: one hold/toggle for every button, a
+// primary button and an optional secondary one. Slots past the second are kept as they are.
+function setGyroButton(i, button) {
+  const list = structuredClone(D.get("gyro.activation") ?? []);
+  const activation = list[0]?.activation ?? "hold";
+  if (button && list.some((a, k) => k !== i && a.button === button)) {
+    toast("ปุ่มนี้ตั้งไว้แล้ว", true);
+    return;
+  }
+  if (!button) list.splice(i, 1);
+  else if (i < list.length) list[i] = { activation, button };
+  else list.push({ activation, button });
+  if (list.length) setDraft("gyro.activation", list);
+}
+
 function setDraft(key, v) {
   if (CLAMP[key]) v = CLAMP[key](v);
   D.set(key, v);
@@ -626,7 +681,36 @@ const ACTIONS = {
   },
   set: (el) => {
     const v = "numval" in el.dataset ? Number(el.dataset.val) : el.dataset.val;
+    if (el.dataset.key === "gyro.mode") {
+      setGyroMode(v);
+      render();
+      return;
+    }
     setDraft(el.dataset.key, v);
+    render();
+  },
+  // Gyro activation buttons: the list is one draft value ("gyro.activation").
+  "gyro-act-mode": (el) => {
+    setDraft("gyro.activation", (D.get("gyro.activation") ?? []).map((a) => ({ ...a, activation: el.dataset.val })));
+    render();
+  },
+  // Gyro curve: add a mid point halfway along the last segment, remove one, or go back to a straight line.
+  "gyro-mid-add": () => {
+    const c = structuredClone(D.get("gyro.curve"));
+    if (c.mid_points.length >= GYRO_MIDS_MAX) return;
+    const p = c.mid_points.at(-1) ?? { x: c.start_x, y: c.start_y };
+    c.mid_points.push({ x: Math.round((p.x + c.end_x) / 2), y: Math.round((p.y + c.end_y) / 2) });
+    setDraft("gyro.curve", c);
+    render();
+  },
+  "gyro-mid-del": (el) => {
+    const c = structuredClone(D.get("gyro.curve"));
+    c.mid_points.splice(Number(el.dataset.i), 1);
+    setDraft("gyro.curve", c);
+    render();
+  },
+  "gyro-curve-reset": () => {
+    setDraft("gyro.curve", { start_x: 0, start_y: 0, end_x: 255, end_y: 255, mid_points: [] });
     render();
   },
   "aim-center": () => {
@@ -863,6 +947,17 @@ document.addEventListener("input", (e) => {
     renderChrome();
     return;
   }
+  if (el.dataset.curve) {
+    // Gyro curve slider, in percent: keep the point in order, then update the label and chart in place.
+    const p = gyroPct(setCurvePart(el.dataset.curve, gyroByte(Number(el.value))));
+    if (p !== Number(el.value)) el.value = p;
+    el.style.setProperty("--p", `${p}%`);
+    el.closest(".slider").querySelector(".num").textContent = `${p}%`;
+    const chart = document.querySelector("[data-gyro-chart]");
+    if (chart) chart.innerHTML = V.gyroChart(D.get("gyro.curve"), D.has("gyro.curve"));
+    renderChrome();
+    return;
+  }
   if (el.dataset.ui) {
     // Page settings that are not part of any draft (the macro step builder's timing).
     S.ui[el.dataset.ui] = Number(el.value);
@@ -916,6 +1011,15 @@ document.addEventListener("change", (e) => {
   if (el.id === "names-in") return importNames(el);
   if (el.id === "lib-in") return importLibrary(el);
   if (el.dataset.libName != null) return render();
+  if (el.dataset.curve) return render();
+  if (el.dataset.mid != null) {
+    setCurvePart(`mid_${el.dataset.axis}`, Number(el.value) || 0, Number(el.dataset.mid));
+    return render();
+  }
+  if (el.dataset.gyroBtn != null) {
+    setGyroButton(Number(el.dataset.gyroBtn), el.value);
+    return render();
+  }
   const key = el.dataset.key;
   if (!key || !S.current) return;
   if (el.type === "checkbox") setDraft(key, el.checked);
@@ -993,6 +1097,84 @@ window.addEventListener("hashchange", () => {
 window.addEventListener("beforeunload", (e) => {
   if (S.writing || D.count()) e.preventDefault();
 });
+
+// Gyro curve chart: drag a point, or press on the line to add a mid point there and drag it. The
+// chart is redrawn in place while dragging and the page once the pointer is let go.
+let gyroDrag = null;
+
+// Pointer position on the chart as curve bytes (0–255 on both axes).
+function chartPos(box, e) {
+  const svg = box.querySelector("svg");
+  const p = svg.createSVGPoint();
+  p.x = e.clientX;
+  p.y = e.clientY;
+  const q = p.matrixTransform(svg.getScreenCTM().inverse());
+  const b = (v) => Math.max(0, Math.min(255, Math.round((v / 300) * 255)));
+  return { x: b(q.x), y: b(300 - q.y) };
+}
+
+// Moves one point ("start", "end", "mid0", "mid1"); x stays between its neighbours.
+function moveCurvePoint(pt, { x, y }) {
+  const c = structuredClone(D.get("gyro.curve"));
+  const m = c.mid_points;
+  if (pt === "start") Object.assign(c, { start_x: Math.min(x, m[0]?.x ?? c.end_x), start_y: y });
+  else if (pt === "end") Object.assign(c, { end_x: Math.max(x, m.at(-1)?.x ?? c.start_x), end_y: y });
+  else {
+    const i = Number(pt.slice(3));
+    m[i] = { x: Math.max(i ? m[i - 1].x : c.start_x, Math.min(x, m[i + 1]?.x ?? c.end_x)), y };
+  }
+  setDraft("gyro.curve", c);
+}
+
+// Adds a mid point at the pointer, in order by x. Returns its index, or null when there are two.
+function addMidAt({ x, y }) {
+  const c = structuredClone(D.get("gyro.curve"));
+  const m = c.mid_points;
+  if (m.length >= GYRO_MIDS_MAX) return null;
+  const i = m.filter((p) => p.x < x).length;
+  m.splice(i, 0, { x: Math.max(i ? m[i - 1].x : c.start_x, Math.min(x, m[i]?.x ?? c.end_x)), y });
+  setDraft("gyro.curve", c);
+  return i;
+}
+
+function redrawGyroChart(box) {
+  box.innerHTML = V.gyroChart(D.get("gyro.curve"), D.has("gyro.curve"));
+  renderChrome();
+}
+
+document.addEventListener("pointerdown", (e) => {
+  const box = e.target.closest?.("[data-gyro-chart]");
+  if (!box || !S.current || e.button !== 0) return;
+  const pos = chartPos(box, e);
+  const pt = e.target.closest("[data-pt]")?.dataset.pt;
+  if (pt) gyroDrag = pt;
+  else if (e.target.closest("[data-gyro-line]")) {
+    const i = addMidAt(pos);
+    if (i == null) return;
+    gyroDrag = `mid${i}`;
+  } else return;
+  e.preventDefault();
+  // Keeps the drag going outside the chart; it throws if the pointer is already gone.
+  try {
+    box.setPointerCapture(e.pointerId);
+  } catch {}
+  moveCurvePoint(gyroDrag, pos);
+  redrawGyroChart(box);
+});
+document.addEventListener("pointermove", (e) => {
+  if (!gyroDrag) return;
+  const box = document.querySelector("[data-gyro-chart]");
+  if (!box) return;
+  moveCurvePoint(gyroDrag, chartPos(box, e));
+  redrawGyroChart(box);
+});
+for (const type of ["pointerup", "pointercancel"]) {
+  document.addEventListener(type, () => {
+    if (!gyroDrag) return;
+    gyroDrag = null;
+    render();
+  });
+}
 
 // ---------------- Live input ----------------
 // On Sticks, Triggers and Gyro, the app asks the controller itself for its stick stream (0xEF) and key
