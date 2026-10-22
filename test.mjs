@@ -157,38 +157,41 @@ assert.ok(sameBytes(applyEdits(sample, {}), sample), "empty edit is byte-identic
 assert.ok(WRITABLE.has("stick.left.deadzone") && !WRITABLE.has("led.color"));
 console.log("edits ok");
 
-// Gyro block: every field the Gyro page writes, on the official web app's percent scale, and the
-// rules checkProfile holds it to.
+// Gyro block: every field the Gyro page writes, and the rules checkProfile holds it to.
 {
-  const { applyEdits, checkProfile, crc16: crc, gyroPct, gyroByte, gyroSensMax, gyroDeadzoneMax } = await import("./mapping-edit.js");
+  const { applyEdits, checkProfile, crc16: crc, gyroPct, gyroByte } = await import("./mapping-edit.js");
   const g0 = unwrapMapping(sample).cfg.gyroscope;
-  const acts = [{ activation: "hold", button: "LT (active)" }, { activation: "toggle", button: "M5" }];
+  const acts = [{ activation: "hold", button: "LT (active)" }, { activation: "hold", button: "M5" }];
+  // The owner's curve from the official Advanced page: dead zone 1%, compensation 1%, mid point (29, 230).
+  const curve = { start_x: 3, start_y: 3, end_x: 255, end_y: 255, mid_points: [{ x: 29, y: 230 }] };
   const out = applyEdits(sample, {
-    "gyro.deadzone": 10, "gyro.sens": 70, "gyro.mouseSens": 20, "gyro.activation": acts,
-    "gyro.axisX": "imu_z", "gyro.axisY": "none", "gyro.mouseRadius": 50,
+    "gyro.curve": curve, "gyro.activation": acts, "gyro.axisX": "imu_z", "gyro.axisY": "none", "gyro.mouseRadius": 50,
   });
   const g = unwrapMapping(out).cfg.gyroscope;
-  assert.equal(g.curve.start_x, 26, "dead zone 10% = byte 26, as the official app writes it");
-  assert.equal(g.curve.end_x, 77, "sensitivity 70% = end_x 30% = byte 77");
-  assert.equal(g.curve.end_y, 51, "mouse sensitivity 20% = end_y 51 (the official mouse default)");
+  assert.deepEqual(g.curve, curve);
+  const at0 = 4 + unwrapMapping(out).cfg.offsets.gyroscope;
+  assert.deepEqual([...out.subarray(at0, at0 + 11)], [3, 3, 255, 255, 1, 29, 230, 0, 0, 0, 0], "curve11 as the official encoder writes it");
   assert.deepEqual(g.activation, acts);
   assert.equal(g.axis_x, "imu_z");
   assert.equal(g.axis_y, "none");
   assert.equal(g.mouse_window_radius, 127, "50 * 2.55 rounds to 127 in JS, as in the official app");
   assert.equal(g.mode, g0.mode, "untouched gyro bytes stay");
-  // The official default stick curve (end_x 145) reads as 43% and writes back as 145.
-  assert.equal(100 - gyroPct(145), 43);
-  assert.equal(gyroByte(100 - 43), 145);
+  // Two mid points, then back to none: unused point bytes go back to 0.
+  const two = { ...curve, mid_points: [{ x: 29, y: 230 }, { x: 100, y: 240 }] };
+  assert.deepEqual(unwrapMapping(applyEdits(out, { "gyro.curve": two })).cfg.gyroscope.curve, two);
+  const flat = { start_x: 0, start_y: 0, end_x: 255, end_y: 255, mid_points: [] };
+  const fo = applyEdits(out, { "gyro.curve": flat });
+  assert.deepEqual([...fo.subarray(at0, at0 + 11)], [0, 0, 255, 255, 0, 0, 0, 0, 0, 0, 0]);
+  // The official percent scale: the stick default end_x 145 reads 57% and writes back as 145.
+  assert.equal(gyroPct(145), 57);
+  assert.equal(gyroByte(57), 145);
   // Fewer buttons clear the slots after them to (0, 0xFF); none at all is refused.
-  const one = unwrapMapping(applyEdits(out, { "gyro.activation": [acts[0]] })).cfg.gyroscope;
-  assert.deepEqual(one.activation, [acts[0]]);
+  assert.deepEqual(unwrapMapping(applyEdits(out, { "gyro.activation": [acts[0]] })).cfg.gyroscope.activation, [acts[0]]);
   assert.throws(() => applyEdits(out, { "gyro.activation": [] }), /อย่างน้อย 1/);
-  // Sensitivity and dead zone stay inside what the curve allows.
-  const tight = { start_x: 200, end_x: 255, mid_points: [] };
-  assert.ok(gyroByte(100 - gyroSensMax(tight)) > 200);
-  assert.ok(gyroByte(gyroDeadzoneMax({ start_x: 0, end_x: 60, mid_points: [] })) < 60);
-  assert.throws(() => applyEdits(sample, { "gyro.sens": 101 }));
-  assert.throws(() => applyEdits(sample, { "gyro.deadzone": gyroDeadzoneMax(g0.curve) + 1 }));
+  // Curve values the editor can't make are refused.
+  assert.throws(() => applyEdits(sample, { "gyro.curve": { ...curve, mid_points: [{ x: 300, y: 0 }] } }), /0–255/);
+  assert.throws(() => applyEdits(sample, { "gyro.curve": { ...curve, start_x: 40 } }), /เรียง/);
+  assert.throws(() => applyEdits(sample, { "gyro.curve": { ...two, mid_points: [...two.mid_points, { x: 200, y: 250 }] } }), /ไม่เกิน 2/);
   assert.throws(() => applyEdits(sample, { "gyro.axisX": "imu_w" }));
   assert.throws(() => applyEdits(sample, { "gyro.activation": [acts[0], acts[0]] }), /ซ้ำ/);
   assert.throws(() => applyEdits(sample, { "gyro.activation": [...acts, { activation: "hold", button: "A" }, { activation: "hold", button: "B" }, { activation: "hold", button: "X" }] }));

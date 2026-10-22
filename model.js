@@ -22,6 +22,11 @@ export const PRESS = [
 ];
 const ACT_OF = { simple: ["simple", "timing_single"], long: ["timing_long"], double: ["timing_double"] };
 
+// The gyro curve in the official app's terms, e.g. "Deadzone 1% · ชดเชย 1% · สุดที่ 100% → 100% · จุดกลาง (29, 230)".
+export const gyroCurveText = (c) =>
+  c
+    ? `Deadzone ${gyroPct(c.start_x)}% · ชดเชย ${gyroPct(c.start_y)}% · สุดที่ ${gyroPct(c.end_x)}% → ${gyroPct(c.end_y)}%${c.mid_points.length ? ` · จุดกลาง ${c.mid_points.map((m) => `(${m.x}, ${m.y})`).join(" ")}` : ""}`
+    : "—";
 // "กดค้าง LT, กดสลับ RB", or "ไม่ตั้ง · ทำงานตลอด" for an empty list.
 export const gyroActText = (list) =>
   list?.length ? list.map((a) => `${a.activation === "toggle" ? "กดสลับ" : "กดค้าง"} ${btnName(a.button)}`).join(", ") : "ไม่ตั้ง · ทำงานตลอด";
@@ -220,9 +225,7 @@ export function meta(key, S) {
       mode: ["ทำหน้าที่เป็น", g?.mode, (v) => GYRO_MODE[v] ?? v],
       invertX: ["กลับซ้าย–ขวา", g?.invert_x, onOff],
       invertY: ["กลับบน–ล่าง", g?.invert_y, onOff],
-      sens: ["ความไว", g && 100 - gyroPct(g.curve.end_x), (v) => `${v}%`],
-      deadzone: ["Deadzone", g && gyroPct(g.curve.start_x), (v) => `${v}%`],
-      mouseSens: ["ความไวเมาส์", g && gyroPct(g.curve.end_y), (v) => `${v}%`],
+      curve: ["Response curve", g?.curve, gyroCurveText],
       activation: ["ปุ่มเปิด gyro", g?.activation, gyroActText],
       axisX: ["เล็งซ้าย–ขวาด้วย", g?.axis_x, (v) => AXIS[v] ?? v],
       axisY: ["เล็งบน–ล่างด้วย", g?.axis_y, (v) => AXIS[v] ?? v],

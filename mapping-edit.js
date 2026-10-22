@@ -43,21 +43,26 @@ export function motorMaxMin(curve) {
 
 const GYRO_MODES = ["disable", "left_joystick", "right_joystick", "mouse"];
 
-// Gyro sliders use the official web app's scale (GyroBody on space_station.flydigi.com): a percent
-// of a 0–255 byte, p = round(byte / 2.55), byte = round(p * 2.55).
-//   stick modes: sensitivity = 100 − end_x%, dead zone = start_x% (input ignored below it)
-//   mouse mode:  sensitivity = end_y%, "mouse dead zone" = mouse_window_radius%
+// The official web app shows gyro bytes as a percent of 255 (GyroBody on space_station.flydigi.com):
+// p = round(byte / 2.55), byte = round(p * 2.55).
 export const gyroPct = (b) => Math.round(Math.max(0, Math.min(255, b)) / 2.55);
 export const gyroByte = (p) => Math.round(Math.max(0, Math.min(100, p)) * 2.55);
-// Highest stick sensitivity / dead zone that keeps end_x above the start and every mid point.
-export const gyroSensMax = (curve) => {
-  for (let p = 100; p > 0; p--) if (gyroByte(100 - p) >= curveEndMin(curve)) return p;
-  return 0;
-};
-export const gyroDeadzoneMax = (curve) => {
-  for (let p = 100; p > 0; p--) if (gyroByte(p) <= deadzoneMax({ curve })) return p;
-  return 0;
-};
+
+// The gyro curve is written whole, as the official encoder writes curve11: start_x start_y end_x
+// end_y n, two (x, y) mid points (unused ones 0, 0), two zero pad bytes.
+export const GYRO_MIDS_MAX = 2;
+function gyroCurveBytes(c) {
+  const m = c.mid_points;
+  return [c.start_x, c.start_y, c.end_x, c.end_y, m.length, m[0]?.x ?? 0, m[0]?.y ?? 0, m[1]?.x ?? 0, m[1]?.y ?? 0, 0, 0];
+}
+function gyroCurveCheck(_, c) {
+  const byte = (v) => Number.isInteger(v) && v >= 0 && v <= 255;
+  const m = c?.mid_points;
+  if (!Array.isArray(m) || m.length > GYRO_MIDS_MAX) return `จุดกลางได้ไม่เกิน ${GYRO_MIDS_MAX} จุด`;
+  if (![c.start_x, c.start_y, c.end_x, c.end_y, ...m.flatMap((p) => [p.x, p.y])].every(byte)) return "ค่าใน curve ต้องอยู่ระหว่าง 0–255";
+  const xs = [c.start_x, ...m.map((p) => p.x), c.end_x];
+  return xs.every((x, i) => !i || x >= xs[i - 1]) ? null : "จุดใน curve ต้องเรียงจากซ้ายไปขวา";
+}
 
 // Gyro activation: 4 slots of (0 hold | 1 toggle, button id), an empty slot is (0, 0xFF).
 export const GYRO_ACT_MAX = 4;
@@ -102,9 +107,7 @@ const FIELDS = {
   "gyro.mode": { key: "gyroscope", at: 12, enc: (v) => GYRO_MODES.indexOf(v), check: (_, v) => (GYRO_MODES.includes(v) ? null : `โหมด gyro ไม่รู้จัก: ${v}`) },
   "gyro.invertX": { key: "gyroscope", at: 11, bit: 1 },
   "gyro.invertY": { key: "gyroscope", at: 11, bit: 2 },
-  "gyro.deadzone": { key: "gyroscope", at: 0, enc: gyroByte, check: (g, v) => range(v, 0, gyroDeadzoneMax(g.curve)) },
-  "gyro.sens": { key: "gyroscope", at: 2, enc: (v) => gyroByte(100 - v), check: (g, v) => range(v, 0, gyroSensMax(g.curve)) },
-  "gyro.mouseSens": { key: "gyroscope", at: 3, enc: gyroByte, check: (_, v) => range(v, 0, 100) },
+  "gyro.curve": { key: "gyroscope", at: 0, bytes: gyroCurveBytes, check: gyroCurveCheck },
   "gyro.activation": { key: "gyroscope", at: 13, bytes: gyroActBytes, check: gyroActCheck },
   "gyro.axisX": gyroAxis(21),
   "gyro.axisY": gyroAxis(22),

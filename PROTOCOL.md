@@ -77,6 +77,10 @@ TLV until (0xFF,0x00):
     mouse mode: sensitivity = end_y%, "Mouse Dead Zone" = mouse_window_radius%, end_x kept at 255.
     Picking a mode from "off" on an untouched linear curve gives end_x 145 (stick) or start_x 4, end_y 51 (mouse); picking a
     mode also resets axis_x/axis_y to imu_x/imu_y there. Its schema needs 1–4 activation slots (default: hold A).
+    Its Advanced page edits the gyro curve directly: Curve Dead Zone = start_x, Dead Zone Compensation = start_y, Maximum
+    Output Start = end_x, Maximum Output = end_y (each as %), up to 2 mid points as raw x/y; one hold/toggle for all slots,
+    a primary and a secondary button. The owner's slot 2 (2026-10-22): 1%, 1%, 100%, 100%, mid point (29, 230), so output
+    is ~90% by input 29 and the Basic sensitivity (end_x) barely changes anything.
   6/7 trigger vibration (12B: pad + curve11), 8/9 motor (12B: enabled + curve11)
   0x20 metadata (v1.9): u8 nameLen name u8 n, n × (layer, macro, len, name)
 curve11 = start_x start_y end_x end_y mid_count (x,y)×2 pad2   (0..255 scale)
