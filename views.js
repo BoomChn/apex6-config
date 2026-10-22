@@ -942,6 +942,15 @@ export const fmtWhen = (t) => {
 
 // ---------------- 09 Review & 10 write states ----------------
 
+// Shown when nothing pending can be written. Keep in step with FIELDS in mapping-edit.js.
+const WRITABLE_NOW = [
+  { prefix: "stick.", label: "Stick", what: "deadzone · ระยะสูงสุด · กลับแกน X/Y · ขอบกลม" },
+  { prefix: "trigger.", label: "Trigger", what: "จุดเริ่ม · จุดสุด" },
+  { prefix: "gyro.", label: "Gyro", what: "โหมด · กลับแกน X/Y" },
+  { prefix: "motor.", label: "มอเตอร์สั่น", what: "เปิด/ปิด · แรงสูงสุด" },
+  { prefix: "runtime.", label: "เวลาตัดสินการกด", what: "กดค้าง · ดับเบิลคลิก" },
+];
+
 export function review(S, D) {
   const items = D.items();
   const slotItems = items.filter((i) => i.group === "slot" && i.writable);
@@ -950,10 +959,15 @@ export function review(S, D) {
   const row = (i) => `<div class="diff-row${i.writable ? "" : " unsup"}"><b>${esc(i.label)}${untested(i.key) ? `<br>${untested(i.key)}` : ""}</b><span class="old">${esc(i.base === undefined ? "ไม่ทราบ" : i.fmt(i.base))}</span><span>→</span>
     <span class="new">${i.key === "led.color" ? `<span class="swatch-dot" style="background:${esc(i.value)}"></span>` : ""}${esc(i.fmt(i.value))}</span></div>`;
   const slot = S.slots.activeSlot;
+  // Every pending edit is draft-only: say which ones, and what can be written today.
+  const stuck = [...new Set(unsup.map((i) => i.label.split(" · ")[0]))].join(", ");
+  const canNow = WRITABLE_NOW.filter((g) => [...WRITABLE].some((k) => k.startsWith(g.prefix)));
+  const sub = nW ? "ตรวจก่อนเขียน · อย่าถอดสายระหว่างเขียน" : `${esc(stuck)} ยังเขียนลงจอยไม่ได้ เลยเก็บเป็นร่างไว้ในหน้านี้ · ค่าบนจอยยังเหมือนเดิม`;
   return `<h2 class="d-title" id="sheet-title">${nW ? `เขียน ${nW} การเปลี่ยนแปลงลงจอย` : "ยังไม่มีอะไรที่เขียนลงจอยได้"}</h2>
-    <p class="d-sub">ตรวจก่อนเขียน · อย่าถอดสายระหว่างเขียน</p>
+    <p class="d-sub">${sub}</p>
     ${nW ? `<div class="d-group"><div class="rule-head"><h2>Slot ${slot + 1}${D.get(`slot.${slot}.name`) ? ` · ${esc(D.get(`slot.${slot}.name`))}` : ""}</h2><span class="meta">ค่าบนจอย → ค่าใหม่</span></div>${slotItems.map(row).join("")}</div>` : ""}
     ${unsup.length ? `<div class="d-group"><div class="rule-head"><h2>ยังเขียนลงจอยไม่ได้</h2><span class="meta">เก็บเป็นร่างในหน้านี้ ไม่ส่งลงจอย</span></div>${unsup.map(row).join("")}</div>` : ""}
+    ${nW ? "" : `<div class="d-group"><div class="rule-head thin"><h2>ที่เขียนลงจอยได้ตอนนี้</h2>${UNTESTED}</div>${canNow.map((g) => `<div class="can-row"><b>${g.label}</b><span>${g.what}</span></div>`).join("")}</div>`}
     ${nW ? `<p class="notice" style="margin-top:24px;font-size:15px;color:var(--ink)">${ICON.file}<span><b>สำรองค่าบนจอยเป็นไฟล์อัตโนมัติก่อนเขียนทุกครั้ง</b> <span class="muted">· กู้คืนได้ที่ Device &amp; backup</span></span></p>` : ""}
     <div class="d-actions"><button class="link" style="font-size:17px" data-act="close-sheet">กลับไปแก้</button>
       <button class="btn primary" data-act="write" ${nW ? "" : "disabled"}>เขียนลงจอย</button></div>`;
