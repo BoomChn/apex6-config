@@ -20,6 +20,10 @@ export const CMD = {
   CONFIG_VERSIONS: 0x07,
   SKU: 0x0f,
   THIRDPARTY_STATUS: 0x10,
+  INPUT_MODES: 0x11,
+  TEXT: 0x20,
+  EVENT: 0x21,
+  STICK_STREAM: 0xef,
   SLOT_STATUS: 0xa1,
   SWITCH_SLOT: 0xa2,
   RAM_READ: 0xa3,
@@ -233,6 +237,48 @@ export class Apex6 {
         haptic: !!(flags & 128),
       },
     };
+  }
+
+  // 0x11 has no reply: xinput, dinput, keyboard, mouse, allowThirdparty (0xFF = unchanged) + 22 zeros.
+  // The official site turns dinput on to get the 0xEF stick stream and off again when done.
+  setInputModes({ xinput = 0xff, dinput = 0xff, keyboard = 0xff, mouse = 0xff, third = 0xff } = {}) {
+    const p = new Uint8Array(27);
+    p.set([xinput, dinput, keyboard, mouse, third]);
+    const run = () => this._send(buildFrame(CMD.INPUT_MODES, p));
+    const done = this.queue.then(run, run);
+    this.queue = done.catch(() => {});
+    return done;
+  }
+
+  // 0x20 ASCII command, e.g. "ENABLE_KEY_EVENT" / "DISABLE_KEY_EVENT".
+  textCommand(text) {
+    return this.request(CMD.TEXT, new TextEncoder().encode(text));
+  }
+
+  // 0xEF frames: 32 bytes, LX LY RX RY i16le, buttons u32le, sum8 of bytes 2..30 at byte 31.
+  onStick(cb) {
+    const l = (b) => {
+      if (b.length < 32 || b[0] !== SYNC0 || b[1] !== SYNC1 || b[2] !== CMD.STICK_STREAM || b[31] !== sum8(b, 2, 31)) return;
+      const v = new DataView(b.buffer, b.byteOffset + 3, 12);
+      cb({ lx: v.getInt16(0, true), ly: v.getInt16(2, true), rx: v.getInt16(4, true), ry: v.getInt16(6, true), buttons: v.getUint32(8, true) });
+    };
+    this.listeners.add(l);
+    return () => this.listeners.delete(l);
+  }
+
+  // 0x21 frames carry one ASCII event line, e.g. "KEY_DOWN GP_A", "KEY_UP GP_A", "SLOT_CHANGED 2".
+  onEvent(cb) {
+    const l = (b) => {
+      if (b[2] !== CMD.EVENT) return;
+      const r = parseReply(b);
+      if (!r || r.cmd !== CMD.EVENT) return;
+      let n = r.payload.indexOf(0);
+      if (n < 0) n = r.payload.length;
+      const text = new TextDecoder("ascii").decode(r.payload.subarray(0, n)).trim();
+      if (text) cb(text);
+    };
+    this.listeners.add(l);
+    return () => this.listeners.delete(l);
   }
 
   async getUuid() {

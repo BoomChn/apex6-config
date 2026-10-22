@@ -35,7 +35,9 @@ Replies are zero-padded, so find the end by scanning for a valid checksum.
 | 0xA7 | apply/commit config | `[1, cfgId]`. Not sent by the official client after a write (debug only); a COMMIT takes effect on its own. |
 | 0xAC / 0xAD | LCD settings get / set | |
 | 0xAF | ? per cfgId | |
-| 0xEF | (input) live stick stream | LX, LY, RX, RY i16le, buttons u32le |
+| 0xEF | (input) live stick stream | 32-byte frame: `5A A5 EF`, LX LY RX RY i16le, buttons u32le (bit order unknown), sum8 of bytes 2..30 at byte 31. The official site turns it on with 0x11 dinput=1 (others 0xFF) and off with dinput=0. |
+
+Key events: 0x20 `"ENABLE_KEY_EVENT"` / `"DISABLE_KEY_EVENT"`. The controller then sends 0x21 lines such as `KEY_DOWN GP_A` and `KEY_UP GP_A`. Other lines: `SLOT_CHANGED n`, `CAL_BEGIN`, `CAL_END`, `STICK_L_READY`, `TRIG_L_READY`, `MACRO_REC_START`, `PAIR_CLEARED`. Key names in the official table: DPAD_UP/RIGHT/DOWN/LEFT, A, B, X, Y, SELECT, START, LB, RB, LT, RT, THL, THR, C, Z, M1–M6, MENU, MODE, BACK, HOME, KEYW/A/S/D. The names LM/RM report are not yet known.
 | 0xFE | ? | value u8 → u8 |
 
 ## RAM regions

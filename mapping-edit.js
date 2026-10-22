@@ -89,9 +89,11 @@ export const WRITABLE = new Set(Object.keys(FIELDS));
 // Add a key here once it has been tried on hardware.
 // 2026-10-22, checked in joy.cpl: stick.left.max (255 → 179, edge at ~70% travel), then
 // stick.left.deadzone, stick.left.invertX, stick.right.max, and trigger end on both sides.
+// Then: right stick deadzone/invert X/Y, left invert Y, round edge on both sticks, trigger start.
 export const HW_TESTED = new Set([
-  "stick.left.max", "stick.left.deadzone", "stick.left.invertX", "stick.right.max",
-  "trigger.left.end", "trigger.right.end",
+  "stick.left.max", "stick.left.deadzone", "stick.left.invertX", "stick.left.invertY", "stick.left.round",
+  "stick.right.max", "stick.right.deadzone", "stick.right.invertX", "stick.right.invertY", "stick.right.round",
+  "trigger.left.start", "trigger.right.start", "trigger.left.end", "trigger.right.end",
 ]);
 
 // Returns a new wrapped buffer with the given edits applied and the CRC16 updated.

@@ -156,3 +156,34 @@ assert.throws(() => applyEdits(sample, { "led.color": "#ff0000" }), /ยัง�
 assert.ok(sameBytes(applyEdits(sample, {}), sample), "empty edit is byte-identical");
 assert.ok(WRITABLE.has("stick.left.deadzone") && !WRITABLE.has("led.color"));
 console.log("edits ok");
+
+// Live input: 0x11 frame layout, 0xEF stick frames, 0x21 key events.
+{
+  const sent = [];
+  const d = { opened: true, collections: [{ usagePage: 0xffa0, outputReports: [{ reportId: 0, items: [{ reportCount: 63 }] }] }],
+    listeners: [], addEventListener(_, f) { this.listeners.push(f); }, removeEventListener() {}, async close() {},
+    async sendReport(id, data) { sent.push(data.slice()); } };
+  const p = await Apex6.open(d);
+  await p.setInputModes({ dinput: 1 });
+  assert.deepEqual([...sent[0].slice(0, 9)], [0x5a, 0xa5, 0x11, 29, 0xff, 1, 0xff, 0xff, 0xff]);
+  assert.equal(sent[0][31], sum(sent[0], 2, 31));
+
+  const push = (f) => d.listeners.forEach((l) => l({ data: new DataView(f.buffer) }));
+  const sticks = [], events = [];
+  const off = p.onStick((s) => sticks.push(s));
+  p.onEvent((t) => events.push(t));
+  const f = new Uint8Array(32), v = new DataView(f.buffer);
+  f.set([0x5a, 0xa5, 0xef]);
+  v.setInt16(3, 32767, true); v.setInt16(5, -100, true); v.setInt16(7, 5, true); v.setInt16(9, -32768, true); v.setUint32(11, 0x81, true);
+  f[31] = sum(f, 2, 31);
+  push(f);
+  const bad = f.slice(); bad[31] ^= 1; push(bad);
+  assert.deepEqual(sticks, [{ lx: 32767, ly: -100, rx: 5, ry: -32768, buttons: 0x81 }]);
+  off(); push(f); assert.equal(sticks.length, 1);
+
+  push(reply(0x21, [1, 0], [...new TextEncoder().encode("KEY_DOWN GP_M1"), 0, 0x41]));
+  assert.deepEqual(events, ["KEY_DOWN GP_M1"]);
+  push(reply(0x01, [1, 0], [1, 2, 3]));
+  assert.equal(events.length, 1);
+}
+console.log("live ok");
