@@ -5,6 +5,7 @@ import { BACK, FRONT, stageSvg, inset, TRIG_MARK, PHOTO, LED_PATH } from "./stag
 import {
   esc, pct, same, btnName, PRESS, GYRO_MODE, LED_MODE, LAYER_NAME, PRESET, TPRESET, GPRESET, AXIS, MACRO_MODE, TIMEOUT,
   labelTarget, macroName, baseTarget, isIdentity, evalCurve, macroLayers, macroKey, macroSteps, boundSources,
+  layerList, nextLayerId, layerSwitches, layerKey,
 } from "./model.js";
 import { BUTTONS } from "./mapping.js";
 import { isWritable, HW_TESTED, NAME_MAX, nameBytes, MACRO_MAX } from "./mapping-edit.js";
@@ -298,19 +299,65 @@ export function buttons(S, D) {
     const pendName = st.pend ? `${name} · แก้แล้ว` : name;
     items[id] = { name: def.inline ? name : pendName, value: st.value, state: st.pend ? "pend" : st.changed ? "set" : "", sel: ui.sel === src || (id === "DPAD" && ui.sel?.startsWith("D-pad")) };
   }
-  const layers = cfg.layers.map((l) => `<button class="utab${l.layer_id === layer ? " on" : ""}" style="font-size:13px;padding-bottom:4px" data-act="layer" data-layer="${l.layer_id}">${LAYER_NAME(l.layer_id)}</button>`).join("");
+  const list = layerList(S, D);
+  const layers = list
+    .map((l) => {
+      const cls = `utab${l.id === layer ? " on" : ""}${l.isNew || l.deleted ? " pending" : ""}${l.deleted ? " gone" : ""}`;
+      const title = l.isNew ? "เพิ่มใหม่ · ยังไม่ได้เขียนลงจอย" : l.deleted ? "จะถูกลบตอนเขียนลงจอย" : "";
+      return `<button class="${cls}" style="font-size:13px;padding-bottom:4px"${title ? ` title="${title}"` : ""} data-act="layer" data-layer="${l.id}">${LAYER_NAME(l.id)}</button>`;
+    })
+    .join("");
+  const add = nextLayerId(S, D) !== null
+    ? `<button class="link" style="font-size:13px;white-space:nowrap" data-act="layer-new">+ เพิ่ม layer</button>`
+    : `<span class="meta faint" style="white-space:nowrap">ครบ ${list.length} layer แล้ว</span>`;
   const right = `<div style="display:grid;justify-items:end;gap:10px;padding-top:6px">
       <div class="seg"><button class="${side === "front" ? "on" : ""}" data-act="side" data-side="front">ด้านหน้า</button><button class="${side === "back" ? "on" : ""}" data-act="side" data-side="back">ด้านหลัง</button></div>
-      <div style="display:flex;gap:16px;align-items:center">${layers}<span class="meta faint" style="white-space:nowrap" title="เพิ่ม layer ยังเขียนลงจอยไม่ได้">+ เพิ่ม layer</span></div>
+      <div style="display:flex;gap:16px;align-items:center">${layers}${add}</div>
     </div>`;
   const sub = side === "back" ? "คลิกปุ่มบนตัวจอย หรือชื่อปลายเส้นชี้ · มองจากด้านหลัง ซ้ายของภาพคือมือขวา" : "คลิกปุ่มบนตัวจอย หรือชื่อปลายเส้นชี้ · มองจากด้านหน้า";
   return `<div class="split">
     <div>
       <div class="page-head" style="margin-bottom:8px"><div><h1>Buttons</h1><p class="sub">${sub}</p></div>${right}</div>
+      ${layerBar(S, D, list)}
       ${stageSvg(def, items, { kind: side })}
       ${changedList(S, D)}
     </div>
     <div>${buttonEditor(S, D)}${timing(S, D)}</div>
+  </div>`;
+}
+
+// How to reach each layer, the current layer's delete, and a warning when a toggle leads into a
+// layer that has no way back out.
+function layerBar(S, D, list) {
+  const cur = S.ui.layer;
+  if (list.length < 2) return "";
+  const sw = layerSwitches(S, D, (s) => s.to !== s.layer);
+  const how = (to) => {
+    const ways = sw.filter((s) => s.to === to).map((s) => {
+      const where = s.layer !== cur ? ` ใน ${LAYER_NAME(s.layer)}` : "";
+      const press = s.press !== "simple" ? ` (${PRESS.find((p) => p.id === s.press).label})` : "";
+      return `<b>${esc(btnName(s.source))}</b>${where} ${s.type === "layer_hold" ? "กดค้าง" : "สลับ"}${press}`;
+    });
+    return ways.length ? ways.join(", ") : `<span class="muted">ยังไม่มีปุ่มพาไป</span>`;
+  };
+  const live = list.filter((l) => !l.deleted);
+  let text;
+  let act = "";
+  let warn = "";
+  if (cur === 0) {
+    text = `เข้า layer อื่นด้วย · ${live.filter((l) => l.id !== 0).map((l) => `${LAYER_NAME(l.id)}: ${how(l.id)}`).join(" · ")}`;
+  } else {
+    const l = list.find((x) => x.id === cur);
+    text = `เข้า ${LAYER_NAME(cur)} ด้วย: ${how(cur)}`;
+    act = l?.deleted
+      ? `<span class="pending">จะถูกลบตอนเขียนลงจอย</span> · <button class="link" data-act="layer-undelete" data-layer="${cur}">ยกเลิกการลบ</button>`
+      : `<button class="link err" data-act="layer-delete" data-layer="${cur}">${l?.isNew ? "เอา layer นี้ออก" : "ลบ layer นี้"}</button>`;
+    const trapped = sw.some((s) => s.to === cur && s.type === "layer_toggle") && !sw.some((s) => s.layer === cur);
+    if (trapped && !l?.deleted) warn = `<p class="notice" style="margin:8px 0 0;color:var(--ink)">${ICON.warn}<span>ปุ่มที่สลับเข้ามา layer นี้จะค้างอยู่ที่นี่ ตั้งปุ่มใน ${LAYER_NAME(cur)} ให้สลับกลับ ${LAYER_NAME(0)} ด้วย ไม่งั้นจะกลับไม่ได้</span></p>`;
+  }
+  return `<div style="margin:0 0 8px">
+    <div class="meta" style="display:flex;gap:16px;justify-content:space-between;align-items:baseline;line-height:20px"><span>${text}</span>${act ? `<span style="white-space:nowrap">${act}</span>` : ""}</div>
+    ${warn}
   </div>`;
 }
 
@@ -348,10 +395,29 @@ const OUT_TYPES = [
   { id: "mouse", label: "เมาส์" },
   { id: "turbo", label: "Turbo" },
   { id: "macro", label: "Macro" },
+  { id: "layer", label: "สลับ layer" },
   { id: "none", label: "ปิดปุ่ม" },
 ];
 const typeOf = (t) =>
-  !t ? "gamepad" : t.type === "btn_gamepad" ? "gamepad" : t.type === "btn_keyboard" ? "keyboard" : t.type === "btn_mouse" ? "mouse" : t.type === "turbo_gamepad" ? "turbo" : t.type === "macro" ? "macro" : t.type === "none" ? "none" : "other";
+  !t ? "gamepad" : t.type === "btn_gamepad" ? "gamepad" : t.type === "btn_keyboard" ? "keyboard" : t.type === "btn_mouse" ? "mouse" : t.type === "turbo_gamepad" ? "turbo" : t.type === "macro" ? "macro" : t.type === "layer_hold" || t.type === "layer_toggle" ? "layer" : t.type === "none" ? "none" : "other";
+
+// Hold works for a normal or long press; a double press can only toggle (as in the official app).
+export const layerMode = (S, cur) => (S.ui.press === "double" ? "toggle" : cur?.type === "layer_toggle" ? "toggle" : cur?.type === "layer_hold" ? "hold" : S.ui.layerMode ?? "hold");
+
+function layerPicker(S, D, cur) {
+  const layer = S.ui.layer;
+  const others = layerList(S, D).filter((l) => !l.deleted && l.id !== layer);
+  if (!others.length) return `<p class="empty-note">โปรไฟล์นี้มี layer เดียว · กด "+ เพิ่ม layer" ด้านบนก่อน</p>`;
+  const mode = layerMode(S, cur);
+  const dbl = S.ui.press === "double";
+  const on = (id) => (cur?.type === "layer_hold" || cur?.type === "layer_toggle") && cur.layer === id;
+  const name = (id) => LAYER_NAME(id);
+  return `<div class="seg" style="justify-self:start"><button class="${mode === "hold" ? "on" : ""}" data-act="layer-mode" data-mode="hold"${dbl ? ` disabled title="ดับเบิลคลิกใช้ได้แค่แบบสลับ"` : ""}>กดค้าง</button><button class="${mode === "toggle" ? "on" : ""}" data-act="layer-mode" data-mode="toggle">สลับ</button></div>
+    <p class="meta" style="margin:0;line-height:20px">${mode === "hold" ? "กดค้างไว้ ปุ่มอื่นจะทำตาม layer ที่เลือก ปล่อยแล้วกลับมา layer นี้" : `กดแล้วอยู่ใน layer ที่เลือกต่อไปเรื่อย ๆ ต้องมีปุ่มใน layer นั้นที่สลับกลับมา`}</p>
+    <div>${others.map(
+      (l) => `<button class="row" data-act="out" data-type="layer" data-mode="${mode}" data-to="${l.id}"><span class="v" style="font-weight:700${on(l.id) ? ";color:var(--cobalt)" : ""}">${esc(name(l.id))}${l.isNew ? ` <span class="small muted" style="font-weight:500">· เพิ่มใหม่</span>` : ""}</span>${ICON.chev}</button>`,
+    ).join("")}</div>`;
+}
 
 function buttonEditor(S, D) {
   const cfg = S.current.cfg;
@@ -400,12 +466,15 @@ function buttonEditor(S, D) {
       (m, i) => `<button class="key" style="width:auto;padding:0 14px${cur?.type === "btn_mouse" && cur.mouse === i ? ";background:var(--cobalt);color:#fff;border-color:var(--cobalt)" : ""}" data-act="out" data-type="mouse" data-mouse="${i}">${m}</button>`,
     ).join("")}</div>`;
   } else if (type === "macro") {
-    const macros = (cfg.layers.find((l) => l.layer_id === layer)?.macros ?? []).map((m) => ({ layer, id: m.macro_id }));
+    // Macros drafted as new can be bound in the same write; ones drafted for deletion can't.
+    const macros = (macroLayers(S, D).find((g) => g.layer === layer)?.items ?? []).filter((m) => !m.deleted).map((m) => ({ layer, id: m.id }));
     body = macros.length
       ? `<p class="meta" style="margin:8px 0 0">macro ของ ${esc(LAYER_NAME(layer))}</p><div style="margin-top:8px">${macros.map(
           (m) => `<button class="row" data-act="out" data-type="macro" data-macro="${m.id}"><span class="v" style="font-weight:700${cur?.type === "macro" && cur.macro === m.id && (cur.layer ?? layer) === layer ? ";color:var(--cobalt)" : ""}">${esc(macroName(cfg, m.layer, m.id))}</span>${ICON.chev}</button>`,
         ).join("")}</div>`
       : `<p class="empty-note">${esc(LAYER_NAME(layer))} ยังไม่มี macro · สร้างได้ที่หน้า Macros</p>`;
+  } else if (type === "layer") {
+    body = layerPicker(S, D, cur);
   } else if (type === "keyboard") {
     body = `<p class="meta" style="margin-top:16px;line-height:22px">${cur?.type === "btn_keyboard" ? `ค่าบนจอย: ${esc(labelTarget(cur, cfg))}<br>` : ""}ตาราง keycode ของจอยยังไม่ยืนยัน จึงยังเลือกคีย์จากหน้านี้ไม่ได้</p>`;
   } else if (type === "none") {
@@ -427,7 +496,7 @@ function buttonEditor(S, D) {
       <div class="label">${pl} ส่งเป็น</div>
       <div class="utabs" style="gap:20px">${types}</div>
       ${body}
-      ${pend ? `<p style="margin:0">${UNSUP}</p>` : ""}
+      ${pend ? `<p style="margin:0">${untested(k) || UNSUP}</p>` : ""}
     </div>`;
 }
 
@@ -1037,6 +1106,8 @@ const WRITABLE_NOW = [
   { label: "ชื่อ profile", what: "เฉพาะ slot ที่ใช้อยู่" },
   { label: "ชื่อ macro", what: "macro ที่มีอยู่แล้วใน slot" },
   { label: "สร้าง / ลบ macro", what: "สร้างจากปุ่มจอย · ไม่เกิน 8 ตัวต่อ layer" },
+  { label: "ปุ่ม", what: "ปุ่มจอย · เมาส์ · Turbo · Macro · สลับ layer · ปิดปุ่ม · ทุก layer" },
+  { label: "เพิ่ม / ลบ layer", what: "ไม่เกิน 4 layer ต่อ slot" },
 ];
 
 export function review(S, D) {
@@ -1044,7 +1115,7 @@ export function review(S, D) {
   const slotItems = items.filter((i) => i.group === "slot" && i.writable);
   const unsup = items.filter((i) => !i.writable);
   const nW = slotItems.length;
-  const empty = slotItems.filter((i) => i.key.endsWith(".new") && !i.value.actions.length);
+  const empty = slotItems.filter((i) => i.key.startsWith("macro.") && i.key.endsWith(".new") && !i.value.actions.length);
   const row = (i) => `<div class="diff-row${i.writable ? "" : " unsup"}"><b>${esc(i.label)}${untested(i.editKey) ? `<br>${untested(i.editKey)}` : ""}</b><span class="old">${esc(i.baseText ?? (i.base === undefined ? "ไม่ทราบ" : i.fmt(i.base)))}</span><span>→</span>
     <span class="new">${i.key === "led.color" ? `<span class="swatch-dot" style="background:${esc(i.value)}"></span>` : ""}${esc(i.fmt(i.value))}${i.writable && i.key.endsWith(".name") && fit(i.value) !== i.value ? `<br><span class="meta">บนจอยจะเป็น “${esc(fit(i.value))}” · ชื่อเต็มเก็บในแอป</span>` : ""}</span></div>`;
   const slot = S.slots.activeSlot;
@@ -1080,6 +1151,7 @@ export function done(W) {
     <div style="margin-top:20px">
       <div class="kv"><span class="k">Slot ${W.slot + 1}${W.name ? ` · ${esc(W.name)}` : ""}</span><span class="v mono">crc16 ${W.crc}</span></div>
       ${W.backupAt ? `<div class="kv"><span class="k">ไฟล์สำรอง</span><span class="v">${fmtWhen(W.backupAt)} · กู้คืนได้</span></div>` : ""}
+      ${W.commitStatus ? `<div class="kv"><span class="k">จอยตอบตอนยืนยัน</span><span class="v mono">status ${W.commitStatus}</span></div><p class="notice" style="margin:12px 0 0;color:var(--ink)">${ICON.warn}<span>จอยเก็บข้อมูลครบแล้ว แต่ไม่ได้ตอบว่าสำเร็จ (status ไม่ใช่ 0) อาจยังไม่ได้นำไปใช้ ลองกดปุ่มจริงเพื่อเช็ก</span></p>` : ""}
       ${W.left ? `<div class="kv"><span class="k">ยังเป็นร่างในหน้านี้</span><span class="v">${W.left} จุด · ยังเขียนลงจอยไม่ได้</span></div>` : ""}
     </div>
     <div class="d-actions"><button class="btn ink" data-act="close-sheet">เสร็จ</button></div></div>`;

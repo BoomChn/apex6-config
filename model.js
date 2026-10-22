@@ -2,7 +2,7 @@
 // Keys editKey() maps to a writable field (mapping-edit.js) can be written; everything else stays a draft in this page
 // until the protocol for it is known, and the UI says so.
 
-import { isWritable, MACRO_MAX } from "./mapping-edit.js";
+import { isWritable, MACRO_MAX, LAYER_MAX } from "./mapping-edit.js";
 import { fit } from "./names.js";
 import { targetLabel } from "./profile-view.js";
 
@@ -30,7 +30,51 @@ export function labelTarget(t, cfg) {
   if (t.type === "btn_gamepad") return `${btnName(t.button)}`;
   if (t.type === "turbo_gamepad") return `Turbo ${btnName(t.button)} · ${t.interval_ms} ms`;
   if (t.type === "macro") return `Macro · ${macroName(cfg, t.layer ?? 0, t.macro)}`;
+  if (t.type === "layer_hold") return `กดค้างเข้า ${LAYER_NAME(t.layer)}`;
+  if (t.type === "layer_toggle") return `สลับไป ${LAYER_NAME(t.layer)}`;
   return targetLabel(t);
+}
+
+export const layerKey = (id, f) => `layer.${id}.${f}`;
+
+// The layers of the loaded slot as the Buttons page shows them: what the controller holds (marked
+// when drafted for deletion) plus what is drafted as new, in the order the controller will hold them.
+export function layerList(S, D) {
+  const out = S.current.cfg.layers.map((l) => ({ id: l.layer_id, isNew: false, deleted: !!D?.has(layerKey(l.layer_id, "delete")) }));
+  for (const k of D?.pendingKeys("layer.") ?? []) {
+    const [, id, f] = k.split(".");
+    if (f === "new") out.push({ id: Number(id), isNew: true, deleted: false });
+  }
+  return out;
+}
+
+// First free layer id (1–3, as the official app picks), or null when the profile has LAYER_MAX.
+// A layer drafted for deletion still counts until the delete is written.
+export function nextLayerId(S, D) {
+  const ids = new Set(layerList(S, D).map((l) => l.id));
+  if (ids.size >= LAYER_MAX) return null;
+  for (let i = 1; i < LAYER_MAX; i++) if (!ids.has(i)) return i;
+  return null;
+}
+
+// Buttons that switch layers, drafts included: { layer, source, press, type, to }. `match` filters.
+export function layerSwitches(S, D, match = () => true) {
+  const cfg = S.current.cfg;
+  const pairs = new Map();
+  for (const l of cfg.layers) for (const m of l.mappings) pairs.set(`${l.layer_id}|${m.source}`, [l.layer_id, m.source]);
+  for (const k of D.pendingKeys("map.")) {
+    const p = k.split(".");
+    pairs.set(`${p[1]}|${p.slice(2, -1).join(".")}`, [Number(p[1]), p.slice(2, -1).join(".")]);
+  }
+  const out = [];
+  for (const [layer, source] of pairs.values())
+    for (const p of PRESS) {
+      const t = D.get(`map.${layer}.${source}.${p.id}`);
+      if (t?.type !== "layer_hold" && t?.type !== "layer_toggle") continue;
+      const s = { layer, source, press: p.id, type: t.type, to: t.layer };
+      if (match(s)) out.push(s);
+    }
+  return out;
 }
 
 export function macroName(cfg, layerId, macroId) {
@@ -64,9 +108,11 @@ export function nextMacroId(cfg, D, layerId) {
 
 // The macros of the loaded slot grouped by layer, the way the Macros page lists them: what the
 // controller holds (marked when drafted for deletion) plus what is drafted as new.
+// Layers drafted as new come last and can take macros; layers drafted for deletion are left out.
 export function macroLayers(S, D) {
   const cfg = S.current.cfg;
-  return cfg.layers.map((l) => {
+  const layers = layerList(S, D).filter((x) => !x.deleted).map((x) => cfg.layers.find((l) => l.layer_id === x.id) ?? { layer_id: x.id, macros: [] });
+  return layers.map((l) => {
     const items = l.macros.map((m) => ({ layer: l.layer_id, id: m.macro_id, m, deleted: D.has(macroKey(l.layer_id, m.macro_id, "delete")), isNew: false }));
     for (const k of D.pendingKeys(`macro.${l.layer_id}.`)) {
       const [, , id, f] = k.split(".");
@@ -181,6 +227,7 @@ export function meta(key, S) {
       tab: "buttons", group: "slot",
       label: `ปุ่ม ${btnName(source)}${layer ? ` (${LAYER_NAME(layer)})` : ""} · ${pr}`,
       base: baseTarget(cfg, layer, source, press), fmt: (v) => labelTarget(v, cfg),
+      ...(baseTarget(cfg, layer, source, press) === undefined ? { baseText: labelTarget(undefined) } : {}),
     };
   }
   if (a === "macro") {
@@ -202,6 +249,15 @@ export function meta(key, S) {
     const m = cfg?.layers.find((l) => l.layer_id === layer)?.macros.find((x) => x.macro_id === id);
     const base = { name: macroName(cfg, layer, id), mode: m?.trigger_mode }[f];
     return { tab: "macros", group: "slot", label: `${macroName(cfg, layer, id)} · ${f === "name" ? "ชื่อ" : "เล่นแบบ"}`, base, fmt: f === "mode" ? (v) => MACRO_MODE[v] ?? v : (v) => v };
+  }
+  if (a === "layer") {
+    const id = Number(b);
+    if (c === "new") return { tab: "buttons", group: "slot", label: `เพิ่ม ${LAYER_NAME(id)}`, base: undefined, baseText: "ยังไม่มี", fmt: () => "layer ว่าง ทุกปุ่มเป็นค่าเดิม" };
+    const lay = cfg?.layers.find((l) => l.layer_id === id);
+    const what = lay ? [lay.mappings.filter((m) => !m.identity).length && `${lay.mappings.filter((m) => !m.identity).length} ปุ่ม`, lay.macros.length && `${lay.macros.length} macro`].filter(Boolean).join(" · ") : "";
+    const into = (cfg?.layers ?? []).flatMap((l) => l.mappings.filter((m) => m.activators.some((x) => (x.target.type === "layer_hold" || x.target.type === "layer_toggle") && x.target.layer === id)).map((m) => btnName(m.source)));
+    const reset = into.length ? ` · ปุ่ม ${[...new Set(into)].join(", ")} ที่สลับมา layer นี้กลับเป็นค่าเดิม` : "";
+    return { tab: "buttons", group: "slot", label: `ลบ ${LAYER_NAME(id)}`, base: false, fmt: (v) => (v ? `ลบ${what ? ` พร้อม ${what}` : ""}${reset}` : "มีอยู่") };
   }
   if (a === "slot") {
     const i = Number(b);
@@ -274,7 +330,14 @@ export class Drafts {
       if (!m) continue;
       const layer = cfg.layers.find((l) => l.layer_id === Number(m[1]));
       const has = layer?.macros.some((x) => x.macro_id === Number(m[2]));
-      if (m[3] === "delete" ? !has : has || !layer) this.map.delete(k);
+      // A macro in a layer drafted as new waits for that layer.
+      if (m[3] === "delete" ? !has : has || (!layer && !this.map.has(`layer.${m[1]}.new`))) this.map.delete(k);
+    }
+    for (const k of [...this.map.keys()]) {
+      const m = k.match(/^layer\.(\d+)\.(new|delete)$/);
+      if (!m) continue;
+      const has = cfg.layers.some((l) => l.layer_id === Number(m[1]));
+      if (m[2] === "delete" ? !has : has) this.map.delete(k);
     }
   }
   count(tab) {

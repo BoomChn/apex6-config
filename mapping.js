@@ -99,9 +99,10 @@ function gyroSlots(r) {
   return out;
 }
 
-// `at` collects byte ranges in the blob for structural edits (mapping-edit.js): where the layer's
-// counts sit, and the start/end of every mapping and macro entry.
+// `at` collects byte ranges in the blob for structural edits (mapping-edit.js): where the layer
+// starts and ends, where its counts sit, and the start/end of every mapping and macro entry.
 function layer(r, at) {
+  at.from = r.o;
   const layer_id = r.u8();
   r.skip(1);
   at.mapCountAt = r.o;
@@ -166,7 +167,7 @@ function layer(r, at) {
     return zones.length ? { angle_mode, zones } : null;
   };
 
-  return {
+  const out = {
     layer_id,
     mappings,
     macros,
@@ -175,6 +176,8 @@ function layer(r, at) {
     stick_zones_left: stickZones(),
     stick_zones_right: stickZones(),
   };
+  at.to = r.o;
+  return out;
 }
 
 const TLV_KEYS = {
@@ -266,15 +269,16 @@ export function decodeMapping(buf) {
   const runtime = { long_press_ms: r.u16(), double_press_ms: r.u16() };
   r.skip(4);
   r.skip(4);
+  const offsets = { layers: [], layerCountAt: r.o };
   const layerCount = r.u8();
   r.skip(3);
   const layers = [];
-  const offsets = { layers: [] };
   for (let i = 0; i < layerCount; i++) {
     const at = {};
     layers.push(layer(r, at));
     offsets.layers.push(at);
   }
+  offsets.layersEnd = r.o;
   const config = { version: ver === 9 ? "1.9" : "1.8", runtime, layers };
   tlv(r, config, offsets);
   // Non-enumerable: byte offsets into the blob (not the RAM wrapper), used by mapping-edit.js.

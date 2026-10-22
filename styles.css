@@ -183,7 +183,9 @@ button.row.sel .k { color: var(--cobalt); font-weight: 700; }
 }
 .seg button + button { border-left: 1px solid var(--ink); }
 .seg button.on { background: var(--ink); color: #fff; }
-.seg button:hover:not(.on) { background: #f4f4f4; }
+.seg button:hover:not(.on):not(:disabled) { background: #f4f4f4; }
+.seg button:disabled { color: var(--disabled-text); background: var(--disabled-soft); cursor: default; }
+.utab.gone { text-decoration: line-through; }
 
 /* Keycaps */
 .keys { display: flex; flex-wrap: wrap; gap: 8px; }
