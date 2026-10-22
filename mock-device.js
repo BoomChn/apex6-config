@@ -31,7 +31,10 @@ export async function createMockDevice() {
     applyEdits(sample, { "stick.left.deadzone": 0, "stick.right.deadzone": 0 }),
   ];
   let active = 1;
-  const ram = { 1: new Uint8Array(82), 4: new Uint8Array(64), 6: new Uint8Array(32) };
+  // RAM 0x06: motor output, byte 1 left mode, 2–11 its params, 12 right mode, 13–22 its params.
+  // The demo starts with an X-Haptics scene (mode 1) on the right trigger, to show the warning.
+  const ram = { 1: new Uint8Array(82), 4: new Uint8Array(64), 6: new Uint8Array(64) };
+  ram[6][12] = 1;
   const buf = (id) => (id === 5 ? slots[active] : ram[id]);
   let pending = null;
   // Live input for Sticks and Triggers: with dinput on, stream 0xEF frames (left stick circles,
@@ -133,6 +136,14 @@ export async function createMockDevice() {
         }
         r = reply(0xa4, [], [2, 0, pending.ram, active, ...le16(pending.buf.length), ...le32(c)]);
         pending = null;
+      } else if (cmd === 0x53) {
+        // [area, target 0 left | 1 right | 2 both, mode, params…]
+        for (const at of p[1] === 2 ? [1, 12] : [p[1] ? 12 : 1]) {
+          ram[6].fill(0, at, at + 11);
+          ram[6][at] = p[2];
+          ram[6].set(p.slice(3, 13), at + 1);
+        }
+        r = reply(0x53, [1, 0], [0]);
       } else if (cmd === 0xa4 && p[0] === 3) {
         pending = null;
         r = reply(0xa4, [], [3, 0, 0]);

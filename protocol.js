@@ -23,6 +23,7 @@ export const CMD = {
   INPUT_MODES: 0x11,
   TEXT: 0x20,
   EVENT: 0x21,
+  MOTOR: 0x53,
   STICK_STREAM: 0xef,
   SLOT_STATUS: 0xa1,
   SWITCH_SLOT: 0xa2,
@@ -31,7 +32,7 @@ export const CMD = {
   LCD_SETTINGS: 0xac,
 };
 
-export const RAM = { GLOBAL: 0x01, LIGHTING: 0x04, MAPPING: 0x05, RAM_6: 0x06 };
+export const RAM = { GLOBAL: 0x01, LIGHTING: 0x04, MAPPING: 0x05, MOTOR: 0x06 };
 
 const WRITE_OP = { BEGIN: 0x00, CHUNK: 0x01, COMMIT: 0x02, ABORT: 0x03 };
 const WRITE_CHUNK = 16;
@@ -309,6 +310,12 @@ export class Apex6 {
     const s = parseSlotStatus((await this.request(CMD.SWITCH_SLOT, new Uint8Array([slot]))).payload);
     if (s.activeSlot !== slot) throw new Error(`จอยยังใช้ slot ${s.activeSlot + 1} อยู่ (ขอ slot ${slot + 1})`);
     return s;
+  }
+
+  // 0x53 [area, target, mode, params…]: sets one side's motor output in RAM 0x06 (PROTOCOL.md).
+  // The official client sends it as a normal request and reads RAM 0x06 back to check it.
+  setMotor({ area, target, mode, params = [] }) {
+    return this.request(CMD.MOTOR, new Uint8Array([area, target, mode, ...params]));
   }
 
   // 0xA3 op 0: READ_CHUNK <ramId> <chunkIndex> <chunkSize>

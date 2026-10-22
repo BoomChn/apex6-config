@@ -5,10 +5,10 @@ import { BACK, FRONT, ALL, stageSvg, inset, TRIG_MARK, PHOTO, LED_PATH } from ".
 import {
   esc, pct, same, btnName, PRESS, GYRO_MODE, LED_MODE, LAYER_NAME, PRESET, TPRESET, GPRESET, AXIS, MACRO_MODE, TIMEOUT,
   labelTarget, baseTarget, isIdentity, evalCurve, macroSteps, macroUses, macroList, openMacro,
-  layerList, nextLayerId, layerSwitches, layerKey,
+  layerList, nextLayerId, layerSwitches, layerKey, meta, gripPart, lraGrip,
 } from "./model.js";
 import { BUTTONS } from "./mapping.js";
-import { isWritable, HW_TESTED, NAME_MAX, nameBytes, MACRO_MAX, gyroPct, GYRO_MIDS_MAX } from "./mapping-edit.js";
+import { isWritable, HW_TESTED, NAME_MAX, nameBytes, MACRO_MAX, gyroPct, GYRO_MIDS_MAX, VIB_LEVELS, gripEndY, motorMode, FEEDBACK_MODE } from "./mapping-edit.js";
 import { fit, APP_NAME_MAX } from "./names.js";
 
 export const TABS = [
@@ -823,54 +823,80 @@ function boundFigure(src, name) {
 }
 
 // ---------------- 05 Vibration ----------------
+// As the official Vibration page: grip vibration (both motors, TLV 8/9) and, per trigger, grip
+// feedback when the trigger is pressed (on/off in RAM 0x06, strength in TLV 6/7). Levels 1–5.
 
 export function vibration(S, D) {
   const cfg = S.current.cfg;
-  const rows = [
-    { k: "motor.left", part: cfg.vibration_motor_left, name: "มอเตอร์ซ้าย", sub: "X-Haptics ด้ามซ้าย · สั่นหนัก ความถี่ต่ำ", inset: "motorL" },
-    { k: "motor.right", part: cfg.vibration_motor_right, name: "มอเตอร์ขวา", sub: "X-Haptics ด้ามขวา · สั่นเบา ความถี่สูง", inset: "motorR" },
-    { k: "vibtrig.left", part: cfg.vibration_trigger_left, name: "ไกซ้าย (LT)", sub: "มอเตอร์ในไก", inset: "trigL" },
-    { k: "vibtrig.right", part: cfg.vibration_trigger_right, name: "ไกขวา (RT)", sub: "มอเตอร์ในไก", inset: "trigR" },
-  ]
-    .map((r) => {
-      if (!r.part) return "";
-      const en = D.get(`${r.k}.enabled`);
-      const mx = D.get(`${r.k}.max`);
-      const curve = { ...r.part.curve, end_y: mx };
-      const pend = D.has(`${r.k}.enabled`) || D.has(`${r.k}.max`);
-      const mini = miniCurve(curve, en, pend);
-      const writable = isWritable(`${r.k}.max`);
-      return `<div class="vib-row${en ? "" : " off"}">
-        ${inset(r.inset, { w: 136, h: 88, mark: r.inset.startsWith("trig") ? [TRIG_MARK[r.inset][0] - 20, TRIG_MARK[r.inset][1]] : null, title: r.name })}
-        <div><h3 class="${pend ? "pending" : ""}">${r.name}</h3><div class="muted" style="font-size:15px">${r.sub}${en ? "" : " · ปิดอยู่"}</div>${!writable && pend ? `<div style="margin-top:4px">${UNSUP}</div>` : ""}${writable ? `<div style="margin-top:4px">${untested(`${r.k}.max`)}</div>` : ""}</div>
-        <div>${check(`${r.k}.enabled`, `<span class="sr">เปิด ${r.name}</span>`, D)}</div>
-        <div>${mini}</div>
-        <div style="display:flex;align-items:center;gap:16px">
-          <input type="range" min="${writable ? 0 : 0}" max="255" value="${mx}" data-key="${r.k}.max" class="${D.has(`${r.k}.max`) ? "pending" : ""}" style="--p:${(mx / 255) * 100}%" aria-label="ความแรงสูงสุด ${r.name}" ${en ? "" : "disabled"}>
-          <span class="num${pendCls(D.has(`${r.k}.max`))}" style="width:52px;font-size:15px" data-out="${r.k}.max">${en ? pct(mx) : "–"}</span>
-        </div>
-        <div class="vib-test"><button class="btn" disabled>ทดสอบ 2 วิ</button><span class="small muted">${en ? "คำสั่งทดสอบยังไม่ยืนยัน" : "เปิดช่องนี้ก่อนทดสอบ"}</span></div>
-      </div>`;
-    })
-    .join("");
-  return `${head("Vibration", "ความแรงที่เกมสั่ง → ความแรงที่จอยสั่นจริง · ปุ่มทดสอบจะรอจอยตอบรับทุกครั้ง")}
-    <div class="vib-head"><span style="font-size:20px;color:var(--ink)">4 ช่องสั่น</span><span></span><span>เปิด</span><span>Curve</span><span>ความแรงสูงสุด</span><span style="text-align:right">ทดสอบ</span></div>
-    ${rows}
+  const grip = gripPart(cfg);
+  const lra = lraGrip(S);
+  const gripPct = (l) => Math.round((gripEndY(l, lra) / 255) * 100);
+  const rows = [];
+  if (grip) {
+    const on = !!D.get("grip.enabled");
+    const custom = grip.curve.mid_points.length > 0 && !D.has("grip.level");
+    rows.push(vibRow(S, D, {
+      key: "grip", inset: "motorL", on,
+      title: "ด้ามสั่นตามเกม", en: "Native Grip Vibration",
+      desc: "การสั่นปกติเวลาเกมสั่งให้จอยสั่น เช่น โดนยิง ระเบิด หรือรถชน มอเตอร์ในด้ามซ้ายและขวาใช้ค่าเดียวกัน ถ้าปิด ด้ามจะไม่สั่นตามเกมเลย",
+      level: `ระดับ 5 สั่นเต็มแรงตามที่เกมสั่ง · ระดับ 1 เหลือ ${gripPct(1)}%`,
+      notes: [
+        custom ? `ตอนนี้ด้ามใช้ curve ที่ตั้งไว้เอง (ใกล้ระดับ ${D.get("grip.level")}) ถ้าเลื่อนระดับ จะกลายเป็นเส้นตรงแบบเดียวกับแอป Flydigi` : "",
+        S.info ? "" : "อ่านรุ่นมอเตอร์จากจอยไม่ได้ ระดับความแรงจะยังเขียนลงจอยไม่ได้",
+      ],
+      tags: [untested("motor.left.enabled"), untested("motor.left.curve")],
+      levelDisabled: !on || !S.info,
+    }));
+  }
+  for (const side of ["left", "right"]) {
+    const t = cfg[`vibration_trigger_${side}`];
+    if (!t) continue;
+    const tn = side === "left" ? "LT" : "RT";
+    const mode = motorMode(S.motor, side);
+    const known = mode !== undefined;
+    const on = !!D.get(`gripfb.${side}.enabled`);
+    const haptic = known && mode !== 0 && mode !== FEEDBACK_MODE;
+    rows.push(vibRow(S, D, {
+      key: `gripfb.${side}`, inset: side === "left" ? "trigL" : "trigR", on, switchDisabled: !known,
+      title: `บีบไก${side === "left" ? "ซ้าย" : "ขวา"} (${tn}) แล้วด้ามสั่น`, en: `${side === "left" ? "Left" : "Right"} Trigger-Bound Grip Feedback`,
+      desc: `บีบไก ${tn} เมื่อไหร่ ด้ามจับจะสั่นเองทันทีโดยไม่ต้องรอเกมสั่ง ช่วยให้รู้สึกตอนยิงหรือเหยียบเบรก (ในไกไม่มีมอเตอร์ ตัวที่สั่นคือด้ามจับ)`,
+      level: "ระดับ 5 สั่นแรงสุดตอนบีบไกจนสุด · ระดับ 1 เบาที่สุด",
+      notes: [
+        known ? "" : "อ่านสถานะเปิด/ปิดจากจอยไม่ได้ ลองกดอ่านค่าจากจอยใหม่",
+        haptic && (on || !D.has(`gripfb.${side}.enabled`)) ? `ตอนนี้ไก ${tn} ใช้เอฟเฟกต์ X-Haptics ที่ตั้งในแอป Flydigi อยู่ ถ้าเปิดตัวนี้ เอฟเฟกต์นั้นจะถูกปิด` : "",
+      ],
+      tags: [untested(`gripfb.${side}.enabled`), untested(`vibtrig.${side}.curve`)],
+      levelDisabled: !on,
+    }));
+  }
+  return `${head("Vibration", "ตั้งการสั่นของด้ามจับ ความแรงเลือกได้ 5 ระดับ แบบเดียวกับหน้า Vibration ในแอป Flydigi")}
+    <div class="vib-head"><span style="font-size:20px;color:var(--ink)">การสั่น</span><span></span><span>เปิด</span><span>ความแรง</span></div>
+    ${rows.join("")}
     <section style="margin-top:48px;display:grid;grid-template-columns:minmax(0,560px) minmax(0,1fr);gap:80px;border-top:3px solid var(--ink);padding-top:24px">
-      <div><h2 class="title" style="font-size:20px">ทำไมยังทดสอบไม่ได้?</h2><p class="muted" style="margin:8px 0 0;line-height:22px">ปุ่มทดสอบต้องรอให้จอยตอบรับ ถ้าไม่ตอบจะขึ้นสีแดงพร้อมเหตุผล ไม่เงียบหายไปเฉยๆ แต่คำสั่งทดสอบ (0x53) ยังถอดไม่ครบ จึงปิดไว้ก่อน</p></div>
+      <div><h2 class="title" style="font-size:20px">ลองยังไงว่าตั้งแล้วได้ผล</h2><p class="muted" style="margin:8px 0 0;line-height:22px">หน้านี้ยังไม่มีปุ่มทดสอบ ปุ่ม Test Vibration ในเว็บ Flydigi ไม่ได้สั่งจอยตรงๆ แต่ให้เบราว์เซอร์สั่งจอยสั่น ซึ่ง Chrome บนเครื่องนี้มองไม่เห็นจอย ปุ่มนั้นจึงไม่มีผลอะไร</p></div>
       <ol style="margin:0;padding:0;list-style:none;display:grid;gap:14px">
-        <li style="display:grid;grid-template-columns:48px 1fr"><span class="num">1</span>เปิด/ปิด และความแรงสูงสุดของมอเตอร์ซ้าย/ขวา เขียนลงจอยได้แล้ว</li>
-        <li style="display:grid;grid-template-columns:48px 1fr"><span class="num">2</span>ไก LT/RT ยังเก็บเป็นร่างในหน้านี้ เพราะยังไม่รู้ว่าเปิด/ปิดอยู่ที่ไบต์ไหน</li>
-        <li style="display:grid;grid-template-columns:48px 1fr"><span class="num">3</span>ถ้าเขียนแล้วรู้สึกไม่ต่าง ให้คัดลอก packet log ในหน้า Device &amp; backup มาดูต่อ</li>
+        <li style="display:grid;grid-template-columns:48px 1fr"><span class="num">1</span>บีบไกแล้วด้ามสั่น: เขียนลงจอยแล้วบีบไก LT หรือ RT ได้เลย ไม่ต้องเปิดเกม</li>
+        <li style="display:grid;grid-template-columns:48px 1fr"><span class="num">2</span>ด้ามสั่นตามเกม: เปิดเกมที่มีการสั่น แล้วเทียบความแรงก่อนและหลังเปลี่ยนระดับ</li>
+        <li style="display:grid;grid-template-columns:48px 1fr"><span class="num">3</span>ถ้าเปิด X-Haptics ไว้ในแอป Flydigi เอฟเฟกต์ X-Haptics จะสั่นแทนค่าในหน้านี้</li>
       </ol>
     </section>`;
 }
 
-function miniCurve(c, on, pend) {
-  const W = 218, H = 76;
-  const pts = [[c.start_x, c.start_y], ...c.mid_points.map((m) => [m.x, m.y]), [c.end_x, c.end_y]];
-  const d = pts.map(([x, y], i) => `${i ? "L" : "M"}${((x / 255) * (W - 12) + 6).toFixed(1)} ${(H - 6 - (y / 255) * (H - 12)).toFixed(1)}`).join(" ");
-  return `<svg class="mini" viewBox="0 0 ${W} ${H}" aria-hidden="true"><path d="${d}" fill="none" stroke="${!on ? "#BDBDBD" : pend ? "#2140D9" : "#111"}" stroke-width="2"/></svg>`;
+// One vibration row: photo, what it does, on/off, level 1–5.
+function vibRow(S, D, r) {
+  const en = `${r.key}.enabled`, lv = `${r.key}.level`;
+  const pend = D.has(en) || D.has(lv);
+  const notes = r.notes.filter(Boolean).map((n) => `<p class="notice" style="margin:6px 0 0">${ICON.warn}<span>${n}</span></p>`).join("");
+  const tags = [...new Set(r.tags.filter(Boolean))].join(" ");
+  return `<div class="vib-row${r.on ? "" : " off"}">
+    ${inset(r.inset, { w: 136, h: 88, mark: r.inset.startsWith("trig") ? [TRIG_MARK[r.inset][0] - 20, TRIG_MARK[r.inset][1]] : null, title: r.title })}
+    <div><h3 class="${pend ? "pending" : ""}">${r.title}</h3><div class="meta">${r.en} ในแอป Flydigi</div>
+      <p class="vib-desc">${r.desc}</p>${tags ? `<div style="margin-top:6px">${tags}</div>` : ""}${notes}</div>
+    <div>${check(en, `<span class="sr">เปิด ${r.title}</span>`, D, { disabled: r.switchDisabled })}</div>
+    <div>${slider(lv, "ความแรง", D, { min: 1, max: VIB_LEVELS, disabled: r.levelDisabled, fmt: meta(lv, S).fmt, tag: false })}
+      <div class="vib-ticks" aria-hidden="true">${Array.from({ length: VIB_LEVELS }, (_, i) => `<span>${i + 1}</span>`).join("")}</div>
+      <p class="vib-desc">${r.on ? r.level : "เปิดก่อนจึงจะปรับความแรงได้"}</p></div>
+  </div>`;
 }
 
 // ---------------- 06 Gyro ----------------
