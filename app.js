@@ -1,7 +1,7 @@
 import { Apex6, RAM, hex, crc32 } from "./protocol.js";
 import { decodeMapping } from "./mapping.js";
-import { unwrapMapping, applyEdits, sameBytes, deadzoneMax, curveEndMin, curveStartMax, motorMaxMin } from "./mapping-edit.js";
-import { Drafts, esc, resolveNames, nameId, evalCurve } from "./model.js";
+import { unwrapMapping, applyEdits, sameBytes, deadzoneMax, curveEndMin, curveStartMax, motorMaxMin, MACRO_MAX, MACRO_STEPS_MAX } from "./mapping-edit.js";
+import { Drafts, esc, resolveNames, nameId, macroKey, nextMacroId, evalCurve } from "./model.js";
 import { Names, fit } from "./names.js";
 import * as V from "./views.js";
 
@@ -387,6 +387,7 @@ async function runWrite({ edits = null, data = null, reason, title, doneTitle, f
     if (edits) for (const k of Object.keys(edits)) D.map.delete(k);
     // The controller now holds what fits of each name; the app keeps the full one.
     for (const { key, value } of sentNames) S.names.put(S.uuid, nameId(key, S), value, fit(value));
+    for (const k of Object.keys(edits ?? {})) if (/^macro\.\d+\.\d+\.delete$/.test(k)) S.names.put(S.uuid, nameId(k, S), "", null);
     S.current = { wrapped: back.data, cfg: unwrapMapping(back.data).cfg, slot: back.activeSlot };
     resolveNames(S);
     S.readAt = new Date();
@@ -455,7 +456,7 @@ function setOutput(el) {
   if (type === "gamepad") v = { type: "btn_gamepad", button: el.dataset.btn };
   else if (type === "turbo") v = { type: "turbo_gamepad", button: el.dataset.btn, interval_ms: cur?.type === "turbo_gamepad" ? cur.interval_ms : 80 };
   else if (type === "mouse") v = { type: "btn_mouse", mouse: Number(el.dataset.mouse) };
-  else if (type === "macro") v = { type: "macro", macro: Number(el.dataset.macro) };
+  else if (type === "macro") v = { type: "macro", macro: Number(el.dataset.macro), layer };
   else if (type === "none") v = { type: "none" };
   else if (type === "unset") v = undefined;
   if (v === undefined) {
@@ -573,6 +574,60 @@ const ACTIONS = {
     S.ui.step = Number(el.dataset.i);
     render();
   },
+  "macro-new": (el) => {
+    const layer = Number(el.dataset.layer);
+    const id = nextMacroId(S.current.cfg, D, layer);
+    if (id === null) return toast(`layer นี้มี macro ครบ ${MACRO_MAX} ตัวแล้ว`, true);
+    D.set(macroKey(layer, id, "new"), { mode: "press_once", actions: [] });
+    S.ui.macro = { layer, id };
+    S.ui.step = 0;
+    render();
+    const name = document.querySelector("[data-name-field] input");
+    name?.focus();
+    name?.select();
+  },
+  "macro-delete": (el) => {
+    const layer = Number(el.dataset.layer), id = Number(el.dataset.id);
+    // What is on the controller is only marked; a macro that was never written is just dropped.
+    for (const f of ["name", "mode"]) D.map.delete(macroKey(layer, id, f));
+    if (D.has(macroKey(layer, id, "new"))) {
+      D.map.delete(macroKey(layer, id, "new"));
+      S.ui.macro = null;
+    } else D.set(macroKey(layer, id, "delete"), true);
+    S.ui.step = 0;
+    render();
+  },
+  "macro-undelete": (el) => {
+    D.map.delete(macroKey(Number(el.dataset.layer), Number(el.dataset.id), "delete"));
+    render();
+  },
+  "macro-mode": (el) => {
+    const d = newMacro();
+    if (d) D.set(d.key, { ...d.v, mode: el.dataset.val });
+    render();
+  },
+  // A step is a press and a release of one button. The next one starts after the gap.
+  "step-add": (el) => {
+    const d = newMacro();
+    if (!d) return;
+    const hold = Math.min(2000, Math.max(10, Math.round(S.ui.hold ?? 50)));
+    const gap = Math.min(2000, Math.max(0, Math.round(S.ui.gap ?? 50)));
+    const last = d.v.actions.at(-1);
+    const at = last ? last.at_ms + gap : 0;
+    if (d.v.actions.length + 2 > MACRO_STEPS_MAX) return toast("macro ยาวเกินที่จอยเก็บได้", true);
+    if (at + hold > 0xffff) return toast("macro นี้ยาวเกิน 65 วินาที", true);
+    const target = { type: "btn_gamepad", button: el.dataset.btn };
+    D.set(d.key, { ...d.v, actions: [...d.v.actions, { action: "press", target, at_ms: at }, { action: "release", target, at_ms: at + hold }] });
+    S.ui.step = d.v.actions.length / 2;
+    render();
+  },
+  "step-undo": () => {
+    const d = newMacro();
+    if (!d || !d.v.actions.length) return;
+    D.set(d.key, { ...d.v, actions: d.v.actions.slice(0, -2) });
+    S.ui.step = 0;
+    render();
+  },
   "bk-dl": (el) => {
     const b = S.backups.find((x) => x.id === el.dataset.id);
     if (b) download(unb64(b.data), `apex6-slot${b.slot + 1}-${b.at}.bin`);
@@ -640,6 +695,13 @@ const ACTIONS = {
   "dump-dl": () => S.dump && download(S.dump.data, `apex6-ram-0x${S.dump.ram.toString(16).padStart(2, "0")}-${Date.now()}.bin`),
 };
 
+// The drafted (not yet written) macro the Macros page has open, if any.
+function newMacro() {
+  const { layer, id } = S.ui.macro ?? {};
+  const key = macroKey(layer, id, "new");
+  return D.has(key) ? { key, v: D.map.get(key) } : null;
+}
+
 function restoreBackup(b) {
   if (sheet.open) sheet.close();
   if (b.slot !== S.current.slot) return toast(`ไฟล์นี้เป็นของ Slot ${b.slot + 1} สลับไปใช้ slot นั้นก่อน`, true);
@@ -698,6 +760,11 @@ document.addEventListener("input", (e) => {
     el.style.setProperty("--p", `${((el.value - el.min) / (el.max - el.min)) * 100}%`);
     el.closest(".slider").querySelector(".num").textContent = `${el.value} ms`;
     renderChrome();
+    return;
+  }
+  if (el.dataset.ui) {
+    // Page settings that are not part of any draft (the macro step builder's timing).
+    S.ui[el.dataset.ui] = Number(el.value);
     return;
   }
   const key = el.dataset.key;

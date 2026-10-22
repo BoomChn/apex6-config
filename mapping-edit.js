@@ -1,7 +1,7 @@
 // In-place edits of the RAM-wrapped mapping buffer (RAM 0x05).
 // We patch single bytes instead of re-encoding, so everything we don't touch stays byte-identical.
 
-import { decodeMapping } from "./mapping.js";
+import { decodeMapping, BUTTONS } from "./mapping.js";
 
 // CRC-16/CCITT-FALSE (poly 0x1021, init 0xFFFF); the wrapper CRC covers the XMUL blob only.
 export function crc16(bytes) {
@@ -90,10 +90,12 @@ function range(v, lo, hi) {
 // NAME_MAX is our own cap: the device limit is unknown, and the whole TLV must stay under 256 bytes.
 export const NAME_MAX = 40;
 const MACRO_NAME = /^macro\.(\d+)\.(\d+)\.name$/;
+const MACRO_OP = /^macro\.(\d+)\.(\d+)\.(new|delete)$/;
+const MACRO_MODE_KEY = /^macro\.(\d+)\.(\d+)\.mode$/;
 const isName = (key) => key === "profile.name" || MACRO_NAME.test(key);
 
 export const WRITABLE = new Set([...Object.keys(FIELDS), "profile.name"]);
-export const isWritable = (key) => WRITABLE.has(key) || MACRO_NAME.test(key);
+export const isWritable = (key) => WRITABLE.has(key) || MACRO_NAME.test(key) || MACRO_OP.test(key);
 export const nameBytes = (s) => new TextEncoder().encode(s).length;
 // Fields confirmed by a write to a real Apex 6 Pro; the UI labels every other writable field.
 // Add a key here once it has been tried on hardware.
@@ -112,11 +114,18 @@ export const HW_TESTED = new Set([
 // Returns a new wrapped buffer with the given edits applied and the CRC16 updated.
 // edits: { "stick.left.deadzone": 20, "gyro.mode": "mouse", ... }
 export function applyEdits(wrapped, edits) {
+  // Creating and deleting macros moves bytes, so it goes first and everything else patches the result.
+  const ops = macroOps(edits);
+  wrapped = ops.length ? withMacroOps(wrapped, ops) : wrapped;
+  const gone = new Set(ops.filter((o) => o.kind === "delete").map((o) => `${o.layer}.${o.id}`));
   const { cfg } = unwrapMapping(wrapped);
   let out = wrapped.slice();
   const names = {};
   for (const [name, v] of Object.entries(edits)) {
+    if (MACRO_OP.test(name) || MACRO_MODE_KEY.test(name)) continue;
     if (isName(name)) {
+      const m = name.match(MACRO_NAME);
+      if (m && gone.has(`${m[1]}.${m[2]}`)) continue;
       names[name] = v;
       continue;
     }
@@ -212,6 +221,148 @@ function withNames(wrapped, cfg, names) {
   out[0] = out.length & 0xff;
   out[1] = out.length >> 8;
   return out;
+}
+
+// ---- Creating and deleting macros ----
+// A macro sits in its layer's section of the blob, so adding or removing one changes the blob's
+// length: the layer's macro count and entries move, and so does everything after them. Ids stay
+// where they are (deleting #3 does not renumber #4), as in the official app.
+// Edit keys: "macro.<layer>.<id>.new" = { mode, actions: [{ action, target, at_ms }] } and
+// "macro.<layer>.<id>.delete" = true. "macro.<layer>.<id>.mode" may accompany a .new key.
+export const MACRO_MAX = 8; // per layer
+export const MACRO_STEPS_MAX = 255; // actions: the count is a u8
+const MACRO_MODES = ["press_once", "press_loop_immediate", "press_loop_wait", "press_hold"];
+
+function macroOps(edits) {
+  const ops = [];
+  for (const [k, v] of Object.entries(edits)) {
+    const m = k.match(MACRO_OP);
+    if (m) ops.push({ kind: m[3], layer: Number(m[1]), id: Number(m[2]), value: v });
+  }
+  for (const [k, v] of Object.entries(edits)) {
+    const m = k.match(MACRO_MODE_KEY);
+    if (!m) continue;
+    const op = ops.find((o) => o.kind === "new" && o.layer === Number(m[1]) && o.id === Number(m[2]));
+    if (!op) throw new Error("ยังเปลี่ยนวิธีเล่นของ macro ที่มีอยู่แล้วลงจอยไม่ได้");
+    op.mode = v;
+  }
+  // Deletes first: a layer that is full can take a new macro in the same write.
+  return ops.sort((a, b) => (a.kind === b.kind ? 0 : a.kind === "delete" ? -1 : 1));
+}
+
+function withMacroOps(wrapped, ops) {
+  for (const op of ops) wrapped = op.kind === "delete" ? deleteMacro(wrapped, op.layer, op.id) : addMacro(wrapped, op);
+  return wrapped;
+}
+
+const withCrc = (out) => {
+  const c = crc16(out.subarray(4));
+  out[2] = c & 0xff;
+  out[3] = c >> 8;
+  return out;
+};
+
+// Replaces byte ranges of the blob { from, to, bytes } (not overlapping) and fixes length and CRC.
+function splice(wrapped, repl) {
+  const blob = wrapped.subarray(4);
+  const parts = [];
+  let at = 0;
+  for (const r of [...repl].sort((a, b) => a.from - b.from)) {
+    if (r.from < at) throw new Error("ช่วงไบต์ที่แก้ทับกัน");
+    parts.push(blob.subarray(at, r.from), r.bytes);
+    at = r.to;
+  }
+  parts.push(blob.subarray(at));
+  const size = parts.reduce((n, p) => n + p.length, 0);
+  if (4 + size > 0xffff) throw new Error("โปรไฟล์ยาวเกินที่จอยเก็บได้");
+  const out = new Uint8Array(4 + size);
+  let o = 4;
+  for (const p of parts) {
+    out.set(p, o);
+    o += p.length;
+  }
+  out[0] = out.length & 0xff;
+  out[1] = out.length >> 8;
+  return withCrc(out);
+}
+
+const u16 = (v) => Uint8Array.of(v & 0xff, v >> 8);
+const layerAt = (cfg, layer) => cfg.layers.findIndex((l) => l.layer_id === layer);
+
+// Bytes of one macro entry: id, mode, loop_ms u16, n, pad, n × (press/release, target[4], t_ms u16).
+export function encodeMacro(id, mode, actions, loopMs = 0) {
+  const mi = MACRO_MODES.indexOf(mode);
+  if (mi < 0) throw new Error(`วิธีเล่นไม่รู้จัก: ${mode}`);
+  if (!Array.isArray(actions) || !actions.length) throw new Error("macro ต้องมีอย่างน้อย 1 ขั้น");
+  if (actions.length > MACRO_STEPS_MAX) throw new Error(`macro ยาวเกิน ${MACRO_STEPS_MAX} action`);
+  const out = [id, mi, loopMs & 0xff, loopMs >> 8, actions.length, 0];
+  let last = 0;
+  for (const a of actions) {
+    if (a.action !== "press" && a.action !== "release") throw new Error(`action ไม่รู้จัก: ${a.action}`);
+    if (a.target?.type !== "btn_gamepad") throw new Error("macro ที่สร้างใหม่ใช้ได้เฉพาะปุ่มจอยตอนนี้");
+    const b = BUTTONS.indexOf(a.target.button);
+    if (b < 0) throw new Error(`ไม่รู้จักปุ่ม ${a.target.button}`);
+    if (!Number.isInteger(a.at_ms) || a.at_ms < last || a.at_ms > 0xffff) throw new Error("เวลาของแต่ละขั้นต้องเรียงจากน้อยไปมาก และไม่เกิน 65535 ms");
+    last = a.at_ms;
+    out.push(a.action === "press" ? 0 : 1, 0, b, 0, 0, a.at_ms & 0xff, a.at_ms >> 8);
+  }
+  return Uint8Array.from(out);
+}
+
+function addMacro(wrapped, { layer, id, value, mode }) {
+  const { cfg } = unwrapMapping(wrapped);
+  const li = layerAt(cfg, layer);
+  if (li < 0) throw new Error(`โปรไฟล์นี้ไม่มี layer ${layer}`);
+  const l = cfg.layers[li];
+  if (!Number.isInteger(id) || id < 0 || id >= MACRO_MAX) throw new Error(`id ของ macro ต้องอยู่ระหว่าง 0–${MACRO_MAX - 1}`);
+  if (l.macros.some((m) => m.macro_id === id)) throw new Error(`layer ${layer} มี macro #${id + 1} อยู่แล้ว`);
+  if (l.macros.length >= MACRO_MAX) throw new Error(`layer ${layer} มี macro ครบ ${MACRO_MAX} ตัวแล้ว`);
+  const bytes = encodeMacro(id, mode ?? value?.mode ?? "press_once", value?.actions);
+  const at = cfg.offsets.layers[li];
+  // Entries stay in id order.
+  const pos = at.macros.find((m) => m.id > id)?.from ?? at.macrosTo;
+  return splice(wrapped, [
+    { from: pos, to: pos, bytes },
+    { from: at.macroCountAt, to: at.macroCountAt + 2, bytes: u16(l.macros.length + 1) },
+  ]);
+}
+
+// Removes the macro, its name, and the button presses that played it: a button left with nothing
+// else to do goes back to its default.
+function deleteMacro(wrapped, layer, id) {
+  let { cfg } = unwrapMapping(wrapped);
+  const li = layerAt(cfg, layer);
+  const mi = li < 0 ? -1 : cfg.layers[li].macros.findIndex((m) => m.macro_id === id);
+  if (mi < 0) throw new Error(`โปรไฟล์นี้ไม่มี macro #${id + 1} ใน layer ${layer}`);
+  // The name goes first: withNames needs the macro to still be there.
+  if (cfg.version === "1.9" && cfg.macro_names?.some((n) => n.layerId === layer && n.macroId === id)) {
+    wrapped = withCrc(withNames(wrapped, cfg, { [`macro.${layer}.${id}.name`]: "" }));
+    cfg = unwrapMapping(wrapped).cfg;
+  }
+  const at = cfg.offsets.layers[li];
+  const blob = wrapped.subarray(4);
+  const repl = [{ from: at.macros[mi].from, to: at.macros[mi].to, bytes: new Uint8Array(0) }];
+  let maps = at.maps.length;
+  for (const e of at.maps) {
+    const kept = [];
+    for (let j = 0; j < e.n; j++) {
+      const o = e.from + 4 + j * 5;
+      // activator type, then target: type 30 is a macro, its first byte the macro id
+      if (!(blob[o + 1] === 30 && blob[o + 2] === id)) kept.push(blob.subarray(o, o + 5));
+    }
+    if (kept.length === e.n) continue;
+    if (kept.length) {
+      const head = blob.slice(e.from, e.from + 4);
+      head[1] = kept.length;
+      repl.push({ from: e.from, to: e.to, bytes: Uint8Array.from([...head, ...kept.flatMap((k) => [...k])]) });
+    } else {
+      repl.push({ from: e.from, to: e.to, bytes: new Uint8Array(0) });
+      maps--;
+    }
+  }
+  repl.push({ from: at.macroCountAt, to: at.macroCountAt + 2, bytes: u16(cfg.layers[li].macros.length - 1) });
+  if (maps !== at.maps.length) repl.push({ from: at.mapCountAt, to: at.mapCountAt + 2, bytes: u16(maps) });
+  return splice(wrapped, repl);
 }
 
 // Kept for callers that only touch deadzones.

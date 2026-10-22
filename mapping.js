@@ -99,28 +99,42 @@ function gyroSlots(r) {
   return out;
 }
 
-function layer(r) {
+// `at` collects byte ranges in the blob for structural edits (mapping-edit.js): where the layer's
+// counts sit, and the start/end of every mapping and macro entry.
+function layer(r, at) {
   const layer_id = r.u8();
   r.skip(1);
-  const mapCount = r.u16(), macroCount = r.u16();
+  at.mapCountAt = r.o;
+  const mapCount = r.u16();
+  at.macroCountAt = r.o;
+  const macroCount = r.u16();
   r.skip(2);
 
   const mappings = [];
+  at.maps = [];
   for (let i = 0; i < mapCount; i++) {
+    const from = r.o;
     const src = r.u8(), n = r.u8();
     r.skip(2);
     const activators = [];
     for (let j = 0; j < n; j++) {
       const t = r.u8();
-      activators.push({ type: ACTIVATORS[t] ?? `unknown(${t})`, target: target(r.bytes(TARGET_SIZE)) });
+      const tg = target(r.bytes(TARGET_SIZE));
+      // A macro target means the macro of this same layer: keep the layer so the name can be found.
+      if (tg.type === "macro") tg.layer = layer_id;
+      activators.push({ type: ACTIVATORS[t] ?? `unknown(${t})`, target: tg });
     }
     const identity = n === 1 && activators[0].type === "simple" &&
       activators[0].target.type === "btn_gamepad" && activators[0].target.button === btn(src);
     mappings.push({ source: btn(src), activators, identity });
+    at.maps.push({ from, to: r.o, src, n });
   }
 
   const macros = [];
+  at.macros = [];
+  at.macrosFrom = r.o;
   for (let i = 0; i < macroCount; i++) {
+    const from = r.o;
     const macro_id = r.u8(), mode = r.u8(), loop_interval_ms = r.u16(), n = r.u8();
     r.skip(1);
     const actions = [];
@@ -129,7 +143,9 @@ function layer(r) {
       actions.push({ action: a === 0 ? "press" : "release", target: target(r.bytes(TARGET_SIZE)), at_ms: r.u16() });
     }
     macros.push({ macro_id, trigger_mode: MACRO_MODES[mode] ?? mode, loop_interval_ms, actions });
+    at.macros.push({ from, to: r.o, id: macro_id });
   }
+  at.macrosTo = r.o;
 
   const triggerZones = () => {
     if (r.u8() === 0) return null;
@@ -253,9 +269,13 @@ export function decodeMapping(buf) {
   const layerCount = r.u8();
   r.skip(3);
   const layers = [];
-  for (let i = 0; i < layerCount; i++) layers.push(layer(r));
+  const offsets = { layers: [] };
+  for (let i = 0; i < layerCount; i++) {
+    const at = {};
+    layers.push(layer(r, at));
+    offsets.layers.push(at);
+  }
   const config = { version: ver === 9 ? "1.9" : "1.8", runtime, layers };
-  const offsets = {};
   tlv(r, config, offsets);
   // Non-enumerable: byte offsets into the blob (not the RAM wrapper), used by mapping-edit.js.
   Object.defineProperty(config, "offsets", { value: offsets });

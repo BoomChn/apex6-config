@@ -69,6 +69,7 @@ TLV until (0xFF,0x00):
   6/7 trigger vibration (12B: pad + curve11), 8/9 motor (12B: enabled + curve11)
   0x20 metadata (v1.9): u8 nameLen name u8 n, n × (layer, macro, len, name)
 curve11 = start_x start_y end_x end_y mid_count (x,y)×2 pad2   (0..255 scale)
+Macros are per layer: ids 0–7 repeat across layers, and a macro target (type 30) in a layer's button map means the macro of that same layer. Adding or removing one changes the blob length (macro_count, the entries, and the 0x20 name entry); ids are not renumbered. mapping-edit.js does it with `macro.<layer>.<id>.new` / `.delete`.
 target[4] = type + 3 bytes (0 gamepad btn, 1 key, 2 mouse, 3 consumer, 10 turbo, 20/21 layer hold/toggle, 30 macro, 40–46 simulate)
 Button IDs: A B X Y LB RB Back Start LS RS Up Down Left Right C Z M1–M6 LT RT (0..23), 0xFF = none
 ```
