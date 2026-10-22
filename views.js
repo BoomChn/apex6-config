@@ -502,23 +502,35 @@ export function sticks(S, D) {
       </div>
     </div>`;
   };
-  return `${head("Sticks", "ขยับ stick บนจอยเพื่อดูค่าจริงบนกราฟ")}<div class="cols-2">${col("left")}${col("right")}</div>`;
+  return `${head("Sticks", "ขยับ stick บนจอยเพื่อดูค่าที่จอยส่งออกจริง หลังผ่าน curve ที่เขียนไว้แล้ว")}<div class="cols-2">${col("left")}${col("right")}</div>
+    <section style="margin-top:40px"><div class="rule-head"><h2>ปุ่มที่กดอยู่</h2><span class="meta">อ่านจากจอยโดยตรง · ใช้ดูชื่อปุ่ม LM/RM ได้</span></div>
+      <div data-live="keys" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;min-height:56px;padding-top:12px">${liveKeys(null)}</div></section>`;
 }
 
+// v: what the controller sends out (after its own curve), x/y in -1..1, y positive down.
+// Like joy.cpl: the square is the full range, so a stick that reaches 100% touches its edge.
 export function liveStick(v) {
   const R = 100;
+  const frame = `<rect x="-100" y="-100" width="200" height="200" fill="none" stroke="#111"/><path d="M-100 0H100M0 -100V100" stroke="#E2E2E2"/>`;
   if (!v) {
-    return `<svg width="200" height="200" viewBox="-102 -102 204 204" aria-hidden="true"><circle r="100" fill="none" stroke="#111"/><path d="M-100 0H100M0 -100V100" stroke="#E2E2E2"/><circle r="6" fill="none" stroke="#2140D9" stroke-width="1.5"/></svg>
-      <div class="readout muted" style="font-size:16px">${v === null ? "ขยับ stick บนจอยเพื่อดูค่า" : "ไม่ได้ขยับ"}</div>`;
+    return `<svg width="200" height="200" viewBox="-102 -102 204 204" aria-hidden="true">${frame}</svg>
+      <div class="readout muted" style="font-size:16px">ขยับ stick บนจอยเพื่อดูค่า</div>`;
   }
-  const { x, y, out } = v;
-  const mag = Math.hypot(x, y);
-  const k = mag ? out / mag : 0;
-  return `<svg width="200" height="200" viewBox="-102 -102 204 204" aria-hidden="true"><circle r="100" fill="none" stroke="#111"/><path d="M-100 0H100M0 -100V100" stroke="#E2E2E2"/>
-      <circle r="6" fill="none" stroke="#2140D9" stroke-width="1.5"/>
-      <circle cx="${x * R}" cy="${y * R}" r="8" fill="#111"/><circle cx="${x * k * R}" cy="${y * k * R}" r="6.5" fill="#2140D9"/></svg>
-    <div class="readout">${mag < 0.02 ? "ไม่ได้ขยับ" : `ดิบ ${Math.round(Math.min(1, mag) * 100)}% → ออก ${Math.round(out * 100)}%`}</div>
-    <div class="legend"><span><i></i>ค่าดิบ</span><span><i class="c"></i>หลัง curve</span></div>`;
+  const { x, y } = v;
+  const mag = Math.min(1, Math.hypot(x, y));
+  const atEdge = Math.max(Math.abs(x), Math.abs(y)) >= 0.99;
+  return `<svg width="200" height="200" viewBox="-102 -102 204 204" aria-hidden="true">${frame}
+      <circle cx="${x * R}" cy="${y * R}" r="7" fill="#111"/></svg>
+    <div class="readout">${mag < 0.02 ? "ไม่ได้ขยับ" : `ส่งออก ${Math.round(mag * 100)}%${atEdge ? " · ชนขอบ" : ""}`}</div>
+    <div class="meta mono">X ${x.toFixed(2)} · Y ${(-y).toFixed(2)}</div>`;
+}
+
+// Buttons held now, from the controller's key events. Names are what the controller reports.
+export function liveKeys(keys) {
+  if (!keys) return "";
+  return keys.length
+    ? keys.map((k) => `<span class="keytag" style="height:36px;padding:0 12px">${esc(k)}</span>`).join("")
+    : `<span class="muted">กดปุ่มบนจอยเพื่อดูชื่อปุ่ม</span>`;
 }
 
 // ---------------- 03 Triggers ----------------
@@ -558,14 +570,12 @@ export function triggers(S, D) {
   return `${head("Triggers", "กดไกบนจอยเพื่อดูระยะจริง · ภาพไกมองจากด้านหลังจอย")}<div class="cols-2">${col("left")}${col("right")}</div>`;
 }
 
+// v: what the controller sends out for the trigger (0..1), or null when no gamepad is visible.
 export function liveTrigger(v) {
   const bar = (h, color) => `<div style="width:40px;height:200px;border:1px solid #111;position:relative"><div style="position:absolute;left:0;right:0;bottom:0;height:${h * 100}%;background:${color}"></div></div>`;
-  if (!v || v.raw < 0.01) {
-    return `<div style="display:flex;gap:24px">${bar(0)}${bar(0)}</div><div class="readout muted" style="font-size:16px">${v ? "ไม่ได้กด" : "กดไกบนจอยเพื่อดูค่า"}</div>`;
-  }
-  return `<div style="display:flex;gap:24px">${bar(v.raw, "#111")}${bar(v.out, "#2140D9")}</div>
-    <div class="readout">ดิบ ${Math.round(v.raw * 100)}% → ออก ${Math.round(v.out * 100)}%</div>
-    <div class="legend"><span><i></i>ค่าดิบ</span><span><i class="c"></i>หลัง curve</span></div>`;
+  if (v === null) return `${bar(0)}<div class="readout muted" style="font-size:16px">เบราว์เซอร์ยังไม่เห็นจอย<br>ทดสอบไกด้วย joy.cpl ไปก่อน</div>`;
+  if (v < 0.01) return `${bar(0)}<div class="readout muted" style="font-size:16px">ไม่ได้กด</div>`;
+  return `${bar(v, "#111")}<div class="readout">ส่งออก ${Math.round(v * 100)}%${v >= 0.99 ? " · เต็ม" : ""}</div>`;
 }
 
 // ---------------- 04 Macros ----------------

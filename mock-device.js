@@ -34,6 +34,19 @@ export async function createMockDevice() {
   const ram = { 1: new Uint8Array(82), 4: new Uint8Array(64), 6: new Uint8Array(32) };
   const buf = (id) => (id === 5 ? slots[active] : ram[id]);
   let pending = null;
+  // Live input for the Sticks page: with dinput on, stream 0xEF frames (left stick circles);
+  // with key events on, press and release A every 2 s.
+  let stream = null, keys = null;
+  const emit = (f) => dev.listeners.forEach((l) => l({ data: new DataView(f.buffer) }));
+  const stickFrame = (t) => {
+    const f = new Uint8Array(32), v = new DataView(f.buffer);
+    f.set([0x5a, 0xa5, 0xef]);
+    v.setInt16(3, Math.round(Math.cos(t) * 30000), true);
+    v.setInt16(5, Math.round(Math.sin(t) * 30000), true);
+    f[31] = sum(f, 2, 31);
+    return f;
+  };
+  const event = (text) => reply(0x21, [1, 0], [...new TextEncoder().encode(text), 0]);
 
   const dev = {
     opened: false,
@@ -53,6 +66,9 @@ export async function createMockDevice() {
     },
     async close() {
       this.opened = false;
+      clearInterval(stream);
+      clearInterval(keys);
+      stream = keys = null;
     },
     async sendReport(id, data) {
       const cmd = data[2], p = data.slice(4, 4 + data[3] - 2);
@@ -60,7 +76,27 @@ export async function createMockDevice() {
       const crcOf = (s) => slots[s][2] | (slots[s][3] << 8);
       const status = () => [active, ...[0, 1, 2, 3].flatMap((s) => le16(crcOf(s))), ...le16(0x5a17)];
       let r;
-      if (cmd === 0x01) {
+      if (cmd === 0x11) {
+        // No reply, like the real controller.
+        if (p[1] === 1 && !stream) {
+          const t0 = Date.now();
+          stream = setInterval(() => emit(stickFrame((Date.now() - t0) / 1500)), 50);
+        } else if (p[1] === 0) {
+          clearInterval(stream);
+          stream = null;
+        }
+        return;
+      }
+      if (cmd === 0x20) {
+        const text = new TextDecoder().decode(p);
+        clearInterval(keys);
+        keys = null;
+        if (text === "ENABLE_KEY_EVENT") {
+          let down = false;
+          keys = setInterval(() => emit(event(`${(down = !down) ? "KEY_DOWN" : "KEY_UP"} GP_A`)), 1000);
+        }
+        r = reply(0x20, [1, 0], [0]);
+      } else if (cmd === 0x01) {
         const pl = [0x06, 1, ...le32(0x3f2ac91e), (1 << 4) | 8, 0x11, 1, 0,
           ...be16(0x9055), ...be16(0x9021), ...be16(0x0103), ...be16(0x0210), ...be16(0x0305), ...be16(0x0101), ...be16(0x0001), 0b10111011];
         r = reply(1, [1, 0], pl);

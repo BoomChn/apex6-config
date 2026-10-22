@@ -1,7 +1,7 @@
 import { Apex6, RAM, hex, crc32 } from "./protocol.js";
 import { decodeMapping } from "./mapping.js";
 import { unwrapMapping, applyEdits, sameBytes, deadzoneMax, curveEndMin, curveStartMax, motorMaxMin } from "./mapping-edit.js";
-import { Drafts, evalCurve, esc } from "./model.js";
+import { Drafts, esc } from "./model.js";
 import * as V from "./views.js";
 
 const $ = (s) => document.querySelector(s);
@@ -55,6 +55,7 @@ function render() {
   else if (!S.current) view.innerHTML = loadingView();
   else view.innerHTML = PAGES[S.tab](S, D);
   liveCache.clear();
+  syncLive();
   if (focusSig) {
     const el = document.querySelector(focusSig);
     if (el && el !== document.activeElement) el.focus({ preventScroll: true });
@@ -104,7 +105,7 @@ function softUpdate(key) {
   const [a, side] = key.split(".");
   if (a === "stick" || a === "trigger") {
     const box = document.querySelector(`[data-live-chart="${a}-${side}"]`);
-    if (box) box.innerHTML = chartFor(a, side, null);
+    if (box) box.innerHTML = chartFor(a, side);
   }
   renderChrome();
 }
@@ -116,13 +117,13 @@ function outText(key, label) {
   return `${Math.round((v / 255) * 100)}%  ·  ${v}`;
 }
 
-function chartFor(kind, side, liveX) {
+function chartFor(kind, side) {
   const cfg = S.current.cfg;
   const base = cfg[`${kind === "stick" ? "joystick" : "trigger"}_${side}`].curve;
   const keys = kind === "stick" ? [`stick.${side}.deadzone`, `stick.${side}.max`] : [`trigger.${side}.start`, `trigger.${side}.end`];
   const c = V.effCurve(D, base, keys[0], keys[1]);
   const pend = D.pendingKeys(`${kind}.${side}.`).length > 0;
-  return V.curveSvg(c, { pending: pend, live: liveX });
+  return V.curveSvg(c, { pending: pend });
 }
 
 // ---------------- Toast ----------------
@@ -140,6 +141,8 @@ function toast(msg, err = false) {
 // ---------------- Device ----------------
 
 function logPacket(dir, bytes) {
+  // The 0xEF stick stream arrives many times a second and would push everything else out.
+  if (dir === "in" && bytes[2] === 0xef) return;
   let n = bytes.length;
   while (n > 1 && bytes[n - 1] === 0) n--;
   const t = new Date().toLocaleTimeString("th-TH", { hour12: false });
@@ -210,6 +213,7 @@ async function loadAll() {
 }
 
 async function disconnect() {
+  await stopLive();
   await S.pad?.close().catch(() => {});
   S.pad = null;
   S.current = null;
@@ -334,6 +338,7 @@ async function runWrite({ edits = null, data = null, reason, title, doneTitle, f
   W = { title, doneTitle, failTitle, slot, name: S.current.cfg.name || "", at: 0, steps: ["สำรองไฟล์", `ส่งข้อมูล Slot ${slot + 1}`, "ตรวจ CRC กับจอย"], bytes: null };
   S.writing = true;
   showSheet(V.writing(W));
+  await stopLive();
   let started = false;
   try {
     const fresh = await S.pad.readRam(RAM.MAPPING);
@@ -370,6 +375,7 @@ async function runWrite({ edits = null, data = null, reason, title, doneTitle, f
     W.left = D.count();
     S.writing = false;
     renderChrome();
+    syncLive();
     showSheet(V.done(W));
     sheet.querySelector(".btn")?.focus();
   } catch (e) {
@@ -379,6 +385,7 @@ async function runWrite({ edits = null, data = null, reason, title, doneTitle, f
     W.unknown = started;
     W.restore = started ? W.backupAt : null;
     renderChrome();
+    syncLive();
     showSheet(V.failed(W));
   }
 }
@@ -716,7 +723,50 @@ window.addEventListener("beforeunload", (e) => {
   if (S.writing || D.count()) e.preventDefault();
 });
 
-// ---------------- Live input (Gamepad API) ----------------
+// ---------------- Live input ----------------
+// On Sticks, the app asks the controller itself for its stick stream (0xEF) and key events (0x21),
+// so testing works even when the browser does not see a gamepad. Values are what the controller
+// sends out, after its own curve. Elsewhere it falls back to the Gamepad API.
+
+const LIVE = { on: false, stop: null, stick: null, keys: new Set() };
+
+async function startLive() {
+  const pad = S.pad;
+  LIVE.on = true;
+  LIVE.stick = null;
+  LIVE.keys.clear();
+  const offStick = pad.onStick((s) => (LIVE.stick = s));
+  const offEvent = pad.onEvent((text) => {
+    const [type, name = ""] = text.split(/\s+/);
+    const key = name.replace(/^GP_/, "");
+    if (type === "KEY_DOWN") LIVE.keys.add(key);
+    else if (type === "KEY_UP") LIVE.keys.delete(key);
+  });
+  LIVE.stop = async () => {
+    offStick();
+    offEvent();
+    await safe(() => pad.textCommand("DISABLE_KEY_EVENT"));
+    await safe(() => pad.setInputModes({ dinput: 0 }));
+  };
+  await safe(() => pad.setInputModes({ dinput: 1 }));
+  await safe(() => pad.textCommand("ENABLE_KEY_EVENT"));
+}
+
+async function stopLive() {
+  const stop = LIVE.stop;
+  LIVE.on = false;
+  LIVE.stop = null;
+  LIVE.stick = null;
+  LIVE.keys.clear();
+  await stop?.();
+}
+
+function syncLive() {
+  const want = !!(S.pad && S.current && S.tab === "sticks" && !S.writing && !document.hidden);
+  if (want !== LIVE.on) (want ? startLive : stopLive)();
+}
+document.addEventListener("visibilitychange", syncLive);
+window.addEventListener("pagehide", () => stopLive());
 
 const liveCache = new Map();
 function setLive(sel, html) {
@@ -731,31 +781,20 @@ function tick() {
     const gp = Array.from(navigator.getGamepads?.() ?? []).find(Boolean);
     const cfg = S.current.cfg;
     if (S.tab === "sticks") {
+      const st = LIVE.stick;
       for (const [side, ax] of [["left", 0], ["right", 2]]) {
-        const s = cfg[`joystick_${side}`];
-        if (!s) continue;
+        if (!cfg[`joystick_${side}`]) continue;
         let v = null;
-        if (gp) {
-          const x = gp.axes[ax] ?? 0, y = gp.axes[ax + 1] ?? 0;
-          const mag = Math.min(1, Math.hypot(x, y));
-          const c = V.effCurve(D, s.curve, `stick.${side}.deadzone`, `stick.${side}.max`);
-          v = { x: Number(x.toFixed(2)), y: Number(y.toFixed(2)), out: Number((evalCurve(c, mag * 255) / 255).toFixed(2)) };
-          setLive(`[data-live-chart="stick-${side}"]`, chartFor("stick", side, mag > 0.02 ? Math.round(mag * 255) : null));
-        }
-        setLive(`[data-live="stick-${side}"]`, V.liveStick(gp ? v : null));
+        // 0xEF Y is positive up (XInput style); the Gamepad API and the SVG are positive down.
+        if (st) v = side === "left" ? { x: st.lx / 32767, y: -st.ly / 32767 } : { x: st.rx / 32767, y: -st.ry / 32767 };
+        else if (gp) v = { x: gp.axes[ax] ?? 0, y: gp.axes[ax + 1] ?? 0 };
+        setLive(`[data-live="stick-${side}"]`, V.liveStick(v && { x: Number(v.x.toFixed(2)), y: Number(v.y.toFixed(2)) }));
       }
+      setLive(`[data-live="keys"]`, V.liveKeys(LIVE.on ? [...LIVE.keys] : null));
     } else {
       for (const [side, bi] of [["left", 6], ["right", 7]]) {
-        const t = cfg[`trigger_${side}`];
-        if (!t) continue;
-        let v = null;
-        if (gp) {
-          const raw = Number((gp.buttons[bi]?.value ?? 0).toFixed(2));
-          const c = V.effCurve(D, t.curve, `trigger.${side}.start`, `trigger.${side}.end`);
-          v = { raw, out: Number((evalCurve(c, raw * 255) / 255).toFixed(2)) };
-          setLive(`[data-live-chart="trigger-${side}"]`, chartFor("trigger", side, raw > 0.01 ? Math.round(raw * 255) : null));
-        }
-        setLive(`[data-live="trigger-${side}"]`, V.liveTrigger(v));
+        if (!cfg[`trigger_${side}`]) continue;
+        setLive(`[data-live="trigger-${side}"]`, V.liveTrigger(gp ? Number((gp.buttons[bi]?.value ?? 0).toFixed(2)) : null));
       }
     }
   }
