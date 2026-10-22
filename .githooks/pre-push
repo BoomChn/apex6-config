@@ -1,0 +1,9 @@
+#!/bin/sh
+# Runs test.mjs before every push; a failing test stops the push.
+# This machine has no node on PATH, so Cursor's bundled Node is used when node is missing.
+cd "$(git rev-parse --show-toplevel)" || exit 1
+if command -v node >/dev/null 2>&1; then
+  node test.mjs
+else
+  ELECTRON_RUN_AS_NODE=1 "$LOCALAPPDATA/Programs/cursor/Cursor.exe" test.mjs
+fi || { echo "pre-push: test.mjs failed, not pushing" >&2; exit 1; }

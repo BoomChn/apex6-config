@@ -169,7 +169,34 @@ export function applyEdits(wrapped, edits) {
   const c = crc16(out.subarray(4));
   out[2] = c & 0xff;
   out[3] = c >> 8;
+  checkProfile(out);
   return out;
+}
+
+// Rules the controller's firmware holds a profile to, as found on hardware (PROTOCOL.md). Every
+// write passes through here, so a bug in an edit stops the write instead of reaching the controller.
+// Add a rule here whenever the hardware teaches us one.
+export function checkProfile(wrapped) {
+  const { cfg } = unwrapMapping(wrapped);
+  const where = (l) => (l.layer_id ? `layer ${l.layer_id}` : "Base layer");
+  const fail = (msg) => {
+    throw new Error(`ไม่เขียนลงจอย: ${msg}`);
+  };
+  if (cfg.layers.length < 1 || cfg.layers.length > LAYER_MAX) fail(`มี ${cfg.layers.length} layer (ได้ 1–${LAYER_MAX})`);
+  // The firmware finds a layer by its position, so layer ids must be 0, 1, 2, … in order.
+  cfg.layers.forEach((l, i) => l.layer_id !== i && fail(`layer ลำดับที่ ${i + 1} มีเลข ${l.layer_id} จอยจะหา layer ผิดตัว`));
+  for (const l of cfg.layers) {
+    const ids = l.macros.map((m) => m.macro_id);
+    if (ids.length > MACRO_MAX) fail(`${where(l)} มี macro ${ids.length} ตัว (ได้ ${MACRO_MAX})`);
+    if (new Set(ids).size !== ids.length) fail(`${where(l)} มี macro เลขซ้ำกัน`);
+    for (const m of l.mappings)
+      for (const a of m.activators) {
+        const t = a.target;
+        // A layer switch must reach a layer there is; a macro target plays a macro of its own layer.
+        if ((t.type === "layer_hold" || t.type === "layer_toggle") && !(t.layer < cfg.layers.length)) fail(`ปุ่ม ${m.source} ใน ${where(l)} สลับไป layer ${t.layer} ที่ไม่มี`);
+        if (t.type === "macro" && !ids.includes(t.macro)) fail(`ปุ่ม ${m.source} ใน ${where(l)} เล่น macro #${t.macro + 1} ที่ไม่มีใน layer นี้`);
+      }
+  }
 }
 
 // Rebuilds TLV 0x20 with the new names and splices it into the wrapped buffer (length updated,

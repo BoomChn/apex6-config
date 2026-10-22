@@ -509,6 +509,14 @@ console.log("macro create/delete ok");
   assert.equal(hold(gap, 0, "M1"), 1);
   assert.equal(g.layers[1].mappings[0].activators[0].target.button, "X", "the layer keeps its buttons");
   assert.deepEqual(g.macro_names, [{ layerId: 1, macroId: 0, name: "Peek" }]);
+  // checkProfile refuses what the firmware would get wrong; a gap stored on the controller is one.
+  const { checkProfile, crc16: crc } = await import("./mapping-edit.js");
+  const bad = three.slice();
+  bad[4 + cfgOf(three).offsets.layers[2].from] = 3;
+  const bc = crc(bad.subarray(4));
+  bad[2] = bc & 255; bad[3] = bc >> 8;
+  assert.throws(() => checkProfile(bad), /ไม่เขียนลงจอย: layer ลำดับที่ 3 มีเลข 3/);
+  assert.equal(cfgOf(applyEdits(bad, {})).layers[2].layer_id, 2, "a write fixes it");
   // A profile already stored with a gap or out of order is fixed by any write.
   const { layerRenumber } = await import("./mapping-edit.js");
   assert.deepEqual([...layerRenumber([0, 3, 2])], [[0, 0], [2, 1], [3, 2]]);
