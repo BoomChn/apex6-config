@@ -2,7 +2,7 @@
 // Keys editKey() maps to a writable field (mapping-edit.js) can be written; everything else stays a draft in this page
 // until the protocol for it is known, and the UI says so.
 
-import { isWritable, LAYER_MAX } from "./mapping-edit.js";
+import { isWritable, LAYER_MAX, layerRenumber } from "./mapping-edit.js";
 import { planMacros } from "./macros.js";
 import { fit } from "./names.js";
 import { targetLabel } from "./profile-view.js";
@@ -122,14 +122,26 @@ function layerSources(S, D, L) {
 export function macroPlan(S, D) {
   const cfg = S.current.cfg;
   const slot = S.current.slot;
-  return planMacros({
-    cfg, lib: S.lib, links: cfg.links ?? {},
-    layers: layerList(S, D).filter((l) => !l.deleted).map((l) => l.id),
+  const layers = layerList(S, D).filter((l) => !l.deleted).map((l) => l.id);
+  const plan = planMacros({
+    cfg, lib: S.lib, links: cfg.links ?? {}, layers,
     sources: (L) => layerSources(S, D, L),
     target: (L, src, press) => D.get(`map.${L}.${src}.${press}`),
     profileName: D.has(`slot.${slot}.name`) ? fit(D.get(`slot.${slot}.name`)) : cfg.name ?? "",
     layerName: LAYER_NAME,
   });
+  // The write numbers the layers again from 0 (normalizeLayers): the links follow.
+  const to = layerRenumber(layers);
+  plan.moves = layerMoves(S, D);
+  plan.links = Object.fromEntries(Object.entries(plan.links).map(([k, v]) => [`${to.get(Number(k.split(".")[0]))}.${k.split(".")[1]}`, v]));
+  return plan;
+}
+
+// Layers whose id the next write changes, so each one sits at the position of its id (see
+// normalizeLayers in mapping-edit.js): [{ from, to }].
+export function layerMoves(S, D) {
+  const to = layerRenumber(layerList(S, D).filter((l) => !l.deleted).map((l) => l.id));
+  return [...to].filter(([a, b]) => a !== b).map(([from, t]) => ({ from, to: t }));
 }
 
 // The edits for applyEdits: the drafts that can be written, with presses that play a library macro
@@ -322,7 +334,9 @@ export class Drafts {
   // Library macros edited since their copies were written count too (S.plan, see macroPlan).
   count(tab) {
     const stale = !tab || tab === "macros" ? (this.S.plan?.rows ?? []).filter((r) => r.kind === "update" || r.kind === "rename").length : 0;
-    return [...this.map.keys()].filter((k) => !tab || meta(k, this.S).tab === tab).length + stale;
+    // So do layers the write has to number again (layerMoves).
+    const moves = !tab || tab === "buttons" ? this.S.plan?.moves?.length ?? 0 : 0;
+    return [...this.map.keys()].filter((k) => !tab || meta(k, this.S).tab === tab).length + stale + moves;
   }
   writable() {
     // Names go to the controller cut to what it holds; the app keeps the full name (names.js).

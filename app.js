@@ -1,7 +1,7 @@
 import { Apex6, RAM, hex, crc32 } from "./protocol.js";
 import { decodeMapping } from "./mapping.js";
 import { unwrapMapping, applyEdits, sameBytes, deadzoneMax, curveEndMin, curveStartMax, motorMaxMin, MACRO_STEPS_MAX } from "./mapping-edit.js";
-import { Drafts, esc, resolveNames, resolveMacros, macroPlan, writeEdits, macroUses, openMacro, nameId, evalCurve, layerKey, layerList, nextLayerId, LAYER_NAME, btnName } from "./model.js";
+import { Drafts, esc, resolveNames, resolveMacros, macroPlan, writeEdits, macroUses, openMacro, layerMoves, nameId, evalCurve, layerKey, layerList, nextLayerId, LAYER_NAME, btnName } from "./model.js";
 import { Names, fit } from "./names.js";
 import { Library } from "./macros.js";
 import * as V from "./views.js";
@@ -403,7 +403,17 @@ async function runWrite({ edits = null, drafts = null, links = null, data = null
     const back = await S.pad.readRam(RAM.MAPPING);
     if (!sameBytes(back.data, next)) throw new Error("อ่านกลับแล้วไม่ตรงกับที่เขียน");
     W.crc = (back.data[2] | (back.data[3] << 8)).toString(16).padStart(4, "0").toUpperCase();
+    // Any write numbers the layers again from 0 (normalizeLayers); what stays open follows.
+    const moves = edits ? layerMoves(S, D) : [];
     if (edits) for (const k of drafts ?? Object.keys(edits)) D.map.delete(k);
+    const moved = (id) => moves.find((m) => m.from === id)?.to ?? id;
+    S.ui.layer = moved(S.ui.layer);
+    for (const [k, v] of [...D.map]) {
+      const m = k.match(/^map\.(\d+)\.(.+)$/);
+      if (!m || moved(Number(m[1])) === Number(m[1])) continue;
+      D.map.delete(k);
+      D.map.set(`map.${moved(Number(m[1]))}.${m[2]}`, v);
+    }
     // The controller now holds what fits of each name; the app keeps the full one.
     for (const { key, value } of sentNames) S.names.put(S.uuid, nameId(key), value, fit(value));
     if (links) S.lib.setLinks(S.uuid, slot, links);

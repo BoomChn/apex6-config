@@ -1099,7 +1099,8 @@ export function review(S, D) {
   const plan = S.plan ?? { rows: [], errors: [] };
   // Library macros edited since they were written count on their own; adding and removing copies
   // comes with a button that was changed.
-  const nW = slotItems.length + plan.rows.filter((r) => r.kind === "update" || r.kind === "rename").length;
+  const moves = plan.moves ?? [];
+  const nW = slotItems.length + plan.rows.filter((r) => r.kind === "update" || r.kind === "rename").length + moves.length;
   const errors = plan.errors;
   const row = (i) => `<div class="diff-row${i.writable ? "" : " unsup"}"><b>${esc(i.label)}${untested(i.editKey) ? `<br>${untested(i.editKey)}` : ""}</b><span class="old">${esc(i.baseText ?? (i.base === undefined ? "ไม่ทราบ" : i.fmt(i.base)))}</span><span>→</span>
     <span class="new">${i.key === "led.color" ? `<span class="swatch-dot" style="background:${esc(i.value)}"></span>` : ""}${esc(i.fmt(i.value))}${i.writable && i.key.endsWith(".name") && fit(i.value) !== i.value ? `<br><span class="meta">บนจอยจะเป็น “${esc(fit(i.value))}” · ชื่อเต็มเก็บในแอป</span>` : ""}</span></div>`;
@@ -1122,7 +1123,7 @@ export function review(S, D) {
   const sub = errors.length ? esc(errors.join(" · ")) : nW ? "ตรวจก่อนเขียน · อย่าถอดสายระหว่างเขียน" : `${esc(stuck)} ยังเขียนลงจอยไม่ได้ เลยเก็บเป็นร่างไว้ในหน้านี้ · ค่าบนจอยยังเหมือนเดิม`;
   return `<h2 class="d-title" id="sheet-title">${nW ? `เขียน ${nW} การเปลี่ยนแปลงลงจอย` : "ยังไม่มีอะไรที่เขียนลงจอยได้"}</h2>
     <p class="d-sub">${sub}</p>
-    ${nW ? `<div class="d-group"><div class="rule-head"><h2>Slot ${slot + 1}${D.get(`slot.${slot}.name`) ? ` · ${esc(D.get(`slot.${slot}.name`))}` : ""}</h2><span class="meta">ค่าบนจอย → ค่าใหม่</span></div>${slotItems.map(row).join("")}${plan.rows.map(macroRow).join("")}</div>` : ""}
+    ${nW ? `<div class="d-group"><div class="rule-head"><h2>Slot ${slot + 1}${D.get(`slot.${slot}.name`) ? ` · ${esc(D.get(`slot.${slot}.name`))}` : ""}</h2><span class="meta">ค่าบนจอย → ค่าใหม่</span></div>${slotItems.map(row).join("")}${plan.rows.map(macroRow).join("")}${moves.map((m) => diff(`เลข layer · ${LAYER_NAME(m.from)}`, LAYER_NAME(m.from), `${LAYER_NAME(m.to)} · จอยหา layer จากลำดับ เลขต้องต่อกัน`)).join("")}</div>` : ""}
     ${unsup.length ? `<div class="d-group"><div class="rule-head"><h2>ยังเขียนลงจอยไม่ได้</h2><span class="meta">เก็บเป็นร่างในหน้านี้ ไม่ส่งลงจอย</span></div>${unsup.map(row).join("")}</div>` : ""}
     ${nW ? "" : `<div class="d-group"><div class="rule-head thin"><h2>ที่เขียนลงจอยได้ตอนนี้</h2>${UNTESTED}</div>${WRITABLE_NOW.map((g) => `<div class="can-row"><b>${g.label}</b><span>${g.what}</span></div>`).join("")}</div>`}
     ${nW ? `<p class="notice" style="margin-top:24px;font-size:15px;color:var(--ink)">${ICON.file}<span><b>สำรองค่าบนจอยเป็นไฟล์อัตโนมัติก่อนเขียนทุกครั้ง</b> <span class="muted">· กู้คืนได้ที่ Device &amp; backup</span></span></p>` : ""}
