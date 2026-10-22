@@ -969,7 +969,8 @@ function gyroSettings(S, D, g, modes, sel) {
   const curveSlider = (part, label, en, note) => {
     const p = gyroPct(c[part]);
     return `<div class="slider" style="margin-top:20px"><div class="slider-head"><span><b>${label}</b> <span class="meta">${en}</span></span><span class="num${pc ? " pending" : ""}">${p}%</span></div>
-      <input type="range" min="0" max="100" value="${p}" data-curve="${part}" class="${pc ? "pending" : ""}" style="--p:${p}%" aria-label="${label}">${hint(note)}</div>`;
+      <p class="meta" style="margin:2px 0 8px;line-height:20px">${note}</p>
+      <input type="range" min="0" max="100" value="${p}" data-curve="${part}" class="${pc ? "pending" : ""}" style="--p:${p}%" aria-label="${label}"></div>`;
   };
   const mids = c.mid_points
     .map((m, i) => `<div style="display:grid;grid-template-columns:28px 1fr 1fr 40px;gap:8px;align-items:center;margin-top:8px">
