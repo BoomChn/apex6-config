@@ -342,6 +342,10 @@ console.log("macro create/delete ok");
   const m3 = applyEdits(m2, { "map.0.M2.long": undefined, "map.0.M1.double": undefined, "map.0.B.simple": { type: "none" } });
   assert.deepEqual(maps(m3, 0), [["M1", "simple:btn_gamepad:A"], ["B"]]);
   assert.deepEqual(maps(applyEdits(m3, { "map.0.B.simple": { type: "btn_gamepad", button: "B" } }), 0), [["M1", "simple:btn_gamepad:A"]]);
+  // Reset to factory default (what "ตั้งเป็นค่าเริ่มต้น" drafts): the entry goes, long and double with it.
+  assert.ok(sameBytes(applyEdits(m2, { "map.0.M1.simple": { type: "btn_gamepad", button: "M1" }, "map.0.M1.double": undefined, "map.0.M2.simple": { type: "btn_gamepad", button: "M2" }, "map.0.M2.long": undefined }), sample));
+  // Back buttons and LM/RM (M5/M6) as targets, and LM/RM as sources.
+  assert.deepEqual(maps(applyEdits(sample, { "map.0.A.simple": { type: "btn_gamepad", button: "M1" }, "map.0.M5.simple": { type: "btn_gamepad", button: "M6" } }), 0), [["A", "simple:btn_gamepad:M1"], ["M5", "simple:btn_gamepad:M6"]]);
 
   // Layers: add one, map into it, and switch to it from the base layer.
   const l1 = applyEdits(sample, {

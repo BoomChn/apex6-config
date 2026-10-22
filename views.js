@@ -254,16 +254,16 @@ function frontFigure(S, D, { screen, screenSub, led = null, ledLabel = "ไฟ R
 
 // ---------------- 01 Buttons ----------------
 
-export const BACK_SRC = { RB: "RB", RT: "RT (active)", M1: "M1", M3: "M3", LB: "LB", LT: "LT (active)", M2: "M2", M4: "M4", RM: null, LM: null };
+export const BACK_SRC = { RB: "RB", RT: "RT (active)", M1: "M1", M3: "M3", LB: "LB", LT: "LT (active)", M2: "M2", M4: "M4", RM: "M6", LM: "M5" };
 export const FRONT_SRC = { Back: "Back", Start: "Start", LS: "LS", RS: "RS", Y: "Y", X: "X", B: "B", A: "A", DPAD: "D-pad ↑" };
 const BTN_TITLE = {
   M1: "ปุ่มหลัง มือขวา · บน", M3: "ปุ่มหลัง มือขวา · ล่าง", M2: "ปุ่มหลัง มือซ้าย · บน", M4: "ปุ่มหลัง มือซ้าย · ล่าง",
   LB: "ไหล่ซ้าย", RB: "ไหล่ขวา", "LT (active)": "ไกซ้าย · ส่งเป็นปุ่ม", "RT (active)": "ไกขวา · ส่งเป็นปุ่ม",
-  LM: "ปุ่มข้างไกซ้าย (LM)", RM: "ปุ่มข้างไกขวา (RM)",
+  M5: "ปุ่มข้างไกซ้าย (LM)", M6: "ปุ่มข้างไกขวา (RM)",
   A: "ปุ่ม A", B: "ปุ่ม B", X: "ปุ่ม X", Y: "ปุ่ม Y", Back: "ปุ่ม View", Start: "ปุ่ม Menu", LS: "กด stick ซ้าย", RS: "กด stick ขวา",
   "D-pad ↑": "D-pad ขึ้น", "D-pad ↓": "D-pad ลง", "D-pad ←": "D-pad ซ้าย", "D-pad →": "D-pad ขวา",
 };
-const BACK_IDS = new Set(["M1", "M2", "M3", "M4", "LB", "RB", "LT (active)", "RT (active)"]);
+const BACK_IDS = new Set(["M1", "M2", "M3", "M4", "M5", "M6", "LB", "RB", "LT (active)", "RT (active)"]);
 
 function mapKey(layer, src, press) {
   return `map.${layer}.${src}.${press}`;
@@ -387,7 +387,9 @@ function changedList(S, D) {
   </section>`;
 }
 
-const OUT_KEYS = ["A", "B", "X", "Y", "LB", "RB", "LT (active)", "RT (active)", "LS", "RS", "Back", "Start", "D-pad ↑", "D-pad ↓", "D-pad ←", "D-pad →"];
+const OUT_KEYS = ["A", "B", "X", "Y", "LB", "RB", "LT (active)", "RT (active)", "LS", "RS", "Back", "Start", "D-pad ↑", "D-pad ↓", "D-pad ←", "D-pad →", "M1", "M2", "M3", "M4", "M5", "M6"];
+// LM/RM (M5/M6) ids come from the official desktop app's names, not yet from a write to the controller.
+const LMRM = new Set(["M5", "M6"]);
 const MOUSE = ["คลิกซ้าย", "คลิกขวา", "คลิกกลาง", "ปุ่มเมาส์ 4", "ปุ่มเมาส์ 5"];
 const OUT_TYPES = [
   { id: "gamepad", label: "ปุ่มจอย" },
@@ -424,13 +426,10 @@ function buttonEditor(S, D) {
   const ui = S.ui;
   const layer = ui.layer;
   const src = ui.sel;
-  if (src === "LM" || src === "RM") {
-    return `<div class="head-inset" style="border-bottom-width:3px"><span class="keytag" style="height:52px;min-width:52px;font-size:20px;border-radius:8px">${src}</span>
-      <div class="t"><h2>${BTN_TITLE[src]}</h2><div class="status">มีบนตัวจอย แต่ยังไม่รู้ ID ใน protocol</div></div></div>
-      <p class="meta" style="margin-top:20px;line-height:22px">ปุ่ม ${src} ยังไม่อยู่ในรายการปุ่มของ mapping ที่ถอดได้ (mapping.js) จึงยังแสดงหรือแก้ค่าไม่ได้ ถ้าลองกด ${src} บนจอยแล้วดู packet log ในหน้า Device &amp; backup จะช่วยหา ID ได้</p>`;
-  }
   const press = ui.press;
   const pend = PRESS.some((p) => D.has(mapKey(layer, src, p.id)));
+  // Factory default: a normal press sends the button itself, with no long or double press.
+  const isFactory = isIdentity(D.get(mapKey(layer, src, "simple")), src) && PRESS.slice(1).every((p) => D.get(mapKey(layer, src, p.id)) === undefined);
   const base = baseTarget(cfg, layer, src, "simple");
   const rows = PRESS.map((p) => {
     const k = mapKey(layer, src, p.id);
@@ -488,8 +487,12 @@ function buttonEditor(S, D) {
       <span class="keytag${pend ? " fill" : " ink"}" style="height:52px;min-width:52px;font-size:20px;border-radius:8px">${esc(btnName(src))}</span>
       <div class="t"><h2>${esc(BTN_TITLE[src] ?? btnName(src))}</h2>
         <div class="status${pend ? " pending" : ""}">${pend ? `แก้แล้ว · ค่าบนจอย: ${esc(labelTarget(base, cfg))}` : `ค่าบนจอย: ${esc(labelTarget(base, cfg))}`}</div></div>
-      ${pend ? `<button class="link" data-act="revert-btn">คืนค่าเดิม</button>` : ""}
+      <span style="display:grid;justify-items:end;gap:6px;white-space:nowrap">
+        ${pend ? `<button class="link" data-act="revert-btn" title="ยกเลิกที่แก้ กลับไปเป็นค่าที่อยู่บนจอยตอนนี้">คืนค่าบนจอย</button>` : ""}
+        ${isFactory ? "" : `<button class="link" data-act="factory-btn" title="กดปกติส่ง ${esc(btnName(src))} เอง ไม่มีกดค้างหรือดับเบิลคลิก">ตั้งเป็นค่าเริ่มต้น</button>`}
+      </span>
     </div>
+    ${LMRM.has(src) || LMRM.has(cur?.button) ? `<p class="meta" style="margin:12px 0 0;line-height:20px">${UNTESTED} ID ของ LM/RM เอามาจากแอป Flydigi Space Station (LM = M5, RM = M6) ยังไม่เคยเขียนลงจอยจริง ลองแล้วเช็คใน joy.cpl ก่อนใช้</p>` : ""}
     ${src.startsWith("D-pad") ? `<div class="seg" style="margin-top:16px">${["D-pad ↑", "D-pad ↓", "D-pad ←", "D-pad →"].map((d) => `<button class="${src === d ? "on" : ""}" data-act="dpad" data-dir="${esc(d)}">${btnName(d)}</button>`).join("")}</div>` : ""}
     <div style="padding-top:20px"><div class="label" style="padding-bottom:8px">เมื่อกด ${esc(btnName(src))} แบบ…</div>${rows}</div>
     <div style="padding-top:28px;display:grid;gap:14px">
