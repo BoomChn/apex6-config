@@ -45,6 +45,39 @@ export const FRONT = {
   inline: true,
 };
 
+// Buttons tab: every button on the front photo. Shoulder and back buttons can't be seen from the
+// front, so `behind` draws them dashed at where they sit behind the shell (M3/M4 tips do show
+// below the grips). Same photo placement as FRONT; the view grows to fit the shoulder rows.
+export const ALL = {
+  view: "0 140 900 560",
+  img: FRONT.img,
+  callouts: [
+    { id: "LM", side: "l", y: 164, d: "M140 164 H312 L338 236", pt: [340, 241], behind: true },
+    { id: "LT", side: "l", y: 194, d: "M140 194 H256 L277 238", pt: [280, 243], behind: true },
+    { id: "LB", side: "l", y: 224, d: "M140 224 H231 L253 244", pt: [256, 247] },
+    { id: "Back", side: "l", y: 266, d: "M140 266 H366", pt: [366, 266] },
+    { id: "LS", side: "l", y: 330, d: "M140 330 H290", pt: [290, 330] },
+    { id: "DPAD", side: "l", y: 447, d: "M140 447 H330 L352 412", pt: [352, 412] },
+    { id: "M2", side: "l", y: 510, d: "M140 510 H230 L261 544", pt: [263, 547], behind: true },
+    { id: "M4", side: "l", y: 566, d: "M140 566 H250 L284 577", pt: [288, 578], behind: true },
+    { id: "RM", side: "r", y: 164, d: "M764 164 H599 L573 236", pt: [571, 241], behind: true },
+    { id: "RT", side: "r", y: 194, d: "M764 194 H655 L634 238", pt: [631, 243], behind: true },
+    { id: "RB", side: "r", y: 224, d: "M764 224 H680 L658 244", pt: [655, 247] },
+    { id: "Start", side: "r", y: 264, d: "M764 264 H540 L532 266", pt: [532, 266] },
+    { id: "Y", side: "r", y: 288, d: "M764 288 H640 L624 291", pt: [613, 293] },
+    { id: "X", side: "r", y: 320, d: "M764 320 H700 V306 H592 L573 330", pt: [573, 330] },
+    { id: "B", side: "r", y: 352, d: "M764 352 H680 L663 336", pt: [663, 336] },
+    { id: "A", side: "r", y: 386, d: "M764 386 H640 L618 372", pt: [618, 372] },
+    { id: "RS", side: "r", y: 440, d: "M764 440 H580 L536 422", pt: [536, 422] },
+    { id: "M1", side: "r", y: 510, d: "M764 510 H680 L636 540", pt: [633, 543], behind: true },
+    { id: "M3", side: "r", y: 566, d: "M764 566 H650 L612 577", pt: [608, 578], behind: true },
+  ],
+  keyX: FRONT.keyX,
+  labelX: FRONT.labelX,
+  inline: true,
+  rowH: 30,
+};
+
 // items: { [id]: { name, value, state: "default"|"set"|"pend"|"nomap", sel } }
 export function stageSvg(def, items, { kind = "back", label = "" } = {}) {
   let n = 0;
@@ -53,7 +86,7 @@ export function stageSvg(def, items, { kind = "back", label = "" } = {}) {
       const it = items[c.id];
       if (!it) return "";
       n++;
-      const cls = ["co", def.inline ? "front" : "", it.state || "", it.sel ? "sel" : ""].join(" ");
+      const cls = ["co", def.inline ? "front" : "", c.behind ? "behind" : "", it.state || "", it.sel ? "sel" : ""].join(" ");
       const left = c.side === "l";
       const lx = def.labelX[c.side], kx = def.keyX[c.side];
       const anchor = left ? "end" : "start";
@@ -62,8 +95,9 @@ export function stageSvg(def, items, { kind = "back", label = "" } = {}) {
         : `<text class="name" x="${lx}" y="${c.y - 6}" text-anchor="${anchor}">${esc(it.name)}</text>
            <text class="val" x="${lx}" y="${c.y + 13}" text-anchor="${anchor}">${esc(it.value)}</text>`;
       const hitX = left ? 0 : kx - 12, hitW = left ? kx + 12 : 900 - (kx - 12);
-      return `<g class="${cls}" data-pick="${c.id}" tabindex="0" role="button" aria-label="${esc(`${it.name}: ${it.value}`)}">
-        <rect class="hit" x="${hitX}" y="${c.y - 22}" width="${hitW}" height="44"/>
+      const hitH = def.rowH ?? 44;
+      return `<g class="${cls}" data-pick="${c.id}" tabindex="0" role="button" aria-label="${esc(`${it.name}: ${it.value}${c.behind ? " · อยู่ด้านหลัง มองไม่เห็นจากด้านหน้า" : ""}`)}">
+        <rect class="hit" x="${hitX}" y="${c.y - hitH / 2}" width="${hitW}" height="${hitH}"/>
         <path class="line" d="${c.d}"/>
         <circle class="ring" cx="${c.pt[0]}" cy="${c.pt[1]}" r="11"/>
         <circle class="pt" cx="${c.pt[0]}" cy="${c.pt[1]}" r="${it.sel ? 4.5 : 3.5}"/>

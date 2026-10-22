@@ -1,7 +1,7 @@
 // Screen renderers for the v2 "Manual" design. Each returns an HTML string; app.js wires events
 // through data-* attributes (data-act, data-key, data-pick, data-live).
 
-import { BACK, FRONT, stageSvg, inset, TRIG_MARK, PHOTO, LED_PATH } from "./stage.js";
+import { BACK, FRONT, ALL, stageSvg, inset, TRIG_MARK, PHOTO, LED_PATH } from "./stage.js";
 import {
   esc, pct, same, btnName, PRESS, GYRO_MODE, LED_MODE, LAYER_NAME, PRESET, TPRESET, GPRESET, AXIS, MACRO_MODE, TIMEOUT,
   labelTarget, macroName, baseTarget, isIdentity, evalCurve, macroLayers, macroKey, macroSteps, boundSources,
@@ -256,6 +256,8 @@ function frontFigure(S, D, { screen, screenSub, led = null, ledLabel = "ไฟ R
 
 export const BACK_SRC = { RB: "RB", RT: "RT (active)", M1: "M1", M3: "M3", LB: "LB", LT: "LT (active)", M2: "M2", M4: "M4", RM: "M6", LM: "M5" };
 export const FRONT_SRC = { Back: "Back", Start: "Start", LS: "LS", RS: "RS", Y: "Y", X: "X", B: "B", A: "A", DPAD: "D-pad ↑" };
+// Buttons tab: callout id → source, front and back together.
+export const ALL_SRC = { ...BACK_SRC, ...FRONT_SRC };
 const BTN_TITLE = {
   M1: "ปุ่มหลัง มือขวา · บน", M3: "ปุ่มหลัง มือขวา · ล่าง", M2: "ปุ่มหลัง มือซ้าย · บน", M4: "ปุ่มหลัง มือซ้าย · ล่าง",
   LB: "ไหล่ซ้าย", RB: "ไหล่ขวา", "LT (active)": "ไกซ้าย · ส่งเป็นปุ่ม", "RT (active)": "ไกขวา · ส่งเป็นปุ่ม",
@@ -263,7 +265,6 @@ const BTN_TITLE = {
   A: "ปุ่ม A", B: "ปุ่ม B", X: "ปุ่ม X", Y: "ปุ่ม Y", Back: "ปุ่ม View", Start: "ปุ่ม Menu", LS: "กด stick ซ้าย", RS: "กด stick ขวา",
   "D-pad ↑": "D-pad ขึ้น", "D-pad ↓": "D-pad ลง", "D-pad ←": "D-pad ซ้าย", "D-pad →": "D-pad ขวา",
 };
-const BACK_IDS = new Set(["M1", "M2", "M3", "M4", "M5", "M6", "LB", "RB", "LT (active)", "RT (active)"]);
 
 function mapKey(layer, src, press) {
   return `map.${layer}.${src}.${press}`;
@@ -284,11 +285,9 @@ export function buttons(S, D) {
   const cfg = S.current.cfg;
   const ui = S.ui;
   const layer = ui.layer;
-  const side = ui.side;
-  const def = side === "back" ? BACK : FRONT;
-  const srcMap = side === "back" ? BACK_SRC : FRONT_SRC;
+  const def = ALL;
   const items = {};
-  for (const [id, src0] of Object.entries(srcMap)) {
+  for (const [id, src0] of Object.entries(ALL_SRC)) {
     const src = id === "DPAD" ? ui.dpad : src0;
     const name = id === "DPAD" ? "D-pad" : btnName(id === "Back" ? "Back" : id === "Start" ? "Start" : id);
     if (!src) {
@@ -296,8 +295,7 @@ export function buttons(S, D) {
       continue;
     }
     const st = buttonState(S, D, layer, src);
-    const pendName = st.pend ? `${name} · แก้แล้ว` : name;
-    items[id] = { name: def.inline ? name : pendName, value: st.value, state: st.pend ? "pend" : st.changed ? "set" : "", sel: ui.sel === src || (id === "DPAD" && ui.sel?.startsWith("D-pad")) };
+    items[id] = { name, value: st.value, state: st.pend ? "pend" : st.changed ? "set" : "", sel: ui.sel === src || (id === "DPAD" && ui.sel?.startsWith("D-pad")) };
   }
   const list = layerList(S, D);
   const layers = list
@@ -311,15 +309,14 @@ export function buttons(S, D) {
     ? `<button class="link" style="font-size:13px;white-space:nowrap" data-act="layer-new">+ เพิ่ม layer</button>`
     : `<span class="meta faint" style="white-space:nowrap">ครบ ${list.length} layer แล้ว</span>`;
   const right = `<div style="display:grid;justify-items:end;gap:10px;padding-top:6px">
-      <div class="seg"><button class="${side === "front" ? "on" : ""}" data-act="side" data-side="front">ด้านหน้า</button><button class="${side === "back" ? "on" : ""}" data-act="side" data-side="back">ด้านหลัง</button></div>
       <div style="display:flex;gap:16px;align-items:center">${layers}${add}</div>
     </div>`;
-  const sub = side === "back" ? "คลิกปุ่มบนตัวจอย หรือชื่อปลายเส้นชี้ · มองจากด้านหลัง ซ้ายของภาพคือมือขวา" : "คลิกปุ่มบนตัวจอย หรือชื่อปลายเส้นชี้ · มองจากด้านหน้า";
+  const sub = "คลิกปุ่มบนตัวจอย หรือชื่อปลายเส้นชี้ · เส้นประ = ปุ่มด้านหลังและไก ซ่อนอยู่หลังตัวจอย";
   return `<div class="split">
     <div>
       <div class="page-head" style="margin-bottom:8px"><div><h1>Buttons</h1><p class="sub">${sub}</p></div>${right}</div>
       ${layerBar(S, D, list)}
-      ${stageSvg(def, items, { kind: side })}
+      ${stageSvg(def, items, { kind: "front" })}
       ${changedList(S, D)}
     </div>
     <div>${buttonEditor(S, D)}${timing(S, D)}</div>
@@ -373,11 +370,10 @@ function changedList(S, D) {
   const list = [...set.values()]
     .map(({ layer, src }) => {
       const st = buttonState(S, D, layer, src);
-      const where = BACK_IDS.has(src) !== (S.ui.side === "back") ? (BACK_IDS.has(src) ? "ดูที่ด้านหลัง" : "ดูที่ด้านหน้า") : "";
-      const lay = layer ? ` · ${LAYER_NAME(layer)}` : "";
+      const lay = layer ? LAYER_NAME(layer) : "";
       return `<button class="list-row" style="border:0;background:none;padding:0;text-align:left;width:260px;gap:12px" data-act="pick-src" data-src="${esc(src)}" data-layer="${layer}">
         <span class="keytag${st.pend ? " pending" : ""}${st.pend && S.ui.sel === src ? " fill" : ""}">${esc(btnName(src))}</span>
-        <span><span style="display:block;font-weight:700" class="${st.pend ? "pending" : ""}">${esc(st.value)}</span>${where || lay ? `<span class="small muted">${where}${lay}</span>` : ""}</span>
+        <span><span style="display:block;font-weight:700" class="${st.pend ? "pending" : ""}">${esc(st.value)}</span>${lay ? `<span class="small muted">${lay}</span>` : ""}</span>
       </button>`;
     })
     .join("");
