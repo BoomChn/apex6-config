@@ -600,12 +600,12 @@ export function sticks(S, D) {
 
 // v: what the controller sends out (after its own curve), x/y in -1..1, y positive down.
 // Like joy.cpl: the square is the full range, so a stick that reaches 100% touches its edge.
-export function liveStick(v) {
+export function liveStick(v, idle = "ขยับ stick บนจอยเพื่อดูค่า") {
   const R = 100;
   const frame = `<rect x="-100" y="-100" width="200" height="200" fill="none" stroke="#111"/><path d="M-100 0H100M0 -100V100" stroke="#E2E2E2"/>`;
   if (!v) {
     return `<svg width="200" height="200" viewBox="-102 -102 204 204" aria-hidden="true">${frame}</svg>
-      <div class="readout muted" style="font-size:16px">ขยับ stick บนจอยเพื่อดูค่า</div>`;
+      <div class="readout muted" style="font-size:16px;text-align:center">${idle}</div>`;
   }
   const { x, y } = v;
   const mag = Math.min(1, Math.hypot(x, y));
@@ -894,7 +894,6 @@ export function gyro(S, D) {
   const sel = (key, opts) => `<select class="field${D.has(key) ? " pending" : ""}" data-key="${key}" style="height:56px;font-size:16px">${Object.entries(opts).map(([v, l]) => `<option value="${v}" ${D.get(key) === v ? "selected" : ""}>${l}</option>`).join("")}</select>`;
   const anyUnsup = ["gyro.sens", "gyro.preset", "gyro.axisX", "gyro.axisY"].some((k) => D.has(k));
   const ink = pm ? "#2140D9" : "#111";
-  const act = g.activation[0];
   return `${head("Gyro", `เอียงจอยเพื่อเล็ง · ${g.mode === "disable" ? "เดิมปิดอยู่ใน slot นี้" : `ค่าบนจอย: ${GYRO_MODE[g.mode]}`}`)}
   <div class="split wide-right">
     <div>
@@ -905,14 +904,18 @@ export function gyro(S, D) {
         <path d="M200 1010 l-6 -34 M200 1010 l32 -12 M1400 1010 l6 -34 M1400 1010 l-32 -12" stroke="${ink}" stroke-width="3.5" fill="none"/>
         <path d="M1500 420 C 1560 560, 1560 900, 1500 1060" stroke="${ink}" stroke-width="3.5" fill="none"/>
         <path d="M1500 420 l-30 14 M1500 420 l2 34 M1500 1060 l-30 -14 M1500 1060 l2 -34" stroke="${ink}" stroke-width="3.5" fill="none"/>
-        <text x="800" y="1185" text-anchor="middle" fill="${ink}" style="font:700 30px var(--sans)">หมุนซ้าย–ขวา (Z) → เล็งซ้าย–ขวา</text>
-        <text x="1500" y="395" text-anchor="end" fill="${ink}" style="font:700 30px var(--sans)">ก้ม–เงย (X) → เล็งบน–ล่าง</text>
+        <text x="800" y="1185" text-anchor="middle" fill="${ink}" style="font:700 30px var(--sans)">หมุนแบบพวงมาลัย (X) → เล็งซ้าย–ขวา</text>
+        <text x="1500" y="395" text-anchor="end" fill="${ink}" style="font:700 30px var(--sans)">ก้ม–เงย (Y) → เล็งบน–ล่าง</text>
       </svg></div>
-      <section style="margin-top:28px;display:flex;gap:28px;align-items:center;border-top:1px solid var(--ink-2);padding-top:24px">
-        <svg width="120" height="120" viewBox="-62 -62 124 124" aria-hidden="true"><circle r="60" fill="none" stroke="#111"/><path d="M-60 0H60M0 -60V60" stroke="#E2E2E2"/><path d="M0 0 C 10 -4, 18 -14, 24 -24" stroke="#2140D9" stroke-width="2" fill="none"/><circle cx="24" cy="-24" r="8" fill="#2140D9"/><circle r="4" fill="#111"/></svg>
-        <div><b style="font-size:18px">${mode === "disable" ? "gyro ปิดอยู่" : `${act ? `${act.activation === "hold" ? "กดค้าง" : "กดสลับ"} ${esc(btnName(act.button))} แล้ว` : ""}เอียงจอย`}</b>
-          <p class="muted" style="margin:4px 0 0">${mode === "disable" ? "เลือกหน้าที่ด้านขวาเพื่อเปิด" : `จุดน้ำเงินคือ ${esc(GYRO_MODE[mode])} ที่ gyro สร้างขึ้น`}</p>
-          <p class="meta" style="margin:2px 0 0">ความหมายของแกนยังไม่ยืนยันกับจอยจริง · ดูค่าสดยังไม่ได้เพราะ Gamepad API ไม่ส่งค่า gyro</p></div>
+      <section style="margin-top:28px;border-top:1px solid var(--ink-2);padding-top:24px">
+        <div class="rule-head"><h2>ผลบนจอยตอนนี้</h2><span class="meta">ตามค่าที่เขียนอยู่บนจอย${pm ? " · ที่แก้ไว้ยังไม่ได้เขียน" : ""}</span></div>
+        ${gyroOut(g)}
+        <div data-live="keys" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;min-height:48px;padding-top:8px">${liveKeys(null)}</div>
+      </section>
+      <section style="margin-top:28px;border-top:1px solid var(--ink-2);padding-top:24px">
+        <div class="rule-head"><h2>ค่าเซนเซอร์สด</h2><span class="meta">อ่านจากจอยโดยตรง ไม่ขึ้นกับการตั้งค่า</span></div>
+        <div data-live="turn" style="display:flex;gap:28px;align-items:center;margin:16px 0 24px">${liveTurn(null)}</div>
+        <div data-live="imu">${liveImu(null)}</div>
       </section>
     </div>
     <div>
@@ -935,6 +938,66 @@ export function gyro(S, D) {
       </div>
     </div>
   </div>`;
+}
+
+// What the gyro drives with the mode on the controller now (not a pending edit), read from the
+// XInput pad because 0xEF has the physical sticks only.
+function gyroOut(g) {
+  const act = g.activation[0];
+  const when = act ? `${act.activation === "hold" ? "กดค้าง" : "กดสลับ"} ${esc(btnName(act.button))} แล้ว` : "";
+  if (g.mode === "disable") return `<p class="muted" style="margin:12px 0 0">gyro ปิดอยู่บนจอย · เลือกหน้าที่ด้านขวา แล้วเขียนลงจอยก่อน จึงจะเห็นผลตรงนี้</p>`;
+  if (g.mode === "mouse") return `<p style="margin:12px 0 0"><b>${when}เอียงจอย แล้วดูว่าเคอร์เซอร์บนจอขยับตาม</b></p>`;
+  return `<div data-live="gyro-out" style="margin-top:12px">${gyroStick(g, null)}</div>`;
+}
+
+// The stick the gyro drives, as Windows sees it (v from the standard-mapping pad), or null when
+// Chrome lists no such pad. On the owner's PC Chrome lists none, so joy.cpl is the way to look.
+export function gyroStick(g, v) {
+  const act = g.activation[0];
+  const when = act ? `${act.activation === "hold" ? "กดค้าง" : "กดสลับ"} ${esc(btnName(act.button))} แล้ว` : "";
+  const axes = g.mode === "left_joystick" ? "X Axis / Y Axis (เครื่องหมาย +)" : "X Rotation / Y Rotation";
+  if (!v) return `<p style="margin:0"><b style="font-size:18px">${when}เอียงจอย แล้วดูใน joy.cpl</b></p>
+    <p class="muted" style="margin:4px 0 0">Win+R → joy.cpl → เลือกจอย → Properties · ${esc(GYRO_MODE[g.mode])} คือแกน ${axes}</p>
+    <p class="meta" style="margin:4px 0 0">แอปแสดงตำแหน่งสติ๊กที่ gyro ขยับให้ไม่ได้ เพราะ Chrome ในเครื่องนี้มองไม่เห็นจอยแบบเกมแพด และค่าที่อ่านจากจอยโดยตรงมีแค่สติ๊กที่นิ้วโยก</p>`;
+  return `<div style="display:flex;gap:28px;align-items:center">
+    <div class="live" style="flex:none;padding-top:0">${liveStick(v)}</div>
+    <div><b style="font-size:18px">${when}เอียงจอย</b>
+      <p class="muted" style="margin:4px 0 0">จุดคือ ${esc(GYRO_MODE[g.mode])} ที่ Windows เห็น รวมส่วนที่ gyro ขยับให้แล้ว</p></div>
+  </div>`;
+}
+
+// How fast the controller is turning now, from the gyro: yaw (channel 1) across, pitch (channel 2)
+// up and down. Signs not checked yet. Full scale is a brisk turn.
+export function liveTurn(imu) {
+  const frame = `<rect x="-100" y="-100" width="200" height="200" fill="none" stroke="#111"/><path d="M-100 0H100M0 -100V100" stroke="#E2E2E2"/>`;
+  const FULL = 6000;
+  const clamp = (v) => Math.max(-1, Math.min(1, v));
+  const x = imu ? clamp(imu[0] / FULL) : 0, y = imu ? clamp(imu[1] / FULL) : 0;
+  const still = Math.hypot(x, y) < 0.03;
+  return `<svg width="200" height="200" viewBox="-102 -102 204 204" style="flex:none" aria-hidden="true">${frame}${imu ? `<circle cx="${Math.round(x * 100)}" cy="${Math.round(y * 100)}" r="7" fill="#2140D9"/>` : ""}</svg>
+    <div><b style="font-size:18px">${!imu ? "ยังไม่ได้รับค่าจากจอย" : still ? "จอยนิ่ง" : "กำลังหมุน"}</b>
+      <p class="muted" style="margin:4px 0 0">จุดน้ำเงินคือการหมุนจอยตอนนี้ · ซ้าย–ขวา = หมุนแบบพวงมาลัย · บน–ล่าง = ก้ม–เงย</p>
+      <p class="meta" style="margin:4px 0 0">อ่านจาก gyro โดยตรง ทำงานแม้ไม่ได้กดปุ่มเปิด gyro · หมุนจอยค้างไว้ จุดค้าง หยุดหมุน จุดกลับกลาง</p></div>`;
+}
+
+const IMU_NAME = ["หมุนแบบพวงมาลัย", "ก้ม–เงย", "เอียงซ้าย–ขวา", "ความเอียง 1", "ความเอียง 2", "ความเอียง 3"];
+
+// v: { imu: six i16 from 0xEF bytes 17..28, tail: bytes 29/30, move: how much each moves now,
+// peak: largest |value| seen } or null before the first frame.
+export function liveImu(v) {
+  if (!v) return `<p class="muted" style="margin:0">ยังไม่ได้รับค่าจากจอย</p>`;
+  const top = v.move.indexOf(Math.max(...v.move));
+  const rows = v.imu.map((x, i) => {
+    const on = i === top && v.move[i] > 30;
+    const w = (Math.abs(x) / v.peak[i]) * 50;
+    const color = on ? "#2140D9" : "#111";
+    return `<div style="display:grid;grid-template-columns:200px 1fr 90px;gap:16px;align-items:center;height:32px${on ? ";color:#2140D9;font-weight:700" : ""}">
+      <span>${IMU_NAME[i]} <span class="meta">ไบต์ ${17 + i * 2}</span></span>
+      <div style="position:relative;height:14px;border:1px solid #111"><div style="position:absolute;top:0;bottom:0;left:50%;border-left:1px solid #BDBDBD"></div>
+        <div style="position:absolute;top:0;bottom:0;${x < 0 ? `right:50%` : `left:50%`};width:${w}%;background:${color}"></div></div>
+      <span class="mono" style="text-align:right">${x}</span></div>`;
+  });
+  return `${rows.join("")}<p class="meta mono" style="margin:10px 0 0">ไบต์ 29–30: ${v.tail.map((b) => b.toString(16).padStart(2, "0").toUpperCase()).join(" ")}</p>`;
 }
 
 // ---------------- 07 Lighting & screen ----------------

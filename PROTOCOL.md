@@ -35,7 +35,7 @@ Replies are zero-padded, so find the end by scanning for a valid checksum.
 | 0xA7 | apply/commit config | `[1, cfgId]`. Not sent by the official client after a write (debug only); a COMMIT takes effect on its own. |
 | 0xAC / 0xAD | LCD settings get / set | |
 | 0xAF | ? per cfgId | |
-| 0xEF | (input) live stick stream | 32-byte frame: `5A A5 EF`, LX LY RX RY i16le, buttons u32le (bit order unknown), LT u8 at byte 15, RT u8 at byte 16 (0 released, 0xFF full; physical travel before the trigger curve: half press reads 0x80 even with the end point at 128; found on hardware 2026-10-22, the official site ignores them), bytes 17..30 unknown, sum8 of bytes 2..30 at byte 31. The official site turns it on with 0x11 dinput=1 (others 0xFF) and off with dinput=0. |
+| 0xEF | (input) live stick stream | 32-byte frame: `5A A5 EF`, LX LY RX RY i16le, buttons u32le (bit order unknown), LT u8 at byte 15, RT u8 at byte 16 (0 released, 0xFF full; physical travel before the trigger curve: half press reads 0x80 even with the end point at 128; found on hardware 2026-10-22, the official site ignores them), bytes 17..30 unknown, sum8 of bytes 2..30 at byte 31. The sticks here are the physical sticks only: with gyro → right stick, tilting moved Rx/Ry in joy.cpl but not RX/RY here (hardware, 2026-10-22). The gyro's effect shows on the XInput pad (joy.cpl), but Chrome's Gamepad API lists no pad at all on the owner's PC (2026-10-22), so the app cannot show it. Bytes 17..28 are six i16le. 17–18 yaw rate (steering-wheel turn), 19–20 pitch rate, 21–22 roll rate: each motion put 67–87% of its 3 s total on its channel (hardware, 2026-10-22). Rates sit near 0 at rest; signs not checked. 23–28 look like the accelerometer: 27–28 reads ≈4600 lying flat, and the reading moves to 25–26 when tilted. The official site turns it on with 0x11 dinput=1 (others 0xFF) and off with dinput=0. |
 
 Key events: 0x20 `"ENABLE_KEY_EVENT"` / `"DISABLE_KEY_EVENT"`. The controller then sends 0x21 lines such as `KEY_DOWN GP_A` and `KEY_UP GP_A`. Other lines: `SLOT_CHANGED n`, `CAL_BEGIN`, `CAL_END`, `STICK_L_READY`, `TRIG_L_READY`, `MACRO_REC_START`, `PAIR_CLEARED`. Key names in the official table: DPAD_UP/RIGHT/DOWN/LEFT, A, B, X, Y, SELECT, START, LB, RB, LT, RT, THL, THR, C, Z, M1–M6, MENU, MODE, BACK, HOME, KEYW/A/S/D. The names LM/RM report are not yet known.
 | 0xFE | ? | value u8 → u8 |
@@ -66,6 +66,9 @@ TLV until (0xFF,0x00):
   1/2 stick (12B: curve11 + flags invX|invY|round)
   3/4 trigger (curve11)
   5 gyro (24B: curve11, flags, mode, 4×(activation, btn), axis_x, axis_y, mouse_radius)
+    axis values 0 none, 1 imu_x, 2 imu_y, 3 imu_z. imu_x = yaw (steering-wheel turn), imu_y = pitch: with axis_x=imu_x, axis_y=imu_y
+    and gyro → right stick, yaw moved only Rx and pitch only Ry in joy.cpl (hardware, 2026-10-22). Roll moved both, so the
+    firmware may mix roll in; imu_z = roll is inferred, not tested. Same order as the 0xEF rate channels.
   6/7 trigger vibration (12B: pad + curve11), 8/9 motor (12B: enabled + curve11)
   0x20 metadata (v1.9): u8 nameLen name u8 n, n × (layer, macro, len, name)
 curve11 = start_x start_y end_x end_y mid_count (x,y)×2 pad2   (0..255 scale)

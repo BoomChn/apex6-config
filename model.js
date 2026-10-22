@@ -281,7 +281,8 @@ export function meta(key, S) {
 export const PRESET = { linear: "Linear", precise: "เล็งละเอียด", fast: "ไวทันที", custom: "กำหนดเอง" };
 export const TPRESET = { linear: "Linear", hair: "Hair trigger", short: "ไกสั้น", custom: "กำหนดเอง" };
 export const GPRESET = { linear: "Linear", steady: "นิ่งตอนขยับน้อย", custom: "แก้ curve เอง" };
-export const AXIS = { none: "ไม่ใช้", imu_x: "ก้ม–เงย (X)", imu_y: "เอียงซ้าย–ขวา (Y)", imu_z: "หมุนแนวนอน (Z)" };
+export const AXIS = { none: "ไม่ใช้", imu_x: "หมุนแบบพวงมาลัย (X)", imu_y: "ก้ม–เงย (Y)", imu_z: "เอียงซ้าย–ขวา (Z)" };
+// imu_x = yaw and imu_y = pitch were checked in joy.cpl (2026-10-22); imu_z = roll is the one left over.
 export const MACRO_MODE = { press_once: "กดครั้งเดียว เล่นจบ", press_loop_immediate: "วนทันทีขณะกด", press_loop_wait: "วน · รอระหว่างรอบ", press_hold: "ค้างตามที่กด" };
 export const TIMEOUT = { 30: "30 วิ", 60: "1 นาที", 300: "5 นาที", 0: "ไม่ปิด" };
 

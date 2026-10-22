@@ -992,18 +992,34 @@ window.addEventListener("beforeunload", (e) => {
 });
 
 // ---------------- Live input ----------------
-// On Sticks and Triggers, the app asks the controller itself for its stick stream (0xEF) and key
+// On Sticks, Triggers and Gyro, the app asks the controller itself for its stick stream (0xEF) and key
 // events (0x21), so testing works even when the browser does not see a gamepad. Elsewhere it
 // falls back to the Gamepad API.
 
-const LIVE = { on: false, stop: null, stick: null, keys: new Set() };
+const LIVE = { on: false, stop: null, stick: null, keys: new Set(), imu: null };
+
+// Gyro page: 0xEF bytes 17..28 as six i16. 1–3 are rotation rates (1 yaw, 2 pitch, 3 roll, found on
+// hardware), 4–6 look like the accelerometer. move: smoothed size of each frame-to-frame change;
+// peak: largest |value| seen, for the bar scale.
+function trackImu(imu) {
+  const t = (LIVE.imu ??= { last: imu, move: imu.map(() => 0), peak: imu.map(() => 1000) });
+  imu.forEach((x, i) => {
+    t.move[i] = t.move[i] * 0.85 + Math.abs(x - t.last[i]) * 0.15;
+    t.peak[i] = Math.max(t.peak[i], Math.abs(x));
+  });
+  t.last = imu;
+}
 
 async function startLive() {
   const pad = S.pad;
   LIVE.on = true;
   LIVE.stick = null;
   LIVE.keys.clear();
-  const offStick = pad.onStick((s) => (LIVE.stick = s));
+  LIVE.imu = null;
+  const offStick = pad.onStick((s) => {
+    LIVE.stick = s;
+    trackImu(s.imu);
+  });
   const offEvent = pad.onEvent((text) => {
     const [type, name = ""] = text.split(/\s+/);
     const key = name.replace(/^GP_/, "");
@@ -1029,8 +1045,9 @@ async function stopLive() {
   await stop?.();
 }
 
+const LIVE_TABS = new Set(["sticks", "triggers", "gyro"]);
 function syncLive() {
-  const want = !!(S.pad && S.current && (S.tab === "sticks" || S.tab === "triggers") && !S.writing && !document.hidden);
+  const want = !!(S.pad && S.current && LIVE_TABS.has(S.tab) && !S.writing && !document.hidden);
   if (want !== LIVE.on) (want ? startLive : stopLive)();
 }
 document.addEventListener("visibilitychange", syncLive);
@@ -1045,7 +1062,21 @@ function setLive(sel, html) {
 }
 
 function tick() {
-  if (S.current && (S.tab === "sticks" || S.tab === "triggers")) {
+  if (S.current && S.tab === "gyro") {
+    const st = LIVE.stick;
+    const mode = S.current.cfg.gyroscope?.mode;
+    setLive(`[data-live="turn"]`, V.liveTurn(st && st.imu));
+    setLive(`[data-live="imu"]`, V.liveImu(st && LIVE.imu && { imu: st.imu, tail: st.tail, move: LIVE.imu.move, peak: LIVE.imu.peak }));
+    // What the gyro drives. 0xEF carries the physical sticks only (found on hardware), so this reads
+    // the XInput pad Windows sees, where the gyro's part is mixed in. Standard mapping: axes 0/1 left, 2/3 right.
+    if (mode === "left_joystick" || mode === "right_joystick") {
+      const gp = Array.from(navigator.getGamepads?.() ?? []).find((g) => g?.mapping === "standard");
+      const ax = mode === "left_joystick" ? 0 : 2;
+      const v = gp && { x: Number((gp.axes[ax] ?? 0).toFixed(2)), y: Number((gp.axes[ax + 1] ?? 0).toFixed(2)) };
+      setLive(`[data-live="gyro-out"]`, V.gyroStick(S.current.cfg.gyroscope, v));
+    }
+    setLive(`[data-live="keys"]`, V.liveKeys(LIVE.on ? [...LIVE.keys] : null));
+  } else if (S.current && (S.tab === "sticks" || S.tab === "triggers")) {
     const gp = Array.from(navigator.getGamepads?.() ?? []).find(Boolean);
     const st = LIVE.stick;
     const cfg = S.current.cfg;
