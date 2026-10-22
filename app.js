@@ -629,6 +629,9 @@ const ACTIONS = {
     setDraft(el.dataset.key, v);
     render();
   },
+  "aim-center": () => {
+    AIM.x = AIM.y = 0;
+  },
   "copy-side": (el) => {
     const { from, to } = el.dataset;
     const fields = from.startsWith("stick") ? ["deadzone", "max", "invertX", "invertY", "round", "preset"] : ["start", "end", "preset"];
@@ -1010,20 +1013,62 @@ function trackImu(imu) {
   t.last = imu;
 }
 
+// Gyro page aim dot: the turn added up while the gyro is on, so it moves and stays like a
+// crosshair. Rates assumed ±2000 °/s full scale (16.4 per °/s); a 30° turn reaches the edge.
+// Small rates are dropped so the resting offset (≈5) does not creep.
+const AIM = { x: 0, y: 0, t: 0, toggled: new Set() };
+const AIM_LSB = 16.4, AIM_DEG = 30, AIM_DEAD = 40;
+// Profile button → name in the controller's key events. LM/RM names are not known yet.
+const KEY_EVENT = {
+  A: "A", B: "B", X: "X", Y: "Y", LB: "LB", RB: "RB", Back: "SELECT", Start: "START", LS: "THL", RS: "THR",
+  "D-pad ↑": "DPAD_UP", "D-pad ↓": "DPAD_DOWN", "D-pad ←": "DPAD_LEFT", "D-pad →": "DPAD_RIGHT",
+  C: "C", Z: "Z", M1: "M1", M2: "M2", M3: "M3", M4: "M4", "LT (active)": "LT", "RT (active)": "RT",
+};
+
+// Whether the gyro would be on now: no activation buttons = always; otherwise any hold button
+// held or toggle button switched on. A button whose event name is unknown counts as on.
+function gyroOn() {
+  const acts = S.current?.cfg.gyroscope?.activation ?? [];
+  if (!acts.length) return true;
+  return acts.some((a) => {
+    const k = KEY_EVENT[a.button];
+    if (!k) return true;
+    return a.activation === "hold" ? LIVE.keys.has(k) : AIM.toggled.has(k);
+  });
+}
+
+function trackAim(imu) {
+  const now = performance.now();
+  const dt = AIM.t ? Math.min(0.1, (now - AIM.t) / 1000) : 0;
+  AIM.t = now;
+  if (!gyroOn()) return;
+  const step = (r) => (Math.abs(r) < AIM_DEAD ? 0 : (r / AIM_LSB) * dt / AIM_DEG);
+  const clamp = (v) => Math.max(-1, Math.min(1, v));
+  // Yaw right is positive; pitch up is positive, and the SVG is positive down (found on hardware).
+  AIM.x = clamp(AIM.x + step(imu[0]));
+  AIM.y = clamp(AIM.y - step(imu[1]));
+}
+
 async function startLive() {
   const pad = S.pad;
   LIVE.on = true;
   LIVE.stick = null;
   LIVE.keys.clear();
   LIVE.imu = null;
+  Object.assign(AIM, { x: 0, y: 0, t: 0 });
+  AIM.toggled.clear();
   const offStick = pad.onStick((s) => {
     LIVE.stick = s;
     trackImu(s.imu);
+    trackAim(s.imu);
   });
   const offEvent = pad.onEvent((text) => {
     const [type, name = ""] = text.split(/\s+/);
     const key = name.replace(/^GP_/, "");
-    if (type === "KEY_DOWN") LIVE.keys.add(key);
+    if (type === "KEY_DOWN") {
+      if (!LIVE.keys.has(key)) AIM.toggled.has(key) ? AIM.toggled.delete(key) : AIM.toggled.add(key);
+      LIVE.keys.add(key);
+    }
     else if (type === "KEY_UP") LIVE.keys.delete(key);
   });
   LIVE.stop = async () => {
@@ -1065,7 +1110,7 @@ function tick() {
   if (S.current && S.tab === "gyro") {
     const st = LIVE.stick;
     const mode = S.current.cfg.gyroscope?.mode;
-    setLive(`[data-live="turn"]`, V.liveTurn(st && st.imu));
+    setLive(`[data-live="turn"]`, V.liveAim(S.current.cfg.gyroscope, st && { x: AIM.x, y: AIM.y, on: gyroOn() }));
     setLive(`[data-live="imu"]`, V.liveImu(st && LIVE.imu && { imu: st.imu, tail: st.tail, move: LIVE.imu.move, peak: LIVE.imu.peak }));
     // What the gyro drives. 0xEF carries the physical sticks only (found on hardware), so this reads
     // the XInput pad Windows sees, where the gyro's part is mixed in. Standard mapping: axes 0/1 left, 2/3 right.

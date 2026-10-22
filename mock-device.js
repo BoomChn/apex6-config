@@ -36,7 +36,7 @@ export async function createMockDevice() {
   let pending = null;
   // Live input for Sticks and Triggers: with dinput on, stream 0xEF frames (left stick circles,
   // LT and RT ramp in turn);
-  // with key events on, press and release A every 2 s.
+  // with key events on, hold LB 1 s out of every 2 (the demo slot turns its gyro on with LB).
   let stream = null, keys = null;
   const emit = (f) => dev.listeners.forEach((l) => l({ data: new DataView(f.buffer) }));
   const stickFrame = (t) => {
@@ -99,7 +99,7 @@ export async function createMockDevice() {
         keys = null;
         if (text === "ENABLE_KEY_EVENT") {
           let down = false;
-          keys = setInterval(() => emit(event(`${(down = !down) ? "KEY_DOWN" : "KEY_UP"} GP_A`)), 1000);
+          keys = setInterval(() => emit(event(`${(down = !down) ? "KEY_DOWN" : "KEY_UP"} GP_LB`)), 1000);
         }
         r = reply(0x20, [1, 0], [0]);
       } else if (cmd === 0x01) {
