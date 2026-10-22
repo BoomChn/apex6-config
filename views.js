@@ -911,7 +911,6 @@ export function gyro(S, D) {
         <div class="rule-head"><h2>ผลบนจอยตอนนี้</h2><span class="meta">ตามค่าที่เขียนอยู่บนจอย${pm ? " · ที่แก้ไว้ยังไม่ได้เขียน" : ""}</span></div>
         ${gyroOut(g)}
         <div data-live="keys" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;min-height:48px;padding-top:8px">${liveKeys(null)}</div>
-        <div data-live="pads" style="margin-top:12px">${livePads([])}</div>
       </section>
       <section style="margin-top:28px;border-top:1px solid var(--ink-2);padding-top:24px">
         <div class="rule-head"><h2>ค่าเซนเซอร์สด</h2><span class="meta">อ่านจากจอยโดยตรง · ยังไม่รู้ว่าช่องไหนคือแกนไหน</span></div>
@@ -948,22 +947,23 @@ function gyroOut(g) {
   const when = act ? `${act.activation === "hold" ? "กดค้าง" : "กดสลับ"} ${esc(btnName(act.button))} แล้ว` : "";
   if (g.mode === "disable") return `<p class="muted" style="margin:12px 0 0">gyro ปิดอยู่บนจอย · เลือกหน้าที่ด้านขวา แล้วเขียนลงจอยก่อน จึงจะเห็นผลตรงนี้</p>`;
   if (g.mode === "mouse") return `<p style="margin:12px 0 0"><b>${when}เอียงจอย แล้วดูว่าเคอร์เซอร์บนจอขยับตาม</b></p>`;
-  return `<div style="display:flex;gap:28px;align-items:center;margin-top:12px">
-    <div class="live" style="flex:none;padding-top:0" data-live="gyro-out">${liveStick(null)}</div>
-    <div><b style="font-size:18px">${when}เอียงจอย</b>
-      <p class="muted" style="margin:4px 0 0">จุดคือ ${esc(GYRO_MODE[g.mode])} ที่ Windows เห็น รวมส่วนที่ gyro ขยับให้แล้ว</p>
-      <p class="meta" style="margin:4px 0 0">ใน joy.cpl ดูที่แกน X Rotation / Y Rotation สำหรับ Stick ขวา</p></div>
-  </div>`;
+  return `<div data-live="gyro-out" style="margin-top:12px">${gyroStick(g, null)}</div>`;
 }
 
-// Raw view of every gamepad the browser sees: name, mapping, and each axis value.
-export function livePads(pads) {
-  const head = `<b style="font-size:15px">จอยที่เบราว์เซอร์เห็น</b>`;
-  if (!pads.length) return `${head}<p class="meta" style="margin:4px 0 0">ยังไม่เห็นเลย · กดปุ่มบนจอยหนึ่งครั้ง</p>`;
-  return head + pads
-    .map((p) => `<div style="margin-top:6px"><div class="meta">${p.index + 1}. ${esc(p.id)} · ${p.mapping === "standard" ? "standard" : "ไม่ใช่ standard"}</div>
-      <div class="mono" style="font-size:13px">${p.axes.map((a, i) => `แกน ${i}: ${a.toFixed(2)}`).join(" · ") || "ไม่มีแกน"}</div></div>`)
-    .join("");
+// The stick the gyro drives, as Windows sees it (v from the standard-mapping pad), or null when
+// Chrome lists no such pad. On the owner's PC Chrome lists none, so joy.cpl is the way to look.
+export function gyroStick(g, v) {
+  const act = g.activation[0];
+  const when = act ? `${act.activation === "hold" ? "กดค้าง" : "กดสลับ"} ${esc(btnName(act.button))} แล้ว` : "";
+  const axes = g.mode === "left_joystick" ? "X Axis / Y Axis (เครื่องหมาย +)" : "X Rotation / Y Rotation";
+  if (!v) return `<p style="margin:0"><b style="font-size:18px">${when}เอียงจอย แล้วดูใน joy.cpl</b></p>
+    <p class="muted" style="margin:4px 0 0">Win+R → joy.cpl → เลือกจอย → Properties · ${esc(GYRO_MODE[g.mode])} คือแกน ${axes}</p>
+    <p class="meta" style="margin:4px 0 0">แอปแสดงตำแหน่งสติ๊กที่ gyro ขยับให้ไม่ได้ เพราะ Chrome ในเครื่องนี้มองไม่เห็นจอยแบบเกมแพด และค่าที่อ่านจากจอยโดยตรงมีแค่สติ๊กที่นิ้วโยก</p>`;
+  return `<div style="display:flex;gap:28px;align-items:center">
+    <div class="live" style="flex:none;padding-top:0">${liveStick(v)}</div>
+    <div><b style="font-size:18px">${when}เอียงจอย</b>
+      <p class="muted" style="margin:4px 0 0">จุดคือ ${esc(GYRO_MODE[g.mode])} ที่ Windows เห็น รวมส่วนที่ gyro ขยับให้แล้ว</p></div>
+  </div>`;
 }
 
 // v: { imu: six i16 from 0xEF bytes 17..28, tail: bytes 29/30, move: how much each moves now,
