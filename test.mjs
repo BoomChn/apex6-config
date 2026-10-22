@@ -869,3 +869,16 @@ console.log("slot status ok");
   assert.equal(S.seen.name("U", 2, crc), undefined, "per slot");
 }
 console.log("slot names ok");
+
+// 0xA2 on the owner's controller (2026-10-23): switching to slot 3 replied in the 0xA1 layout with
+// the new active slot, and the controller's light followed.
+{
+  const { parseSlotStatus } = await import("./protocol.js");
+  const f = new Uint8Array(63);
+  f.set([0x5a, 0xa5, 0xa2, 0x01, 0x00, 0x02, 0x10, 0x25, 0x61, 0x57, 0x10, 0x25, 0x81, 0x51, 0xb5, 0xd4]);
+  f[31] = 0x22;
+  const s = parseSlotStatus(parseReply(f).payload);
+  assert.equal(s.activeSlot, 2);
+  assert.deepEqual(s.slotCrc16, [0x2510, 0x5761, 0x2510, 0x5181], "slots 1 and 3 hold the default profile");
+}
+console.log("slot switch ok");

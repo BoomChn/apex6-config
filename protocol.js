@@ -305,7 +305,7 @@ export class Apex6 {
     return parseSlotStatus((await this.request(CMD.SLOT_STATUS)).payload);
   }
 
-  // 0xA2 <slot> makes a slot active; the reply has the 0xA1 layout. Not yet verified on hardware.
+  // 0xA2 <slot> makes a slot active; the reply has the 0xA1 layout. Verified on hardware 2026-10-23.
   async switchSlot(slot) {
     const s = parseSlotStatus((await this.request(CMD.SWITCH_SLOT, new Uint8Array([slot]))).payload);
     if (s.activeSlot !== slot) throw new Error(`จอยยังใช้ slot ${s.activeSlot + 1} อยู่ (ขอ slot ${slot + 1})`);

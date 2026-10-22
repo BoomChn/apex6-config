@@ -29,7 +29,7 @@ Replies are zero-padded, so find the end by scanning for a valid checksum.
 | 0x53 | set motor/haptic output (no reply used) | `[area, target, mode, params…]`. area 0; target 0 left, 1 right, 2 both; the official client reads RAM 0x06 before and after to confirm. Trigger-bound grip feedback on: mode 2, params `[0, 64, 6]`; off: mode 0, no params. Other modes are X-Haptics scenes (10 params). Source: VibrationSimpleWorkbench-*.js, TickRange-*.js (2026-10-22), not tried on hardware. |
 | 0xA0 | set device config field | fieldId, data… → status (0 ok, 1 ERR, 2 ERR_LEN, 3 ERR_UNKNOWN). Known field IDs: 0x01 0x14 0x17 0x19 0x20 0x21 0x22 0x25 0x26 |
 | 0xA1 | slot status | → activeSlot u8, 4× slot crc16, global crc16 |
-| 0xA2 | switch profile | cfgId → same layout as 0xA1 |
+| 0xA2 | switch profile | cfgId → same layout as 0xA1, with the new active slot. Verified on hardware 2026-10-23: the controller's light changes to the slot, and RAM 0x05 reads come from it. The official site sends the same `[cfgId]` and waits 100 ms. Right after it the controller also sends an unrequested `0x36` frame, `04 01 10 00 <slot> 00…` (meaning of the other bytes unknown). |
 | 0xA3 | RAM read (v2.1) | op 0 READ_CHUNK `[0, ramId, idx, size=16]` → `[0, status, ramId, activeSlot, totalLen u16, idx, size, data…]`; op 1 INFO `[1, ramId]` → status, ramId, slot, len u16, crc32 |
 | 0xA4 | RAM write (v2.1) | all LE. op 0 FULL_BEGIN `[0, ramId, len u16, crc32 u32]`; 1 CHUNK `[1, offset u16 (bytes), n, data…]` (client uses n=16, no ramId); 2 COMMIT `[2, len u16, crc32 u32]` (no ramId); 3 ABORT `[3]`; 0x10 DELTA_BEGIN, 0x11 DELTA_SPLICE. Reply `[op, status, ramId, …]`, matched on op + ramId; COMMIT reply adds activeSlot, len u16, crc32 u32 and counts as success when len+crc match. |
 | 0xA7 | apply/commit config | `[1, cfgId]`. Not sent by the official client after a write (debug only); a COMMIT takes effect on its own. |
@@ -46,7 +46,7 @@ Key events: 0x20 `"ENABLE_KEY_EVENT"` / `"DISABLE_KEY_EVENT"`. The controller th
 - `0x06` motor/haptic output, 64 bytes (official client, domain "motor"): byte 1 left mode, 2–11 left params, byte 12 right mode, 13–22 right params. Mode 2 on a side = trigger-bound grip feedback on. Written with 0x53, not 0xA4.
 - `0x04` is still unknown, probably lighting (magic `LGHT`). The official site's default lighting is 22 bytes wrapped: `16 00 26 AB 4C 47 48 54 02 00 04 00 00 00 35 01 04 19 33 00 50 00` (index-*.js `br`).
 - Default profile: the official site gives a new profile the 182-byte XMUL v1.8 in `defaults.js` (index-*.js `fr`, its `defaultConfig`). One layer, no maps or macros, gyro off (hold LB), sticks start 13, vibration motor curves with 2 mid points. It passes checkProfile unchanged. "Move to library" writes it, instead of 0xAF, to give a slot back its defaults.
-- v1.8 vs v1.9: the official codec writes version 9 whenever the profile has a name (TLV 0x20), else the version it read. Nothing else in the blob differs, so withNames turns a v1.8 profile into v1.9 when it adds a name.
+- v1.8 vs v1.9: the official codec writes version 9 whenever the profile has a name (TLV 0x20), else the version it read. Nothing else in the blob differs, so withNames turns a v1.8 profile into v1.9 when it adds a name. Confirmed on hardware 2026-10-23: slot 3, reset to this default by the app, then renamed and written, took the name.
 - Write CRC is CRC-32 (IEEE) over the whole wrapped buffer. 0xA3 INFO `[1, ramId]` returns the same len + crc32 for the current buffer.
 
 ## Verified on hardware (2026-10-21)

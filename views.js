@@ -210,7 +210,6 @@ export function profiles(S, D) {
     <div>
       <div class="rule-head" style="display:grid;grid-template-columns:112px 1fr auto"><span class="label">Slot</span><span class="label">ชื่อและสิ่งที่ตั้งไว้</span><span class="label">จัดการ</span></div>
       ${rows}
-      <p class="meta" style="margin-top:12px">สลับ slot ใช้คำสั่ง 0xA2 · ${UNTESTED} · แอปจะถามก่อนส่ง</p>
       ${renamePending ? `<p class="meta" style="margin-top:12px">${untested("profile.name")} · กดเขียนลงจอยเพื่อบันทึกชื่อ slot ที่ใช้อยู่</p>` : ""}
       ${profileLibrary(S, D, cfg, active)}
     </div>
@@ -259,7 +258,6 @@ function profileLibrary(S, D, cfg, active) {
   return `<section style="margin-top:56px">
     <div class="rule-head top" style="align-items:flex-end"><div><h2>คลัง profile</h2><span class="meta">เก็บในเบราว์เซอร์นี้ · ค่าทุกอย่างอยู่กับ profile slot เป็นแค่ช่องบนจอย · แก้ค่าใน slot แล้วเขียนลงจอย profile ใน slot นั้นจะอัปเดตตาม</span></div></div>
     ${rows || `<p class="empty-note">ยังไม่มี profile ในคลัง · กด ⋯ ที่แถว slot แล้วเลือก “ย้ายเข้าคลัง”</p>`}
-    <p class="meta" style="margin-top:12px">ใส่ลง slot อื่นต้องสลับ slot ด้วยคำสั่ง 0xA2 ก่อน · ${UNTESTED}</p>
   </section>`;
 }
 
