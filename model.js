@@ -1,8 +1,9 @@
 // Draft model: every edit is a key → value pair layered over what was read from the controller.
-// Keys in WRITABLE (mapping-edit.js) can be written; everything else stays a draft in this page
+// Keys editKey() maps to a writable field (mapping-edit.js) can be written; everything else stays a draft in this page
 // until the protocol for it is known, and the UI says so.
 
-import { WRITABLE } from "./mapping-edit.js";
+import { isWritable } from "./mapping-edit.js";
+import { fit } from "./names.js";
 import { targetLabel } from "./profile-view.js";
 
 export const pct = (v) => `${Math.round((v / 255) * 100)}%`;
@@ -33,7 +34,29 @@ export function labelTarget(t, cfg) {
 }
 
 export function macroName(cfg, layerId, macroId) {
-  return cfg?.macro_names?.find((n) => n.layerId === layerId && n.macroId === macroId)?.name || `Macro ${macroId + 1}`;
+  return cfg?.shown?.macros[`${layerId}.${macroId}`]?.name || deviceMacroName(cfg, layerId, macroId) || `Macro ${macroId + 1}`;
+}
+const deviceMacroName = (cfg, layerId, macroId) => cfg?.macro_names?.find((n) => n.layerId === layerId && n.macroId === macroId)?.name ?? "";
+
+// App-side id of a name draft key, for names.js: "slot.<i>" or "macro.<slot>.<layer>.<id>".
+export function nameId(key, S) {
+  const p = key.split(".");
+  if (p[0] === "slot") return `slot.${p[1]}`;
+  return `macro.${S.current?.slot}.${p[1]}.${p[2]}`;
+}
+
+// Picks the names to show for the loaded slot (see names.js) and hangs them on cfg as `shown`:
+// { profile: { name, other? }, macros: { "<layer>.<id>": { name, other? } } }.
+export function resolveNames(S) {
+  const cfg = S.current?.cfg;
+  if (!cfg || !S.names) return;
+  const slot = S.current.slot;
+  const macros = {};
+  for (const l of cfg.layers)
+    for (const m of l.macros)
+      macros[`${l.layer_id}.${m.macro_id}`] = S.names.resolve(S.uuid, `macro.${slot}.${l.layer_id}.${m.macro_id}`, deviceMacroName(cfg, l.layer_id, m.macro_id));
+  const shown = { profile: S.names.resolve(S.uuid, `slot.${slot}`, cfg.name ?? ""), macros };
+  Object.defineProperty(cfg, "shown", { value: shown, configurable: true });
 }
 
 // Activator target of a button for one press type, as read from the controller.
@@ -125,7 +148,8 @@ export function meta(key, S) {
   }
   if (a === "slot") {
     const i = Number(b);
-    const base = i === S.slots?.activeSlot ? cfg?.name || "" : undefined;
+    // The loaded slot shows what resolveNames() picked; other slots only have the app's name.
+    const base = cfg && i === S.current.slot ? cfg.shown?.profile.name ?? cfg.name ?? "" : S.names?.entry(S.uuid, `slot.${i}`)?.full;
     return { tab: "profiles", group: "slot", label: `Slot ${i + 1} · ชื่อ`, base, fmt: (v) => v || "ไม่มีชื่อ", slot: i };
   }
   if (a === "led") {
@@ -148,6 +172,15 @@ export const GPRESET = { linear: "Linear", steady: "นิ่งตอนขย�
 export const AXIS = { none: "ไม่ใช้", imu_x: "ก้ม–เงย (X)", imu_y: "เอียงซ้าย–ขวา (Y)", imu_z: "หมุนแนวนอน (Z)" };
 export const MACRO_MODE = { press_once: "กดครั้งเดียว เล่นจบ", press_loop_immediate: "วนทันทีขณะกด", press_loop_wait: "วน · รอระหว่างรอบ", press_hold: "ค้างตามที่กด" };
 export const TIMEOUT = { 30: "30 วิ", 60: "1 นาที", 300: "5 นาที", 0: "ไม่ปิด" };
+
+// Draft key → key applyEdits takes, or null while it can only stay a draft.
+// Only the loaded slot's name can be written: the other slots' blobs aren't in RAM 0x05.
+export function editKey(key, S) {
+  const k = key === `slot.${S.current?.slot}.name` ? "profile.name" : key;
+  if (!isWritable(k)) return null;
+  // Names need TLV 0x20, which only v1.9 profiles have.
+  return k.endsWith(".name") && S.current?.cfg.version !== "1.9" ? null : k;
+}
 
 export class Drafts {
   constructor(S) {
@@ -181,10 +214,16 @@ export class Drafts {
     return [...this.map.keys()].filter((k) => !tab || meta(k, this.S).tab === tab).length;
   }
   writable() {
-    return Object.fromEntries([...this.map].filter(([k]) => WRITABLE.has(k)));
+    // Names go to the controller cut to what it holds; the app keeps the full name (names.js).
+    return Object.fromEntries(
+      [...this.map].map(([k, v]) => [editKey(k, this.S), k.endsWith(".name") ? fit(v) : v]).filter(([k]) => k),
+    );
   }
   items() {
-    return [...this.map].map(([key, v]) => ({ key, value: v, writable: WRITABLE.has(key), ...meta(key, this.S) }));
+    return [...this.map].map(([key, v]) => {
+      const ek = editKey(key, this.S);
+      return { key, value: v, writable: !!ek, editKey: ek, ...meta(key, this.S) };
+    });
   }
 }
 

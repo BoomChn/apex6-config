@@ -84,7 +84,17 @@ function range(v, lo, hi) {
   return Number.isInteger(v) && v >= lo && v <= hi ? null : `ต้องอยู่ระหว่าง ${lo}–${hi} (ได้ ${v})`;
 }
 
-export const WRITABLE = new Set(Object.keys(FIELDS));
+// Names live in TLV 0x20 (v1.9 only): u8 nameLen, name, u8 n, n × (layer, macro, len, name), UTF-8.
+// A new name can change the TLV's size, so name edits splice the blob instead of patching bytes.
+// "profile.name" is the name of the slot the buffer came from; "macro.<layer>.<id>.name" a macro's.
+// NAME_MAX is our own cap: the device limit is unknown, and the whole TLV must stay under 256 bytes.
+export const NAME_MAX = 40;
+const MACRO_NAME = /^macro\.(\d+)\.(\d+)\.name$/;
+const isName = (key) => key === "profile.name" || MACRO_NAME.test(key);
+
+export const WRITABLE = new Set([...Object.keys(FIELDS), "profile.name"]);
+export const isWritable = (key) => WRITABLE.has(key) || MACRO_NAME.test(key);
+export const nameBytes = (s) => new TextEncoder().encode(s).length;
 // Fields confirmed by a write to a real Apex 6 Pro; the UI labels every other writable field.
 // Add a key here once it has been tried on hardware.
 // 2026-10-22, checked in joy.cpl: stick.left.max (255 → 179, edge at ~70% travel), then
@@ -100,8 +110,13 @@ export const HW_TESTED = new Set([
 // edits: { "stick.left.deadzone": 20, "gyro.mode": "mouse", ... }
 export function applyEdits(wrapped, edits) {
   const { cfg } = unwrapMapping(wrapped);
-  const out = wrapped.slice();
+  let out = wrapped.slice();
+  const names = {};
   for (const [name, v] of Object.entries(edits)) {
+    if (isName(name)) {
+      names[name] = v;
+      continue;
+    }
     const f = FIELDS[name];
     if (!f) throw new Error(`ยังเขียน ${name} ลงจอยไม่ได้`);
     let at;
@@ -124,9 +139,75 @@ export function applyEdits(wrapped, edits) {
       out[at] = f.enc ? f.enc(v) : v;
     }
   }
+  // Byte patches first: the splice below moves everything after TLV 0x20.
+  if (Object.keys(names).length) out = withNames(out, cfg, names);
   const c = crc16(out.subarray(4));
   out[2] = c & 0xff;
   out[3] = c >> 8;
+  return out;
+}
+
+// Rebuilds TLV 0x20 with the new names and splices it into the wrapped buffer (length updated,
+// CRC16 left to the caller). Entries we don't touch keep their order and bytes.
+function withNames(wrapped, cfg, names) {
+  if (cfg.version !== "1.9") throw new Error("โปรไฟล์ v1.8 ไม่มีที่เก็บชื่อ ตั้งชื่อไม่ได้");
+  const enc = new TextEncoder();
+  const blob = wrapped.subarray(4);
+  const { meta, end } = cfg.offsets;
+  if (meta == null && end == null) throw new Error("หาตำแหน่งเก็บชื่อในโปรไฟล์ไม่เจอ");
+
+  // Parse the current TLV value, keeping any bytes after the entries as they are.
+  let profile = enc.encode(cfg.name ?? "");
+  let entries = [];
+  let rest = new Uint8Array(0);
+  if (meta != null) {
+    const v = blob.subarray(meta, meta + blob[meta - 1]);
+    let o = 0;
+    const nl = v[o++] ?? 0;
+    profile = v.slice(o, o + nl);
+    o += nl;
+    const n = v[o++] ?? 0;
+    for (let i = 0; i < n && o + 3 <= v.length; i++) {
+      const l = v[o + 2];
+      entries.push({ layer: v[o], macro: v[o + 1], name: v.slice(o + 3, o + 3 + l) });
+      o += 3 + l;
+    }
+    rest = v.slice(o);
+  }
+
+  for (const [key, v] of Object.entries(names)) {
+    if (typeof v !== "string") throw new Error(`${key}: ชื่อต้องเป็นข้อความ`);
+    const bytes = enc.encode(v);
+    if (bytes.length > NAME_MAX) throw new Error(`ชื่อ "${v}" ยาว ${bytes.length} ไบต์ เกิน ${NAME_MAX}`);
+    if (key === "profile.name") {
+      profile = bytes;
+      continue;
+    }
+    const [, layer, macro] = key.match(MACRO_NAME).map(Number);
+    if (!cfg.layers.find((l) => l.layer_id === layer)?.macros.some((m) => m.macro_id === macro)) {
+      throw new Error(`โปรไฟล์นี้ไม่มี macro #${macro + 1} ใน layer ${layer}`);
+    }
+    const at = entries.findIndex((e) => e.layer === layer && e.macro === macro);
+    // An empty name drops the entry, so the macro falls back to its default name.
+    if (!bytes.length) {
+      if (at >= 0) entries.splice(at, 1);
+    } else if (at >= 0) entries[at].name = bytes;
+    else entries.push({ layer, macro, name: bytes });
+  }
+
+  const value = [profile.length, ...profile, entries.length];
+  for (const e of entries) value.push(e.layer, e.macro, e.name.length, ...e.name);
+  value.push(...rest);
+  if (value.length > 255 || entries.length > 255) throw new Error("ชื่อทั้งหมดรวมกันยาวเกินที่โปรไฟล์เก็บได้ (255 ไบต์)");
+
+  // Replace the old TLV, or add one just before the END marker.
+  const from = meta != null ? meta - 2 : end;
+  const to = meta != null ? meta + blob[meta - 1] : end;
+  const nextBlob = new Uint8Array([...blob.subarray(0, from), 0x20, value.length, ...value, ...blob.subarray(to)]);
+  const out = new Uint8Array(4 + nextBlob.length);
+  out.set(nextBlob, 4);
+  out[0] = out.length & 0xff;
+  out[1] = out.length >> 8;
   return out;
 }
 

@@ -7,7 +7,8 @@ import {
   labelTarget, macroName, baseTarget, isIdentity, evalCurve,
 } from "./model.js";
 import { BUTTONS } from "./mapping.js";
-import { WRITABLE, HW_TESTED } from "./mapping-edit.js";
+import { isWritable, HW_TESTED, NAME_MAX, nameBytes } from "./mapping-edit.js";
+import { fit, APP_NAME_MAX } from "./names.js";
 
 export const TABS = [
   { id: "profiles", label: "Profiles" },
@@ -37,7 +38,7 @@ const ICON = {
 const UNSUP = `<span class="tag unsup">ยังเขียนลงจอยไม่ได้ · เก็บเป็นร่างในหน้านี้</span>`;
 // Writable, but only tried against the mock so far.
 const UNTESTED = `<span class="tag untested" title="เขียนได้แล้ว แต่ยังไม่เคยลองกับจอยจริง ทุกครั้งที่เขียนจะสำรองไฟล์ให้ก่อน">ยังไม่ทดสอบกับจอยจริง</span>`;
-const untested = (key) => (WRITABLE.has(key) && !HW_TESTED.has(key) ? UNTESTED : "");
+const untested = (key) => (isWritable(key) && !HW_TESTED.has(key) ? UNTESTED : "");
 const pendCls = (on) => (on ? " pending" : "");
 
 // ---------------- Top bar & tabs ----------------
@@ -93,6 +94,23 @@ export function tabs(S, D) {
 
 export const fw = (v) => (v ? `0x${v.toString(16).padStart(4, "0").toUpperCase()}` : "—");
 
+// Under a name field: what the controller will hold. The app always keeps the whole name.
+export function nameFit(v) {
+  const n = nameBytes(v ?? "");
+  return n <= NAME_MAX
+    ? `<span class="meta mono" data-fit>${n}/${NAME_MAX} ไบต์บนจอย</span>`
+    : `<span class="meta" data-fit>บนจอยเก็บได้แค่ “${esc(fit(v))}” · ชื่อเต็มเก็บไว้ในแอป</span>`;
+}
+
+// When the app and the controller disagree on a name, show both and let the user pick.
+function nameClash(key, other) {
+  if (!other) return "";
+  const why = other.unsent ? "ยังไม่ได้เขียนลงจอย" : "ไม่ตรงกับบนจอย อาจถูกแก้จากแอปอื่นหรือกู้คืนไฟล์";
+  return `<p class="meta" style="margin:6px 0 0">ชื่อในแอป “${esc(other.full)}” ${why} ·
+    <button class="link" data-act="name-use-app" data-key="${key}" data-full="${esc(other.full)}">ใช้ชื่อในแอป</button> ·
+    <button class="link muted" data-act="name-use-dev" data-key="${key}">ใช้ชื่อบนจอย</button></p>`;
+}
+
 export function slotName(S, D, i) {
   const v = D.get(`slot.${i}.name`);
   if (v) return v;
@@ -144,10 +162,14 @@ export function profiles(S, D) {
       const pend = D.has(key);
       const renaming = S.ui.renaming === i;
       const crc = S.slots?.slotCrc16[i];
+      // The slot in use gets a draft to write; other slots can't be read, so their names live in the app.
+      const loaded = cfg && i === S.current.slot;
       const nameHtml = renaming
-        ? `<div style="display:flex;align-items:center;gap:16px"><input class="field pending" style="max-width:340px;font-size:20px;height:48px" data-key="${key}" data-rename="${i}" value="${esc(name ?? "")}" placeholder="Slot ${i + 1}" aria-label="ชื่อ slot ${i + 1}"><span class="meta">Enter บันทึก · Esc ยกเลิก</span></div>`
+        ? `<div data-name-field><div style="display:flex;align-items:center;gap:16px"><input class="field pending" style="max-width:340px;font-size:20px;height:48px" data-key="${key}" data-rename="${i}" value="${esc(name ?? "")}" maxlength="${APP_NAME_MAX}" placeholder="Slot ${i + 1}" aria-label="ชื่อ slot ${i + 1}"><span class="meta">Enter บันทึก · Esc ยกเลิก</span></div>
+             <div style="margin-top:6px">${nameFit(name)}${loaded ? "" : `<span class="meta"> · slot นี้ไม่ได้ใช้อยู่ ชื่อจะเก็บในแอปก่อน แล้วเขียนลงจอยได้ตอนสลับมาใช้</span>`}</div></div>`
         : `<div class="slot-name"><span class="${pend ? "pending" : name ? "" : "faint"}">${esc(name || `Slot ${i + 1}`)}</span>
-             <button class="icon-btn" data-act="rename" data-slot="${i}" aria-label="เปลี่ยนชื่อ slot ${i + 1}">${ICON.pencil}</button></div>`;
+             ${cfg ? `<button class="icon-btn" data-act="rename" data-slot="${i}" aria-label="เปลี่ยนชื่อ slot ${i + 1}">${ICON.pencil}</button>` : ""}</div>
+           ${loaded && !pend ? nameClash(key, cfg.shown?.profile.other) : ""}`;
       const sum = on && cfg ? slotSummary(cfg) : `<span class="mono" style="font-weight:500">crc16 ${crc?.toString(16).padStart(4, "0").toUpperCase() ?? "—"}</span> · สลับไปใช้เพื่ออ่านค่าใน slot นี้`;
       const acts = on
         ? `<span class="ok" style="font-weight:700">ใช้อยู่บนจอย</span><button class="btn ink" data-act="tab" data-tab="buttons">แก้</button>`
@@ -168,7 +190,7 @@ export function profiles(S, D) {
       <div class="rule-head" style="display:grid;grid-template-columns:112px 1fr auto"><span class="label">Slot</span><span class="label">ชื่อและสิ่งที่ตั้งไว้</span><span class="label">จัดการ</span></div>
       ${rows}
       <p class="meta" style="margin-top:12px">สลับ slot ใช้คำสั่ง 0xA2 · ${UNTESTED} · แอปจะถามก่อนส่ง</p>
-      ${renamePending ? `<p class="meta" style="margin-top:12px">${UNSUP} · ชื่อ profile ผ่าน TLV 0x20 ยังไม่ได้ยืนยัน</p>` : ""}
+      ${renamePending ? `<p class="meta" style="margin-top:12px">${cfg?.version === "1.9" ? untested("profile.name") : UNSUP} · กดเขียนลงจอยเพื่อบันทึกชื่อ slot ที่ใช้อยู่</p>` : ""}
       <section style="margin-top:56px">
         <div class="rule-head top"><h2>คัดลอก slot</h2><span class="meta">เลือกต้นทางและปลายทางชัดเจน ไม่สร้าง config ลอยๆ</span></div>
         <div style="display:grid;grid-template-columns:1fr 40px 1fr;gap:12px;align-items:end;margin-top:18px">
@@ -620,7 +642,6 @@ export function macros(S, D) {
   const nk = `macro.${layer}.${m.macro_id}.name`;
   const mk = `macro.${layer}.${m.macro_id}.mode`;
   const name = D.get(nk);
-  const bytes = new TextEncoder().encode(name).length;
   const bars = macroBars(m);
   const total = Math.max(100, m.actions.at(-1)?.at_ms ?? 0);
   const scaleMax = Math.ceil(total / 100) * 100;
@@ -638,14 +659,14 @@ export function macros(S, D) {
   const b = boundTo(layer, m.macro_id);
   const right = `<div>
     <div style="display:grid;grid-template-columns:1fr 300px;gap:28px">
-      <label><span class="label" style="display:block;margin-bottom:8px">ชื่อ macro</span>
-        <span style="position:relative;display:block"><input class="field${D.has(nk) ? " pending" : ""}" style="height:52px;font-size:20px;padding-right:90px" value="${esc(name)}" data-key="${nk}" maxlength="40">
-        <span class="mono muted" style="position:absolute;right:16px;top:16px;font-weight:500;font-size:14px" data-bytes>${bytes} ไบต์</span></span></label>
+      <div data-name-field><label><span class="label" style="display:block;margin-bottom:8px">ชื่อ macro ${untested(nk)}</span>
+        <input class="field${D.has(nk) ? " pending" : ""}" style="height:52px;font-size:20px" value="${esc(name)}" data-key="${nk}" data-default="${esc(`Macro ${m.macro_id + 1}`)}" maxlength="${APP_NAME_MAX}"></label>
+        <div style="margin-top:6px">${nameFit(name)}</div>
+        ${D.has(nk) ? "" : nameClash(nk, cfg.shown?.macros[`${layer}.${m.macro_id}`]?.other)}</div>
       <label><span class="label" style="display:block;margin-bottom:8px">ผูกกับปุ่ม</span>
         <div class="field" style="height:52px;display:flex;align-items:center;gap:12px;color:${b ? "inherit" : "var(--ink-2)"}">${b ? `<span class="keytag">${esc(btnName(b))}</span>${esc(BTN_TITLE[b] ?? "")}` : "ยังไม่ผูก · ผูกได้ที่หน้า Buttons → Macro"}</div></label>
     </div>
     <div style="margin-top:24px"><span class="label" style="display:block;margin-bottom:8px">เล่นแบบ</span>${presetTabs(mk, MACRO_MODE, D)}</div>
-    ${D.has(nk) && !D.has(mk) ? `<p style="margin:10px 0 0">${UNSUP}</p>` : ""}
     <div style="border-top:3px solid var(--ink);margin-top:28px;padding-top:16px;display:flex;align-items:center;gap:16px">
       <button class="btn" disabled title="ยังไม่รองรับ"><span style="width:12px;height:12px;border-radius:6px;background:var(--error);display:inline-block"></span>อัดจากจอย</button>
       <button class="btn" disabled title="ยังไม่รองรับ">+ เพิ่มขั้น</button>
@@ -717,7 +738,7 @@ export function vibration(S, D) {
       const curve = { ...r.part.curve, end_y: mx };
       const pend = D.has(`${r.k}.enabled`) || D.has(`${r.k}.max`);
       const mini = miniCurve(curve, en, pend);
-      const writable = WRITABLE.has(`${r.k}.max`);
+      const writable = isWritable(`${r.k}.max`);
       return `<div class="vib-row${en ? "" : " off"}">
         ${inset(r.inset, { w: 136, h: 88, mark: r.inset.startsWith("trig") ? [TRIG_MARK[r.inset][0] - 20, TRIG_MARK[r.inset][1]] : null, title: r.name })}
         <div><h3 class="${pend ? "pending" : ""}">${r.name}</h3><div class="muted" style="font-size:15px">${r.sub}${en ? "" : " · ปิดอยู่"}</div>${!writable && pend ? `<div style="margin-top:4px">${UNSUP}</div>` : ""}${writable ? `<div style="margin-top:4px">${untested(`${r.k}.max`)}</div>` : ""}</div>
@@ -922,6 +943,11 @@ export function device(S, D) {
         <p class="meta" style="margin-top:12px">กู้คืนได้เฉพาะ slot ที่ใช้อยู่บนจอย · นำเข้าไฟล์จะเขียนลง slot ${S.slots.activeSlot + 1}</p>
       </section>
       <section style="margin-top:40px">
+        <div class="rule-head" style="align-items:flex-end"><div><h2>ชื่อที่เก็บในแอป</h2><span class="meta">ชื่อเต็มของ slot และ macro ของจอยตัวนี้ จอยเก็บได้แค่ ${NAME_MAX} ไบต์ต่อชื่อ · ไฟล์ .bin ไม่มีชื่อเหล่านี้</span></div>
+          <span style="display:flex;gap:20px;white-space:nowrap"><button class="link" data-act="names-import">นำเข้าชื่อ</button><button class="link" data-act="names-export">ส่งออกชื่อ</button></span></div>
+        <p class="meta" style="margin-top:12px">${Object.keys(S.names.export(S.uuid).names).length} ชื่อเก็บในเบราว์เซอร์นี้ · ส่งออกไว้ถ้าจะใช้แอปบนเครื่องอื่น</p>
+      </section>
+      <section style="margin-top:40px">
         <div class="rule-head" style="align-items:flex-end"><div><h2>Packet log</h2><span class="meta">คัดลอกไปวางตอนแจ้งปัญหา</span></div>
           <span style="display:flex;gap:20px"><button class="link" data-act="log-clear">ล้าง</button><button class="link" data-act="log-copy">คัดลอก log</button></span></div>
         <pre class="log" id="log" style="margin-top:18px" tabindex="0" aria-label="Packet log">${logHtml(S.log)}</pre>
@@ -954,11 +980,13 @@ export const fmtWhen = (t) => {
 
 // Shown when nothing pending can be written. Keep in step with FIELDS in mapping-edit.js.
 const WRITABLE_NOW = [
-  { prefix: "stick.", label: "Stick", what: "deadzone · ระยะสูงสุด · กลับแกน X/Y · ขอบกลม" },
-  { prefix: "trigger.", label: "Trigger", what: "จุดเริ่ม · จุดสุด" },
-  { prefix: "gyro.", label: "Gyro", what: "โหมด · กลับแกน X/Y" },
-  { prefix: "motor.", label: "มอเตอร์สั่น", what: "เปิด/ปิด · แรงสูงสุด" },
-  { prefix: "runtime.", label: "เวลาตัดสินการกด", what: "กดค้าง · ดับเบิลคลิก" },
+  { label: "Stick", what: "deadzone · ระยะสูงสุด · กลับแกน X/Y · ขอบกลม" },
+  { label: "Trigger", what: "จุดเริ่ม · จุดสุด" },
+  { label: "Gyro", what: "โหมด · กลับแกน X/Y" },
+  { label: "มอเตอร์สั่น", what: "เปิด/ปิด · แรงสูงสุด" },
+  { label: "เวลาตัดสินการกด", what: "กดค้าง · ดับเบิลคลิก" },
+  { label: "ชื่อ profile", what: "เฉพาะ slot ที่ใช้อยู่" },
+  { label: "ชื่อ macro", what: "macro ที่มีอยู่แล้วใน slot" },
 ];
 
 export function review(S, D) {
@@ -966,18 +994,17 @@ export function review(S, D) {
   const slotItems = items.filter((i) => i.group === "slot" && i.writable);
   const unsup = items.filter((i) => !i.writable);
   const nW = slotItems.length;
-  const row = (i) => `<div class="diff-row${i.writable ? "" : " unsup"}"><b>${esc(i.label)}${untested(i.key) ? `<br>${untested(i.key)}` : ""}</b><span class="old">${esc(i.base === undefined ? "ไม่ทราบ" : i.fmt(i.base))}</span><span>→</span>
-    <span class="new">${i.key === "led.color" ? `<span class="swatch-dot" style="background:${esc(i.value)}"></span>` : ""}${esc(i.fmt(i.value))}</span></div>`;
+  const row = (i) => `<div class="diff-row${i.writable ? "" : " unsup"}"><b>${esc(i.label)}${untested(i.editKey) ? `<br>${untested(i.editKey)}` : ""}</b><span class="old">${esc(i.base === undefined ? "ไม่ทราบ" : i.fmt(i.base))}</span><span>→</span>
+    <span class="new">${i.key === "led.color" ? `<span class="swatch-dot" style="background:${esc(i.value)}"></span>` : ""}${esc(i.fmt(i.value))}${i.writable && i.key.endsWith(".name") && fit(i.value) !== i.value ? `<br><span class="meta">บนจอยจะเป็น “${esc(fit(i.value))}” · ชื่อเต็มเก็บในแอป</span>` : ""}</span></div>`;
   const slot = S.slots.activeSlot;
   // Every pending edit is draft-only: say which ones, and what can be written today.
   const stuck = [...new Set(unsup.map((i) => i.label.split(" · ")[0]))].join(", ");
-  const canNow = WRITABLE_NOW.filter((g) => [...WRITABLE].some((k) => k.startsWith(g.prefix)));
   const sub = nW ? "ตรวจก่อนเขียน · อย่าถอดสายระหว่างเขียน" : `${esc(stuck)} ยังเขียนลงจอยไม่ได้ เลยเก็บเป็นร่างไว้ในหน้านี้ · ค่าบนจอยยังเหมือนเดิม`;
   return `<h2 class="d-title" id="sheet-title">${nW ? `เขียน ${nW} การเปลี่ยนแปลงลงจอย` : "ยังไม่มีอะไรที่เขียนลงจอยได้"}</h2>
     <p class="d-sub">${sub}</p>
     ${nW ? `<div class="d-group"><div class="rule-head"><h2>Slot ${slot + 1}${D.get(`slot.${slot}.name`) ? ` · ${esc(D.get(`slot.${slot}.name`))}` : ""}</h2><span class="meta">ค่าบนจอย → ค่าใหม่</span></div>${slotItems.map(row).join("")}</div>` : ""}
     ${unsup.length ? `<div class="d-group"><div class="rule-head"><h2>ยังเขียนลงจอยไม่ได้</h2><span class="meta">เก็บเป็นร่างในหน้านี้ ไม่ส่งลงจอย</span></div>${unsup.map(row).join("")}</div>` : ""}
-    ${nW ? "" : `<div class="d-group"><div class="rule-head thin"><h2>ที่เขียนลงจอยได้ตอนนี้</h2>${UNTESTED}</div>${canNow.map((g) => `<div class="can-row"><b>${g.label}</b><span>${g.what}</span></div>`).join("")}</div>`}
+    ${nW ? "" : `<div class="d-group"><div class="rule-head thin"><h2>ที่เขียนลงจอยได้ตอนนี้</h2>${UNTESTED}</div>${WRITABLE_NOW.map((g) => `<div class="can-row"><b>${g.label}</b><span>${g.what}</span></div>`).join("")}</div>`}
     ${nW ? `<p class="notice" style="margin-top:24px;font-size:15px;color:var(--ink)">${ICON.file}<span><b>สำรองค่าบนจอยเป็นไฟล์อัตโนมัติก่อนเขียนทุกครั้ง</b> <span class="muted">· กู้คืนได้ที่ Device &amp; backup</span></span></p>` : ""}
     <div class="d-actions"><button class="link" style="font-size:17px" data-act="close-sheet">กลับไปแก้</button>
       <button class="btn primary" data-act="write" ${nW ? "" : "disabled"}>เขียนลงจอย</button></div>`;

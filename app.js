@@ -1,7 +1,8 @@
 import { Apex6, RAM, hex, crc32 } from "./protocol.js";
 import { decodeMapping } from "./mapping.js";
 import { unwrapMapping, applyEdits, sameBytes, deadzoneMax, curveEndMin, curveStartMax, motorMaxMin } from "./mapping-edit.js";
-import { Drafts, esc } from "./model.js";
+import { Drafts, esc, resolveNames, nameId } from "./model.js";
+import { Names, fit } from "./names.js";
 import * as V from "./views.js";
 
 const $ = (s) => document.querySelector(s);
@@ -24,6 +25,7 @@ const S = {
   dump: null,
   dumpStatus: "",
   writing: false,
+  names: new Names(), // full names kept by the app, see names.js
 };
 const D = new Drafts(S);
 
@@ -199,6 +201,14 @@ async function loadAll() {
     });
     const { cfg } = unwrapMapping(data);
     S.current = { wrapped: data, cfg, slot: activeSlot };
+    // A name drafted for a slot that is no longer loaded can't be written now: keep it in the app.
+    for (const k of D.pendingKeys("slot.")) {
+      const i = Number(k.split(".")[1]);
+      if (i === activeSlot) continue;
+      S.names.put(S.uuid, `slot.${i}`, D.map.get(k), null);
+      D.map.delete(k);
+    }
+    resolveNames(S);
     if (!S.slots) S.slots = { activeSlot, slotCrc16: [0, 0, 0, 0] };
     S.readAt = new Date();
     D.prune();
@@ -350,6 +360,7 @@ async function runWrite({ edits = null, data = null, reason, title, doneTitle, f
       throw new Error(`จอยรายงานความยาว/CRC ไม่ตรงกับที่อ่านได้ (status=${info.status}) ยกเลิกแล้ว ไม่ได้เขียนอะไร`);
     }
     const next = edits ? applyEdits(fresh.data, edits) : data;
+    const sentNames = edits ? D.items().filter((i) => i.writable && i.key.endsWith(".name")) : [];
     unwrapMapping(next);
     W.backupAt = backup(fresh.data, slot, reason);
     W.at = 1;
@@ -368,7 +379,10 @@ async function runWrite({ edits = null, data = null, reason, title, doneTitle, f
     if (!sameBytes(back.data, next)) throw new Error("อ่านกลับแล้วไม่ตรงกับที่เขียน");
     W.crc = (back.data[2] | (back.data[3] << 8)).toString(16).padStart(4, "0").toUpperCase();
     if (edits) for (const k of Object.keys(edits)) D.map.delete(k);
+    // The controller now holds what fits of each name; the app keeps the full one.
+    for (const { key, value } of sentNames) S.names.put(S.uuid, nameId(key, S), value, fit(value));
     S.current = { wrapped: back.data, cfg: unwrapMapping(back.data).cfg, slot: back.activeSlot };
+    resolveNames(S);
     S.readAt = new Date();
     S.slots = (await safe(() => S.pad.getSlotStatus())) ?? S.slots;
     D.prune();
@@ -535,7 +549,10 @@ const ACTIONS = {
     toast("คัดลอกแล้ว · ยังไม่ได้เขียนลงจอย");
   },
   rename: (el) => {
-    S.ui.renaming = Number(el.dataset.slot);
+    const i = Number(el.dataset.slot);
+    S.ui.renaming = i;
+    // Other slots are renamed in the app straight away; keep the old name for Esc.
+    S.ui.renameFrom = i === S.current?.slot ? null : { id: `slot.${i}`, e: S.names.entry(S.uuid, `slot.${i}`) };
     render();
     const input = document.querySelector(`[data-rename="${el.dataset.slot}"]`);
     input?.focus();
@@ -570,6 +587,25 @@ const ACTIONS = {
     }
   },
   import: () => $("#file-in").click(),
+  // The app and the controller disagree on a name (names.js): take the app's as a draft to write,
+  // or take the controller's and forget the app's.
+  "name-use-app": (el) => {
+    setDraft(el.dataset.key, el.dataset.full);
+    render();
+  },
+  "name-use-dev": (el) => {
+    const { key } = el.dataset;
+    const dev = key.startsWith("slot.") ? S.current.cfg.name ?? "" : (S.current.cfg.macro_names?.find((n) => `macro.${n.layerId}.${n.macroId}.name` === key)?.name ?? "");
+    S.names.put(S.uuid, nameId(key, S), dev, dev);
+    resolveNames(S);
+    D.prune();
+    render();
+  },
+  "names-export": () => {
+    const data = new TextEncoder().encode(JSON.stringify(S.names.export(S.uuid), null, 2));
+    download(data, `apex6-names-${(S.uuid ?? "unknown").slice(-6)}.json`);
+  },
+  "names-import": () => $("#names-in").click(),
   "log-clear": () => {
     S.log = [];
     scheduleLog();
@@ -637,12 +673,16 @@ document.addEventListener("keydown", (e) => {
   }
   const rn = e.target.closest?.("[data-rename]");
   if (rn && (e.key === "Enter" || e.key === "Escape")) {
-    if (e.key === "Escape") D.map.delete(rn.dataset.key);
+    if (e.key === "Escape") {
+      D.map.delete(rn.dataset.key);
+      const from = S.ui.renameFrom;
+      if (from) S.names.put(S.uuid, from.id, from.e?.full ?? "", from.e ? from.e.dev : null);
+    }
+    S.ui.renameFrom = null;
     S.ui.renaming = null;
     render();
   }
 });
-
 document.addEventListener("input", (e) => {
   const el = e.target;
   if (el.dataset.act === "turbo-iv") {
@@ -662,10 +702,17 @@ document.addEventListener("input", (e) => {
     softUpdate(key);
   } else if (el.type === "text" || el.tagName === "INPUT") {
     if ("num" in el.dataset || "hex" in el.dataset || el.type === "checkbox") return;
-    D.set(key, el.value);
-    el.classList.toggle("pending", D.has(key));
-    const bytes = el.parentElement.querySelector("[data-bytes]");
-    if (bytes) bytes.textContent = `${new TextEncoder().encode(el.value).length} ไบต์`;
+    const slot = key.match(/^slot\.(\d)\.name$/)?.[1];
+    if (slot != null && Number(slot) !== S.current.slot) {
+      // A slot that isn't loaded can't be written: its name is kept in the app until it is.
+      S.names.put(S.uuid, `slot.${slot}`, el.value, null);
+    } else {
+      // A cleared macro name means "back to the default name", not a name that is empty.
+      D.set(key, el.value === "" && el.dataset.default ? el.dataset.default : el.value);
+      el.classList.toggle("pending", D.has(key));
+    }
+    const fitEl = el.closest("[data-name-field]")?.querySelector("[data-fit]");
+    if (fitEl) fitEl.outerHTML = V.nameFit(el.value);
     renderChrome();
   }
 });
@@ -673,6 +720,7 @@ document.addEventListener("input", (e) => {
 document.addEventListener("change", (e) => {
   const el = e.target;
   if (el.id === "file-in") return importFile(el);
+  if (el.id === "names-in") return importNames(el);
   const key = el.dataset.key;
   if (!key || !S.current) return;
   if (el.type === "checkbox") setDraft(key, el.checked);
@@ -694,6 +742,21 @@ document.addEventListener("change", (e) => {
   }
   render();
 });
+
+async function importNames(el) {
+  const file = el.files[0];
+  el.value = "";
+  if (!file) return;
+  try {
+    const n = S.names.import(S.uuid, JSON.parse(await file.text()));
+    resolveNames(S);
+    D.prune();
+    render();
+    toast(`นำเข้า ${n} ชื่อแล้ว`);
+  } catch (err) {
+    toast(`ใช้ไฟล์นี้ไม่ได้: ${err.message}`, true);
+  }
+}
 
 async function importFile(el) {
   const file = el.files[0];

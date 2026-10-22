@@ -157,6 +157,96 @@ assert.ok(sameBytes(applyEdits(sample, {}), sample), "empty edit is byte-identic
 assert.ok(WRITABLE.has("stick.left.deadzone") && !WRITABLE.has("led.color"));
 console.log("edits ok");
 
+// --- Names (TLV 0x20): the blob changes length, everything else must survive ---
+const { NAME_MAX, isWritable } = await import("./mapping-edit.js");
+const strip = (c) => JSON.stringify({ ...c, name: undefined, macro_names: undefined });
+const mac = wcfg.layers.flatMap((l) => l.macros.map((m) => ({ layer: l.layer_id, id: m.macro_id })));
+assert.ok(mac.length, "sample has macros");
+const mk = `macro.${mac[0].layer}.${mac[0].id}.name`;
+const n1 = applyEdits(sample, { "profile.name": "FPS ยิงไว", [mk]: "Reload", "stick.left.max": 240 });
+assert.equal(n1[0] | (n1[1] << 8), n1.length, "wrapper length follows the new size");
+const nc = unwrapMapping(n1).cfg;
+assert.equal(nc.name, "FPS ยิงไว");
+assert.deepEqual(nc.macro_names, [{ layerId: mac[0].layer, macroId: mac[0].id, name: "Reload" }]);
+assert.equal(nc.joystick_left.curve.end_x, 240, "byte patch applied alongside the rename");
+assert.equal(strip(nc), strip(unwrapMapping(applyEdits(sample, { "stick.left.max": 240 })).cfg), "nothing else moved");
+// Renaming again replaces the entry; clearing both names gives the original bytes back.
+const n2 = applyEdits(n1, { [mk]: "Reload 2" });
+assert.equal(unwrapMapping(n2).cfg.macro_names.length, 1);
+assert.equal(unwrapMapping(n2).cfg.name, "FPS ยิงไว");
+assert.ok(sameBytes(applyEdits(n1, { "profile.name": "", [mk]: "", "stick.left.max": wcfg.joystick_left.curve.end_x }), sample));
+assert.throws(() => applyEdits(sample, { "profile.name": "ก".repeat(14) }), /เกิน/); // 42 bytes
+assert.ok(unwrapMapping(applyEdits(sample, { "profile.name": "a".repeat(NAME_MAX) })).cfg.name.length === NAME_MAX);
+assert.throws(() => applyEdits(sample, { "macro.0.99.name": "x" }), /ไม่มี macro/);
+assert.ok(isWritable(mk) && isWritable("profile.name") && !isWritable("slot.0.name"));
+// A v1.9 profile without TLV 0x20 gets one just before END.
+{
+  const blob = sample.subarray(4);
+  const at = wcfg.offsets.meta - 2, len = blob[wcfg.offsets.meta - 1] + 2;
+  const bare = new Uint8Array([...blob.subarray(0, at), ...blob.subarray(at + len)]);
+  const wrapped = new Uint8Array(4 + bare.length);
+  wrapped.set(bare, 4);
+  wrapped[0] = wrapped.length & 0xff; wrapped[1] = wrapped.length >> 8;
+  const c = crc16(bare); wrapped[2] = c & 0xff; wrapped[3] = c >> 8;
+  assert.equal(unwrapMapping(wrapped).cfg.offsets.meta, undefined);
+  assert.equal(unwrapMapping(applyEdits(wrapped, { "profile.name": "Race" })).cfg.name, "Race");
+}
+// The write path takes the new length.
+const nd = writableDevice(sample);
+const nw = await Apex6.open(nd);
+await nw.writeRam(5, n1);
+assert.ok(sameBytes((await nw.readRam(5)).data, n1));
+// Drafts: the loaded slot's name maps to profile.name, other slots stay drafts.
+const { editKey } = await import("./model.js");
+const S0 = { current: { cfg: wcfg, slot: 1 } };
+assert.equal(editKey("slot.1.name", S0), "profile.name");
+assert.equal(editKey("slot.2.name", S0), null);
+assert.equal(editKey(mk, S0), mk);
+assert.equal(editKey("led.color", S0), null);
+console.log("names ok");
+
+// --- App-side names (names.js): full name in the app, what fits on the controller ---
+{
+  const { Names, fit } = await import("./names.js");
+  const { resolveNames, Drafts } = await import("./model.js");
+  const mem = () => { const m = new Map(); return { getItem: (k) => m.get(k) ?? null, setItem: (k, v) => m.set(k, v) }; };
+  const long = "ปืนไรเฟิลซุ่มยิงระยะไกลมาก"; // > 40 bytes
+  assert.ok(new TextEncoder().encode(fit(long)).length <= NAME_MAX && long.startsWith(fit(long)));
+  assert.equal(fit("short"), "short");
+  assert.equal(fit("ก้".repeat(20)), "ก้".repeat(6), "never splits a letter from its mark"); // 6 bytes each
+
+  const store = mem();
+  const N = new Names(store);
+  N.put("u1", "slot.1", long, fit(long));
+  assert.deepEqual(N.resolve("u1", "slot.1", fit(long)), { name: long }, "in sync: full name");
+  assert.equal(N.resolve("u1", "slot.1", "Other").name, "Other", "controller changed elsewhere: it wins");
+  assert.equal(N.resolve("u1", "slot.1", "Other").other.full, long);
+  assert.equal(N.resolve("u2", "slot.1", "X").name, "X", "per controller");
+  assert.equal(new Names(store).entry("u1", "slot.1").full, long, "persisted");
+  N.put("u1", "slot.1", "Same", "Same");
+  assert.equal(N.entry("u1", "slot.1"), undefined, "nothing to keep when the controller has it all");
+  N.put("u1", "slot.3", "Race", null);
+  assert.ok(N.resolve("u1", "slot.3", "").other.unsent);
+  const n = new Names(mem()).import("u9", N.export("u1"));
+  assert.equal(n, 1);
+  assert.throws(() => N.import("u1", { foo: 1 }));
+
+  // Draft → write → re-read: the controller gets the cut name, the app shows the full one.
+  const S1 = { uuid: "u1", names: new Names(mem()), current: { cfg: unwrapMapping(sample).cfg, slot: 1, wrapped: sample } };
+  resolveNames(S1);
+  const D1 = new Drafts(S1);
+  D1.set("slot.1.name", long);
+  assert.equal(D1.writable()["profile.name"], fit(long));
+  const out = applyEdits(sample, D1.writable());
+  S1.names.put("u1", "slot.1", long, fit(long));
+  S1.current = { cfg: unwrapMapping(out).cfg, slot: 1, wrapped: out };
+  resolveNames(S1);
+  D1.prune();
+  assert.equal(D1.count(), 0, "draft cleared once the controller holds the cut name");
+  assert.equal(D1.get("slot.1.name"), long);
+}
+console.log("app names ok");
+
 // Live input: 0x11 frame layout, 0xEF stick frames, 0x21 key events.
 {
   const sent = [];
