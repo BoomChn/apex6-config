@@ -375,9 +375,10 @@ export function buttons(S, D) {
     // The photo always shows Base; each other layer that sets the button adds a line under it.
     const st = buttonState(S, D, 0, src);
     const others = live.filter((id) => id !== 0).map((l) => [l, buttonState(S, D, l, src)]).filter(([, s]) => s.changed || s.pend);
-    const extra = others.map(([l, s]) => ({ name: LAYER_NAME(l).replace(/ layer$/, ""), value: s.value, pend: s.pend }));
+    const extra = others.map(([l, s]) => ({ name: LAYER_NAME(l).replace(/ layer$/, ""), value: s.value, pend: s.pend, mapped: s.changed }));
     const pend = st.pend || others.some(([, s]) => s.pend);
-    items[id] = { name, value: st.value, extra, state: pend ? "pend" : st.changed || others.length ? "set" : "", sel: ui.sel === src || (id === "DPAD" && ui.sel?.startsWith("D-pad")) };
+    // mapped: not the default in some layer, on the controller or still a draft. Marked yellow.
+    items[id] = { name, value: st.value, extra, mapped: st.changed, anyMapped: st.changed || others.some(([, s]) => s.changed), state: pend ? "pend" : st.changed || others.length ? "set" : "", sel: ui.sel === src || (id === "DPAD" && ui.sel?.startsWith("D-pad")) };
   }
   const list = layerList(S, D);
   return `<div class="split">
@@ -441,7 +442,7 @@ function changedList(S, D) {
     .map((id) => `<div class="layer-group"><span class="lg-name"><span class="${id === S.ui.layer ? "chip" : ""}">${LAYER_NAME(id)}</span></span><div class="lg-items">${groups.get(id).join("")}</div></div>`)
     .join("");
   return `<section style="margin-top:24px">
-    <div class="rule-head top"><h2>ปุ่มที่แก้ใน slot นี้</h2><span class="meta">สีน้ำเงิน = ยังไม่ได้เขียนลงจอย · ทึบ = กำลังแก้ · สีดำ = อยู่บนจอยแล้ว</span></div>
+    <div class="rule-head top"><h2>ปุ่มที่แก้ใน slot นี้</h2><span class="meta"><span class="marker-key">เหลือง</span> = ไม่ใช่ค่าเดิม · สีน้ำเงิน = ยังไม่ได้เขียนลงจอย · ทึบ = กำลังแก้ · สีดำ = อยู่บนจอยแล้ว</span></div>
     ${rows || `<p class="empty-note">ทุกปุ่มเป็นค่าเดิม</p>`}
   </section>`;
 }
