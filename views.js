@@ -13,7 +13,7 @@ import { fit, APP_NAME_MAX } from "./names.js";
 import { slotsOf, crcOf } from "./profiles.js";
 import { DEFAULT_PROFILE } from "./defaults.js";
 import { LED_KEY, hasSpeed, hasColors, LIGHT_COLORS_MAX, SPEED_MIN, SPEED_MAX, PRESETS, CUSTOM_MAX, hsvToHex } from "./lighting.js";
-import { KEY_GROUPS, MODS, keyCaps, isExtraKey } from "./keys.js";
+import { KEY_GROUPS, MODS, keyCaps } from "./keys.js";
 
 export const TABS = [
   { id: "profiles", label: "Profiles" },
@@ -507,7 +507,7 @@ function keyboardPicker(ui, cur, pend) {
   const list = ui.kbList && !ui.kbListen
     ? `<div class="kb-list">
         <div class="kb-group"><span class="label">กดร่วมกับ</span><div class="keys">${MODS.map((m) => `<button class="key kb-k${had && had.modifier & m.bit ? " on" : ""}" data-act="kb-mod" data-bit="${m.bit}" aria-pressed="${!!(had && had.modifier & m.bit)}">${m.label}</button>`).join("")}</div></div>
-        ${KEY_GROUPS.map((g) => `<div class="kb-group"><span class="label">${g.name}${isExtraKey(g.keys[0].key) ? ` ${UNTESTED_SM}` : ""}</span><div class="keys">${g.keys.map((x) => `<button class="key kb-k${had?.key === x.key ? " on" : ""}" data-act="kb-pick" data-key="${x.key}">${esc(x.label)}</button>`).join("")}</div></div>`).join("")}
+        ${KEY_GROUPS.map((g) => `<div class="kb-group"><span class="label">${g.name}</span><div class="keys">${g.keys.map((x) => `<button class="key kb-k${had?.key === x.key ? " on" : ""}" data-act="kb-pick" data-key="${x.key}">${esc(x.label)}</button>`).join("")}</div></div>`).join("")}
       </div>`
     : "";
   return `<div class="kb">${box}${foot}${list}</div>`;
