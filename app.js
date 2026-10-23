@@ -691,6 +691,8 @@ function setDraft(key, v) {
 
 function selectSource(src) {
   S.ui.sel = src;
+  // Variant B: a newly picked button starts on its Base cell, never on the last layer used.
+  S.ui.layer = 0;
   S.ui.press = "simple";
   S.ui.outType = null;
 }
@@ -775,6 +777,13 @@ const ACTIONS = {
     S.ui.layer = Number(el.dataset.layer);
     render();
   },
+  // Variant B: a matrix cell picks the layer and the kind of press together.
+  cell: (el) => {
+    S.ui.layer = Number(el.dataset.layer);
+    S.ui.press = el.dataset.press;
+    S.ui.outType = null;
+    render();
+  },
   "layer-new": () => {
     const id = nextLayerId(S, D);
     if (id === null) return toast("โปรไฟล์นี้มี layer ครบแล้ว", true);
@@ -797,7 +806,7 @@ const ACTIONS = {
       D.set(layerKey(id, "delete"), true);
       toast("ปุ่มที่สลับมา layer นี้จะกลับเป็นค่าเดิมตอนเขียนลงจอย");
     }
-    S.ui.layer = D.has(layerKey(id, "delete")) ? id : 0;
+    S.ui.layer = 0;
     render();
   },
   "layer-undelete": (el) => {
@@ -846,9 +855,9 @@ const ACTIONS = {
   },
   "pick-src": (el) => {
     const src = el.dataset.src;
-    S.ui.layer = Number(el.dataset.layer);
     if (src.startsWith("D-pad")) S.ui.dpad = src;
     selectSource(src);
+    S.ui.layer = Number(el.dataset.layer);
     render();
   },
   set: (el) => {

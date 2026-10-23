@@ -544,7 +544,7 @@ console.log("macro create/delete ok");
   D3.set("map.2.A.simple", { type: "btn_gamepad", button: "B" });
   assert.equal(labelTarget(D3.get("map.0.M1.simple")), "กดค้างเข้า Layer 2");
   assert.deepEqual(layerSwitches(S3, D3).map((s) => [s.layer, s.source, s.type, s.to]), [[0, "M1", "layer_hold", 2]]);
-  assert.deepEqual(D3.items().map((i) => [i.writable, i.label]), [[true, "เพิ่ม Layer 2"], [true, "ลบ Shift layer"], [true, "ปุ่ม M1 · กดปกติ"], [true, "ปุ่ม A (Layer 2) · กดปกติ"]]);
+  assert.deepEqual(D3.items().map((i) => [i.writable, i.label]), [[true, "เพิ่ม Layer 2"], [true, "ลบ Shift layer"], [true, "ปุ่ม M1 (Base layer) · กดปกติ"], [true, "ปุ่ม A (Layer 2) · กดปกติ"]]);
   const out = applyEdits(sample, D3.writable());
   // Layers 0 and 2 are numbered again as 0 and 1 (the firmware finds layers by position).
   assert.deepEqual(unwrapMapping(out).cfg.layers.map((l) => l.layer_id), [0, 1]);

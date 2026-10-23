@@ -81,23 +81,38 @@ export const ALL = {
 // items: { [id]: { name, value, state: "default"|"set"|"pend"|"nomap", sel } }
 export function stageSvg(def, items, { kind = "back", label = "" } = {}) {
   let n = 0;
+  // A callout with lines under it (other layers) pushes the callouts below it down, so lines never
+  // run into the next label. A moved leader keeps its shape from the new height and angles into
+  // the button at the end.
+  const at = {};
+  for (const side of ["l", "r"]) {
+    let prev = null;
+    for (const c of def.callouts.filter((x) => x.side === side && items[x.id]).sort((a, b) => a.y - b.y)) {
+      const lines = items[c.id].extra?.length ?? 0;
+      at[c.id] = prev ? Math.max(c.y, prev.y2 + Math.max(c.y - prev.y, prev.lines ? 15 * prev.lines + 24 : 0)) : c.y;
+      prev = { y: c.y, y2: at[c.id], lines };
+    }
+  }
   const groups = def.callouts
-    .map((c) => {
-      const it = items[c.id];
+    .map((c0) => {
+      const it = items[c0.id];
       if (!it) return "";
       n++;
+      const y = at[c0.id] ?? c0.y;
+      const moved = c0.d.replace(/^M\s*([\d.]+)[ ,][\d.]+/, (m, x) => `M${x} ${y}`);
+      const c = y === c0.y ? c0 : { ...c0, y, d: /H\s*[\d.]+\s*$/.test(moved) ? `${moved} L${c0.pt[0]} ${c0.pt[1]}` : moved };
       const cls = ["co", def.inline ? "front" : "", c.behind ? "behind" : "", it.state || "", it.sel ? "sel" : ""].join(" ");
       const left = c.side === "l";
       const lx = def.labelX[c.side], kx = def.keyX[c.side];
       const anchor = left ? "end" : "start";
       const text = def.inline
-        ? `<text x="${lx}" y="${c.y + 4.5}" text-anchor="${anchor}"><tspan class="name">${esc(it.name)}</tspan><tspan class="val" dx="6">${esc(it.value)}</tspan></text>`
+        ? `<text x="${lx}" y="${c.y + 4.5}" text-anchor="${anchor}"><tspan class="name">${esc(it.name)}</tspan><tspan class="val" dx="6">${esc(it.value)}</tspan></text>${(it.extra ?? []).map((x, i) => `<text class="extra${x.pend ? " pend" : ""}" x="${lx}" y="${c.y + 4.5 + 15 * (i + 1)}" text-anchor="${anchor}"><tspan class="xn">${esc(x.name)}</tspan><tspan class="xv" dx="5">${esc(x.value)}</tspan></text>`).join("")}`
         : `<text class="name" x="${lx}" y="${c.y - 6}" text-anchor="${anchor}">${esc(it.name)}</text>
            <text class="val" x="${lx}" y="${c.y + 13}" text-anchor="${anchor}">${esc(it.value)}</text>`;
       const hitX = left ? 0 : kx - 12, hitW = left ? kx + 12 : 900 - (kx - 12);
-      const hitH = def.rowH ?? 44;
-      return `<g class="${cls}" data-pick="${c.id}" tabindex="0" role="button" aria-label="${esc(`${it.name}: ${it.value}${c.behind ? " · อยู่ด้านหลัง มองไม่เห็นจากด้านหน้า" : ""}`)}">
-        <rect class="hit" x="${hitX}" y="${c.y - hitH / 2}" width="${hitW}" height="${hitH}"/>
+      const hitH = (def.rowH ?? 44) + 15 * (it.extra?.length ?? 0);
+      return `<g class="${cls}" data-pick="${c.id}" tabindex="0" role="button" aria-label="${esc(`${it.name}: ${it.value}${(it.extra ?? []).map((x) => ` · ${x.name}: ${x.value}`).join("")}${c.behind ? " · อยู่ด้านหลัง มองไม่เห็นจากด้านหน้า" : ""}`)}">
+        <rect class="hit" x="${hitX}" y="${c.y - (def.rowH ?? 44) / 2}" width="${hitW}" height="${hitH}"/>
         <path class="line" d="${c.d}"/>
         <circle class="ring" cx="${c.pt[0]}" cy="${c.pt[1]}" r="11"/>
         <circle class="pt" cx="${c.pt[0]}" cy="${c.pt[1]}" r="${it.sel ? 4.5 : 3.5}"/>

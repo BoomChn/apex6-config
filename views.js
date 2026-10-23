@@ -61,10 +61,9 @@ export function topbar(S, D) {
     .map((i) => {
       const on = S.slots?.activeSlot === i;
       const name = slotName(S, D, i);
-      const pending = D.count() > 0;
       return `<button class="slot-tab${on ? " active" : ""}" data-act="slot" data-slot="${i}" ${on ? 'aria-current="true"' : ""}>
         <span class="n">${i + 1}</span>
-        ${on ? `<span><span class="t">${esc(name)}</span><span class="s">ใช้อยู่บนจอย${pending ? " · กำลังแก้" : ""}</span></span>` : `<span class="t">${esc(name)}</span>`}
+        ${on ? `<span><span class="t">${esc(name)}</span><span class="s">ใช้อยู่บนจอย</span></span>` : `<span class="t">${esc(name)}</span>`}
       </button>`;
     })
     .join("");
@@ -365,6 +364,7 @@ export function buttons(S, D) {
   const layer = ui.layer;
   const def = ALL;
   const items = {};
+  const live = layerList(S, D).filter((l) => !l.deleted).map((l) => l.id);
   for (const [id, src0] of Object.entries(ALL_SRC)) {
     const src = id === "DPAD" ? ui.dpad : src0;
     const name = id === "DPAD" ? "D-pad" : btnName(id === "Back" ? "Back" : id === "Start" ? "Start" : id);
@@ -372,28 +372,17 @@ export function buttons(S, D) {
       items[id] = { name: id, value: "ยังไม่รู้ ID", state: "nomap", sel: ui.sel === id };
       continue;
     }
-    const st = buttonState(S, D, layer, src);
-    items[id] = { name, value: st.value, state: st.pend ? "pend" : st.changed ? "set" : "", sel: ui.sel === src || (id === "DPAD" && ui.sel?.startsWith("D-pad")) };
+    // The photo always shows Base; each other layer that sets the button adds a line under it.
+    const st = buttonState(S, D, 0, src);
+    const others = live.filter((id) => id !== 0).map((l) => [l, buttonState(S, D, l, src)]).filter(([, s]) => s.changed || s.pend);
+    const extra = others.map(([l, s]) => ({ name: LAYER_NAME(l).replace(/ layer$/, ""), value: s.value, pend: s.pend }));
+    const pend = st.pend || others.some(([, s]) => s.pend);
+    items[id] = { name, value: st.value, extra, state: pend ? "pend" : st.changed || others.length ? "set" : "", sel: ui.sel === src || (id === "DPAD" && ui.sel?.startsWith("D-pad")) };
   }
   const list = layerList(S, D);
-  const layers = list
-    .map((l) => {
-      const cls = `utab${l.id === layer ? " on" : ""}${l.isNew || l.deleted ? " pending" : ""}${l.deleted ? " gone" : ""}`;
-      const title = l.isNew ? "เพิ่มใหม่ · ยังไม่ได้เขียนลงจอย" : l.deleted ? "จะถูกลบตอนเขียนลงจอย" : "";
-      return `<button class="${cls}" style="font-size:13px;padding-bottom:4px"${title ? ` title="${title}"` : ""} data-act="layer" data-layer="${l.id}">${LAYER_NAME(l.id)}</button>`;
-    })
-    .join("");
-  const add = nextLayerId(S, D) !== null
-    ? `<button class="link" style="font-size:13px;white-space:nowrap" data-act="layer-new">+ เพิ่ม layer</button>`
-    : `<span class="meta faint" style="white-space:nowrap">ครบ ${list.length} layer แล้ว</span>`;
-  const right = `<div style="display:grid;justify-items:end;gap:10px;padding-top:6px">
-      <div style="display:flex;gap:16px;align-items:center">${layers}${add}</div>
-    </div>`;
-  const sub = "คลิกปุ่มบนตัวจอย หรือชื่อปลายเส้นชี้ · เส้นประ = ปุ่มด้านหลังและไก ซ่อนอยู่หลังตัวจอย";
   return `<div class="split">
     <div>
-      <div class="page-head" style="margin-bottom:8px"><div><h1>Buttons</h1><p class="sub">${sub}</p></div>${right}</div>
-      ${layerBar(S, D, list)}
+      ${layerLine(S, D, list)}
       ${stageSvg(def, items, { kind: "front" })}
       ${changedList(S, D)}
     </div>
@@ -401,39 +390,31 @@ export function buttons(S, D) {
   </div>`;
 }
 
-// How to reach each layer, the current layer's delete, and a warning when a toggle leads into a
-// layer that has no way back out.
-function layerBar(S, D, list) {
-  const cur = S.ui.layer;
-  if (list.length < 2) return "";
+// Variant B has no layer mode: one line lists the layers and how each is reached, plus add.
+function layerLine(S, D, list) {
+  const parts = list.map((l) => {
+    const ways = layerWays(S, D, l.id);
+    const how = l.id === 0 ? "รูปจอยแสดง layer นี้" : ways.length ? esc(ways.join(", ")) : "ยังไม่มีปุ่มพาไป";
+    return `<span${l.deleted ? ' style="text-decoration:line-through"' : ""}><b>${LAYER_NAME(l.id)}</b> <span class="muted">${how}${l.isNew ? " · เพิ่มใหม่" : ""}</span></span>`;
+  }).join(`<span class="muted"> · </span>`);
+  const add = nextLayerId(S, D) !== null
+    ? `<button class="link" style="font-size:13px;white-space:nowrap" data-act="layer-new">+ เพิ่ม layer</button>`
+    : `<span class="meta" style="white-space:nowrap">ครบ ${list.length} layer แล้ว</span>`;
   const sw = layerSwitches(S, D, (s) => s.to !== s.layer);
-  const how = (to) => {
-    const ways = sw.filter((s) => s.to === to).map((s) => {
-      const where = s.layer !== cur ? ` ใน ${LAYER_NAME(s.layer)}` : "";
-      const press = s.press !== "simple" ? ` (${PRESS.find((p) => p.id === s.press).label})` : "";
-      return `<b>${esc(btnName(s.source))}</b>${where} ${s.type === "layer_hold" ? "กดค้าง" : "สลับ"}${press}`;
-    });
-    return ways.length ? ways.join(", ") : `<span class="muted">ยังไม่มีปุ่มพาไป</span>`;
-  };
-  const live = list.filter((l) => !l.deleted);
-  let text;
-  let act = "";
-  let warn = "";
-  if (cur === 0) {
-    text = `เข้า layer อื่นด้วย · ${live.filter((l) => l.id !== 0).map((l) => `${LAYER_NAME(l.id)}: ${how(l.id)}`).join(" · ")}`;
-  } else {
-    const l = list.find((x) => x.id === cur);
-    text = `เข้า ${LAYER_NAME(cur)} ด้วย: ${how(cur)}`;
-    act = l?.deleted
-      ? `<span class="pending">จะถูกลบตอนเขียนลงจอย</span> · <button class="link" data-act="layer-undelete" data-layer="${cur}">ยกเลิกการลบ</button>`
-      : `<button class="link err" data-act="layer-delete" data-layer="${cur}">${l?.isNew ? "เอา layer นี้ออก" : "ลบ layer นี้"}</button>`;
-    const trapped = sw.some((s) => s.to === cur && s.type === "layer_toggle") && !sw.some((s) => s.layer === cur);
-    if (trapped && !l?.deleted) warn = `<p class="notice" style="margin:8px 0 0;color:var(--ink)">${ICON.warn}<span>ปุ่มที่สลับเข้ามา layer นี้จะค้างอยู่ที่นี่ ตั้งปุ่มใน ${LAYER_NAME(cur)} ให้สลับกลับ ${LAYER_NAME(0)} ด้วย ไม่งั้นจะกลับไม่ได้</span></p>`;
-  }
-  return `<div style="margin:0 0 8px">
-    <div class="meta" style="display:flex;gap:16px;justify-content:space-between;align-items:baseline;line-height:20px"><span>${text}</span>${act ? `<span style="white-space:nowrap">${act}</span>` : ""}</div>
-    ${warn}
-  </div>`;
+  const trapped = list.filter((l) => !l.deleted && l.id && sw.some((s) => s.to === l.id && s.type === "layer_toggle") && !sw.some((s) => s.layer === l.id));
+  const warn = trapped.map((l) => `<p class="notice" style="margin:4px 0 8px;color:var(--ink)">${ICON.warn}<span>ปุ่มที่สลับเข้า ${LAYER_NAME(l.id)} จะค้างอยู่ที่นั่น ตั้งปุ่มใน ${LAYER_NAME(l.id)} ให้สลับกลับ ${LAYER_NAME(0)} ด้วย ไม่งั้นจะกลับไม่ได้</span></p>`).join("");
+  return `<div class="meta" style="display:flex;gap:16px;justify-content:space-between;align-items:baseline;line-height:20px;margin-bottom:8px"><span>${parts}</span>${add}</div>${warn}`;
+}
+
+// The buttons that take the controller into a layer, drafts included: "กด M3 ค้างไว้",
+// "ดับเบิลคลิก M2 เพื่อสลับ".
+function layerWays(S, D, to) {
+  return layerSwitches(S, D, (s) => s.to === to && s.layer !== to).map((s) => {
+    const where = s.layer !== 0 ? ` ใน ${LAYER_NAME(s.layer)}` : "";
+    const how = s.press === "simple" ? "กด" : PRESS.find((p) => p.id === s.press).label;
+    const end = s.type === "layer_toggle" ? " เพื่อสลับ" : s.press === "simple" ? " ค้างไว้" : "";
+    return `${how} ${btnName(s.source)}${where}${end}`;
+  });
 }
 
 function changedList(S, D) {
@@ -445,19 +426,23 @@ function changedList(S, D) {
     const layer = Number(p[1]), src = p.slice(2, -1).join(".");
     set.set(`${layer}|${src}`, { layer, src });
   }
-  const list = [...set.values()]
-    .map(({ layer, src }) => {
-      const st = buttonState(S, D, layer, src);
-      const lay = layer ? LAYER_NAME(layer) : "";
-      return `<button class="list-row" style="border:0;background:none;padding:0;text-align:left;width:260px;gap:12px" data-act="pick-src" data-src="${esc(src)}" data-layer="${layer}">
-        <span class="keytag${st.pend ? " pending" : ""}${st.pend && S.ui.sel === src ? " fill" : ""}">${esc(btnName(src))}</span>
-        <span><span style="display:block;font-weight:700" class="${st.pend ? "pending" : ""}">${esc(st.value)}</span>${lay ? `<span class="small muted">${lay}</span>` : ""}</span>
-      </button>`;
-    })
+  // One row per layer, Base included, so every edit says which layer it is in.
+  const groups = new Map();
+  for (const { layer, src } of set.values()) {
+    const st = buttonState(S, D, layer, src);
+    if (!groups.has(layer)) groups.set(layer, []);
+    groups.get(layer).push(`<button class="list-row" style="border:0;background:none;padding:0;text-align:left;width:220px;gap:12px" data-act="pick-src" data-src="${esc(src)}" data-layer="${layer}">
+        <span class="keytag${st.pend ? " pending" : ""}${st.pend && S.ui.sel === src && S.ui.layer === layer ? " fill" : ""}">${esc(btnName(src))}</span>
+        <span style="font-weight:700" class="${st.pend ? "pending" : ""}">${esc(st.value)}</span>
+      </button>`);
+  }
+  const rows = [...groups.keys()]
+    .sort((a, b) => a - b)
+    .map((id) => `<div class="layer-group"><span class="lg-name"><span class="${id === S.ui.layer ? "chip" : ""}">${LAYER_NAME(id)}</span></span><div class="lg-items">${groups.get(id).join("")}</div></div>`)
     .join("");
-  return `<section style="margin-top:8px">
+  return `<section style="margin-top:24px">
     <div class="rule-head top"><h2>ปุ่มที่แก้ใน slot นี้</h2><span class="meta">สีน้ำเงิน = ยังไม่ได้เขียนลงจอย · ทึบ = กำลังแก้ · สีดำ = อยู่บนจอยแล้ว</span></div>
-    <div style="display:flex;flex-wrap:wrap;gap:16px 0;padding-top:16px">${list || `<p class="empty-note">ทุกปุ่มเป็นค่าเดิม</p>`}</div>
+    ${rows || `<p class="empty-note">ทุกปุ่มเป็นค่าเดิม</p>`}
   </section>`;
 }
 
@@ -503,16 +488,22 @@ function buttonEditor(S, D) {
   // Factory default: a normal press sends the button itself, with no long or double press.
   const isFactory = isIdentity(D.get(mapKey(layer, src, "simple")), src) && PRESS.slice(1).every((p) => D.get(mapKey(layer, src, p.id)) === undefined);
   const base = baseTarget(cfg, layer, src, "simple");
-  const rows = PRESS.map((p) => {
-    const k = mapKey(layer, src, p.id);
-    const v = D.get(k);
-    const on = press === p.id;
-    return `<button class="row${on ? " sel" : ""}" data-act="press" data-press="${p.id}">
-      <span class="k${D.has(k) ? " pending" : ""}">${p.label}</span>
-      <span class="v ${v === undefined ? "muted" : ""}${D.has(k) ? " pending" : ""}" style="font-weight:${v === undefined ? 500 : 700}">${esc(labelTarget(v, cfg))}</span>
-      <span style="color:${on ? "var(--cobalt)" : "var(--ink)"}">${ICON.chev}</span>
-    </button>`;
+  // Variant B: every layer side by side. A cell is one layer × one kind of press, and the cell you
+  // click is what the controls below edit, so the layer is chosen on every edit.
+  const cols = layerList(S, D);
+  const head = cols.map((l) => {
+    const act = l.id === 0 ? ""
+      : l.deleted ? `<button class="link" data-act="layer-undelete" data-layer="${l.id}">ยกเลิกการลบ</button>`
+      : `<button class="link muted" data-act="layer-delete" data-layer="${l.id}">${l.isNew ? "เอาออก" : "ลบ"}</button>`;
+    return `<span class="mx-h${l.deleted ? " gone" : ""}"><b>${LAYER_NAME(l.id)}</b>${act}</span>`;
   }).join("");
+  const cells = PRESS.map((p) => `<span class="mx-k">${p.label}</span>${cols.map((l) => {
+    const k = mapKey(l.id, src, p.id);
+    const v = D.get(k);
+    const on = layer === l.id && press === p.id;
+    return `<button class="mx-c${on ? " on" : ""}${D.has(k) ? " pending" : ""}${v === undefined ? " unset" : ""}" data-act="cell" data-layer="${l.id}" data-press="${p.id}" ${l.deleted ? "disabled" : ""} aria-label="${esc(`${LAYER_NAME(l.id)} · ${p.label}: ${labelTarget(v, cfg)}`)}">${esc(labelTarget(v, cfg))}</button>`;
+  }).join("")}`).join("");
+  const rows = `<div class="mx" style="grid-template-columns:96px repeat(${cols.length}, minmax(0, 1fr))"><span class="mx-k"></span>${head}${cells}</div>`;
   const k = mapKey(layer, src, press);
   const cur = D.get(k);
   const type = ui.outType ?? typeOf(cur);
@@ -569,9 +560,9 @@ function buttonEditor(S, D) {
       </span>
     </div>
     ${src.startsWith("D-pad") ? `<div class="seg" style="margin-top:16px">${["D-pad ↑", "D-pad ↓", "D-pad ←", "D-pad →"].map((d) => `<button class="${src === d ? "on" : ""}" data-act="dpad" data-dir="${esc(d)}">${btnName(d)}</button>`).join("")}</div>` : ""}
-    <div style="padding-top:20px"><div class="label" style="padding-bottom:8px">เมื่อกด ${esc(btnName(src))} แบบ…</div>${rows}</div>
+    <div style="padding-top:20px"><div class="label" style="padding-bottom:8px">กด ${esc(btnName(src))} แบบไหน ในแต่ละ layer · คลิกช่องที่จะแก้</div>${rows}</div>
     <div style="padding-top:28px;display:grid;gap:14px">
-      <div class="label">${pl} ส่งเป็น</div>
+      <div class="label">${LAYER_NAME(layer)} · ${pl} ส่งเป็น</div>
       <div class="utabs" style="gap:20px">${types}</div>
       ${body}
       ${pend ? `<p style="margin:0">${untested(k) || UNSUP}</p>` : ""}

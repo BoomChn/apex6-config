@@ -275,7 +275,8 @@ export function meta(key, S) {
     const pr = PRESS.find((x) => x.id === press)?.label;
     return {
       tab: "buttons", group: "slot",
-      label: `ปุ่ม ${btnName(source)}${layer ? ` (${LAYER_NAME(layer)})` : ""} · ${pr}`,
+      // Every row names its layer, Base too: an edit in the wrong layer must be visible here.
+      label: `ปุ่ม ${btnName(source)} (${LAYER_NAME(layer)}) · ${pr}`,
       base: baseTarget(cfg, layer, source, press), fmt: (v) => labelTarget(v, cfg),
       ...(baseTarget(cfg, layer, source, press) === undefined ? { baseText: labelTarget(undefined) } : {}),
     };
