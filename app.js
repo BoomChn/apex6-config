@@ -97,6 +97,16 @@ function fitStages() {
   for (const svg of document.querySelectorAll(".stage svg[data-view]")) {
     const [x, y, w, h] = svg.dataset.view.split(/\s+/).map(Number);
     let extra = 0;
+    // D-pad arrows in a label: an 11px icon in the gap stage.js left, in the label's own colour.
+    for (const t of svg.querySelectorAll("tspan.arw-gap")) {
+      const e = t.getExtentOfChar(0), cx = e.x + e.width / 2, cy = e.y + e.height / 2;
+      const d = { "↑": `M${cx} ${cy + 5.5}V${cy - 5.5}M${cx - 4.5} ${cy - 1}L${cx} ${cy - 5.5}L${cx + 4.5} ${cy - 1}`, "↓": `M${cx} ${cy - 5.5}V${cy + 5.5}M${cx - 4.5} ${cy + 1}L${cx} ${cy + 5.5}L${cx + 4.5} ${cy + 1}`, "←": `M${cx + 5.5} ${cy}H${cx - 5.5}M${cx - 1} ${cy - 4.5}L${cx - 5.5} ${cy}L${cx - 1} ${cy + 4.5}`, "→": `M${cx - 5.5} ${cy}H${cx + 5.5}M${cx + 1} ${cy - 4.5}L${cx + 5.5} ${cy}L${cx + 1} ${cy + 4.5}` }[t.dataset.arw];
+      const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      p.setAttribute("class", "arw-svg");
+      p.setAttribute("d", d);
+      p.style.stroke = getComputedStyle(t).fill;
+      t.closest("text").after(p);
+    }
     // A highlighter stroke behind each label of a mapped button; SVG text has no background.
     for (const t of svg.querySelectorAll("text.mk")) {
       const b = t.getBBox();

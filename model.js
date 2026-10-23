@@ -15,6 +15,13 @@ export const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 // M5/M6 are the shoulder buttons LM/RM (confirmed on hardware): Flydigi Space Station names ControllerKey_M5 "LM" and M6 "RM".
 export const BTN_NAME = { M5: "LM", M6: "RM", Back: "View", Start: "Menu", "LT (active)": "LT", "RT (active)": "RT", "D-pad ↑": "↑", "D-pad ↓": "↓", "D-pad ←": "←", "D-pad →": "→" };
 export const btnName = (b) => BTN_NAME[b] ?? b;
+// The arrow glyphs come from whatever system font has them, at uneven sizes (↑ narrow, → wide), so
+// HTML draws them as one icon set instead. Only an arrow standing alone as a word is a D-pad name;
+// "ค่าบนจอย → ค่าใหม่" never passes through here.
+export const ARROW_PATH = { "↑": "M12 19V5M6 11l6-6 6 6", "↓": "M12 5v14M6 13l6 6 6-6", "←": "M19 12H5M11 6l-6 6 6 6", "→": "M5 12h14M13 6l6 6-6 6" };
+const ARROW_WORD = { "↑": "ขึ้น", "↓": "ลง", "←": "ซ้าย", "→": "ขวา" };
+export const nameHtml = (s) =>
+  esc(s).replace(/(^|\s)([↑↓←→])(?=\s|$)/g, (m, pre, a) => `${pre}<svg class="arw" viewBox="0 0 24 24" role="img" aria-label="${ARROW_WORD[a]}"><path d="${ARROW_PATH[a]}"/></svg>`);
 // Buttons a new macro can press: the face, shoulder, trigger and stick buttons (not M1–M6).
 // No C/Z: the Apex 6 Pro has none (PRODUCT.md, owner 2026-10-21). Protocol IDs stay in mapping.js;
 // pickers leave these out.
