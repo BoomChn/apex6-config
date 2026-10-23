@@ -3,7 +3,7 @@
 
 import { BACK, FRONT, ALL, stageSvg, inset, TRIG_MARK, PHOTO, LED_PATH } from "./stage.js";
 import {
-  esc, pct, same, btnName, PRESS, GYRO_MODE, LED_MODE, LAYER_NAME, PRESET, TPRESET, GPRESET, AXIS, MACRO_MODE, TIMEOUT,
+  esc, pct, same, btnName, nameHtml, PRESS, GYRO_MODE, LED_MODE, LAYER_NAME, PRESET, TPRESET, GPRESET, AXIS, MACRO_MODE, TIMEOUT,
   labelTarget, baseTarget, isIdentity, evalCurve, macroSteps, macroUses, macroList, openMacro,
   layerList, nextLayerId, layerSwitches, layerKey, meta, gripPart, lraGrip, MACRO_PAD, NOT_ON_PAD,
 } from "./model.js";
@@ -396,7 +396,7 @@ export function buttons(S, D) {
 function layerLine(S, D, list) {
   const parts = list.map((l) => {
     const ways = layerWays(S, D, l.id);
-    const how = l.id === 0 ? "รูปจอยแสดง layer นี้" : ways.length ? esc(ways.join(", ")) : "ยังไม่มีปุ่มพาไป";
+    const how = l.id === 0 ? "รูปจอยแสดง layer นี้" : ways.length ? nameHtml(ways.join(", ")) : "ยังไม่มีปุ่มพาไป";
     return `<span${l.deleted ? ' style="text-decoration:line-through"' : ""}><b>${LAYER_NAME(l.id)}</b> <span class="muted">${how}${l.isNew ? " · เพิ่มใหม่" : ""}</span></span>`;
   }).join(`<span class="muted"> · </span>`);
   const add = nextLayerId(S, D) !== null
@@ -434,8 +434,8 @@ function changedList(S, D) {
     const st = buttonState(S, D, layer, src);
     if (!groups.has(layer)) groups.set(layer, []);
     groups.get(layer).push(`<button class="list-row" style="border:0;background:none;padding:0;text-align:left;width:220px;gap:12px" data-act="pick-src" data-src="${esc(src)}" data-layer="${layer}">
-        <span class="keytag${st.pend ? " pending" : ""}${st.pend && S.ui.sel === src && S.ui.layer === layer ? " fill" : ""}">${esc(btnName(src))}</span>
-        <span style="font-weight:700" class="${st.pend ? "pending" : ""}">${esc(st.value)}</span>
+        <span class="keytag${st.pend ? " pending" : ""}${st.pend && S.ui.sel === src && S.ui.layer === layer ? " fill" : ""}">${nameHtml(btnName(src))}</span>
+        <span style="font-weight:700" class="${st.pend ? "pending" : ""}">${nameHtml(st.value)}</span>
       </button>`);
   }
   const rows = [...groups.keys()]
@@ -503,7 +503,7 @@ function buttonEditor(S, D) {
     const k = mapKey(l.id, src, p.id);
     const v = D.get(k);
     const on = layer === l.id && press === p.id;
-    return `<button class="mx-c${on ? " on" : ""}${D.has(k) ? " pending" : ""}${v === undefined ? " unset" : ""}" data-act="cell" data-layer="${l.id}" data-press="${p.id}" ${l.deleted ? "disabled" : ""} aria-label="${esc(`${LAYER_NAME(l.id)} · ${p.label}: ${labelTarget(v, cfg)}`)}">${esc(labelTarget(v, cfg))}</button>`;
+    return `<button class="mx-c${on ? " on" : ""}${D.has(k) ? " pending" : ""}${v === undefined ? " unset" : ""}" data-act="cell" data-layer="${l.id}" data-press="${p.id}" ${l.deleted ? "disabled" : ""} aria-label="${esc(`${LAYER_NAME(l.id)} · ${p.label}: ${labelTarget(v, cfg)}`)}">${nameHtml(labelTarget(v, cfg))}</button>`;
   }).join("")}`).join("");
   const rows = `<div class="mx" style="grid-template-columns:96px repeat(${cols.length}, minmax(0, 1fr))"><span class="mx-k"></span>${head}${cells}</div>`;
   const k = mapKey(layer, src, press);
@@ -517,7 +517,7 @@ function buttonEditor(S, D) {
   if (type === "gamepad" || type === "turbo") {
     const selBtn = cur?.button;
     body = `<div class="keys" style="margin-top:16px">${OUT_KEYS.map(
-      (b) => `<button class="key${selBtn === b && typeOf(cur) === type ? " on" : ""}" data-act="out" data-type="${type}" data-btn="${esc(b)}">${esc(btnName(b))}</button>`,
+      (b) => `<button class="key${selBtn === b && typeOf(cur) === type ? " on" : ""}" data-act="out" data-type="${type}" data-btn="${esc(b)}">${nameHtml(btnName(b))}</button>`,
     ).join("")}</div>`;
     if (type === "turbo") {
       const iv = cur?.type === "turbo_gamepad" ? cur.interval_ms : 80;
@@ -553,16 +553,16 @@ function buttonEditor(S, D) {
       <button class="btn" style="margin-top:12px" data-act="out" data-type="unset">ไม่ใช้${pl}</button>`;
   }
   return `<div class="head-inset">
-      <span class="keytag${pend ? " fill" : " ink"}" style="height:52px;min-width:52px;font-size:20px;border-radius:8px">${esc(btnName(src))}</span>
+      <span class="keytag${pend ? " fill" : " ink"}" style="height:52px;min-width:52px;font-size:20px;border-radius:8px">${nameHtml(btnName(src))}</span>
       <div class="t"><h2>${esc(BTN_TITLE[src] ?? btnName(src))}</h2>
-        <div class="status${pend ? " pending" : ""}">${pend ? `แก้แล้ว · ค่าบนจอย: ${esc(labelTarget(base, cfg))}` : `ค่าบนจอย: ${esc(labelTarget(base, cfg))}`}</div></div>
+        <div class="status${pend ? " pending" : ""}">${pend ? `แก้แล้ว · ค่าบนจอย: ${nameHtml(labelTarget(base, cfg))}` : `ค่าบนจอย: ${nameHtml(labelTarget(base, cfg))}`}</div></div>
       <span style="display:grid;justify-items:end;gap:12px;white-space:nowrap">
         ${pend ? `<button class="link" data-act="revert-btn" title="ยกเลิกที่แก้ กลับไปเป็นค่าที่อยู่บนจอยตอนนี้">คืนค่าบนจอย</button>` : ""}
         ${isFactory ? "" : `<button class="link" data-act="factory-btn" title="กดปกติส่ง ${esc(btnName(src))} เอง ไม่มีกดค้างหรือดับเบิลคลิก">ตั้งเป็นค่าเริ่มต้น</button>`}
       </span>
     </div>
-    ${src.startsWith("D-pad") ? `<div class="seg" style="margin-top:16px">${["D-pad ↑", "D-pad ↓", "D-pad ←", "D-pad →"].map((d) => `<button class="${src === d ? "on" : ""}" data-act="dpad" data-dir="${esc(d)}">${btnName(d)}</button>`).join("")}</div>` : ""}
-    <div style="padding-top:20px"><div class="label" style="padding-bottom:8px">กด ${esc(btnName(src))} แบบไหน ในแต่ละ layer · คลิกช่องที่จะแก้</div>${rows}</div>
+    ${src.startsWith("D-pad") ? `<div class="seg" style="margin-top:16px">${["D-pad ↑", "D-pad ↓", "D-pad ←", "D-pad →"].map((d) => `<button class="${src === d ? "on" : ""}" data-act="dpad" data-dir="${esc(d)}">${nameHtml(btnName(d))}</button>`).join("")}</div>` : ""}
+    <div style="padding-top:20px"><div class="label" style="padding-bottom:8px">กด ${nameHtml(btnName(src))} แบบไหน ในแต่ละ layer · คลิกช่องที่จะแก้</div>${rows}</div>
     <div style="padding-top:28px;display:grid;gap:14px">
       <div class="label">${LAYER_NAME(layer)} · ${pl} ส่งเป็น</div>
       <div class="utabs" style="gap:20px">${types}</div>
@@ -764,7 +764,7 @@ export function macros(S, D) {
     const state = stale(m.uid)
       ? `<span class="meta pending">แก้แล้ว · ยังไม่ได้เขียน</span>`
       : srcs.length
-        ? `<span style="display:flex;gap:4px;align-items:center">${srcs.slice(0, 3).map((s) => `<span class="keytag ink">${esc(btnName(s))}</span>`).join("")}${srcs.length > 3 ? `<span class="meta">+${srcs.length - 3}</span>` : ""}</span>`
+        ? `<span style="display:flex;gap:4px;align-items:center">${srcs.slice(0, 3).map((s) => `<span class="keytag ink">${nameHtml(btnName(s))}</span>`).join("")}${srcs.length > 3 ? `<span class="meta">+${srcs.length - 3}</span>` : ""}</span>`
         : `<span class="meta">${m.actions.length ? "ยังไม่ได้ใช้" : "ยังไม่มีขั้น"}</span>`;
     return `<button class="list-row" style="width:100%;border-left:0;border-right:0;border-top:0;background:none;text-align:left;justify-content:space-between" data-act="macro" data-uid="${esc(m.uid)}">
       <span><span style="display:block;font-size:17px;font-weight:${on ? 700 : 600}">${esc(m.name)}</span>
@@ -815,7 +815,7 @@ export function macros(S, D) {
   const stepCount = macroSteps(m.actions);
   const tool = `<div style="border-top:3px solid var(--ink);margin:28px 0 24px;padding-top:16px">
       <span class="label" style="display:block;margin-bottom:8px">เพิ่มขั้น · กดปุ่มที่ macro จะกด ตามลำดับ</span>
-      <div class="keys">${MACRO_PAD.map((p) => `<button class="key" style="width:auto;min-width:56px;padding:0 12px" data-act="step-add" data-btn="${esc(p)}">${esc(btnName(p))}</button>`).join("")}</div>
+      <div class="keys">${MACRO_PAD.map((p) => `<button class="key" style="width:auto;min-width:56px;padding:0 12px" data-act="step-add" data-btn="${esc(p)}">${nameHtml(btnName(p))}</button>`).join("")}</div>
       <div style="display:flex;align-items:end;gap:24px;margin-top:16px">
         <label><span class="label" style="display:block;margin-bottom:6px">กดค้างขั้นละ (ms)</span><input class="field" type="number" min="10" max="2000" step="10" style="width:120px" value="${S.ui.hold ?? 50}" data-ui="hold"></label>
         <label><span class="label" style="display:block;margin-bottom:6px">เว้นก่อนขั้นถัดไป (ms)</span><input class="field" type="number" min="0" max="2000" step="10" style="width:120px" value="${S.ui.gap ?? 50}" data-ui="gap"></label>
@@ -830,7 +830,7 @@ export function macros(S, D) {
         <input class="field" style="height:52px;font-size:20px" value="${esc(m.name)}" data-lib-name data-default="Macro" maxlength="${APP_NAME_MAX}"></label>
         <div style="margin-top:6px">${nameFit(m.name)}</div></div>
       <div><span class="label" style="display:block;margin-bottom:8px">ใช้กับปุ่ม · Slot ${S.slots.activeSlot + 1}</span>
-        <div class="field" style="min-height:52px;height:auto;display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding-top:8px;padding-bottom:8px;color:${uses.length ? "inherit" : "var(--ink-2)"}">${uses.length ? uses.map((u) => `<span class="keytag">${esc(btnName(u.source))}</span><span class="small muted">${esc(u.layer ? LAYER_NAME(u.layer) : "")}${u.press === "simple" ? "" : ` ${esc(PRESS.find((p) => p.id === u.press).label)}`}</span>`).join("") : "ยังไม่ได้ใช้ · เลือกได้ที่หน้า Buttons → Macro"}</div>
+        <div class="field" style="min-height:52px;height:auto;display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding-top:8px;padding-bottom:8px;color:${uses.length ? "inherit" : "var(--ink-2)"}">${uses.length ? uses.map((u) => `<span class="keytag">${nameHtml(btnName(u.source))}</span><span class="small muted">${esc(u.layer ? LAYER_NAME(u.layer) : "")}${u.press === "simple" ? "" : ` ${esc(PRESS.find((p) => p.id === u.press).label)}`}</span>`).join("") : "ยังไม่ได้ใช้ · เลือกได้ที่หน้า Buttons → Macro"}</div>
         ${uses.length ? `<div style="margin-top:6px">${UNTESTED}</div>` : ""}</div>
     </div>
     <div style="margin-top:24px"><span class="label" style="display:block;margin-bottom:8px">เล่นแบบ</span>${modes}</div>
@@ -886,7 +886,7 @@ function boundFigure(src, name) {
   const id = { "RT (active)": "RT", "LT (active)": "LT" }[src] ?? src;
   const def = BACK.callouts.some((c) => c.id === id) ? BACK : FRONT.callouts.some((c) => c.id === id) ? FRONT : null;
   if (!def) return "";
-  return `<section style="margin-top:28px"><div class="rule-head top"><h2>ปุ่มที่ผูกอยู่ · ${esc(btnName(src))}</h2></div>
+  return `<section style="margin-top:28px"><div class="rule-head top"><h2>ปุ่มที่ผูกอยู่ · ${nameHtml(btnName(src))}</h2></div>
     ${stageSvg(def, { [id]: { name: btnName(src), value: name, state: "set", sel: true } }, { kind: def === BACK ? "back" : "front" })}
     <p class="meta" style="margin-top:4px">${def === BACK ? "มองจากด้านหลัง · ซ้ายของภาพคือมือขวา" : "มองจากด้านหน้า"}</p></section>`;
 }
@@ -1387,8 +1387,8 @@ export function review(S, D) {
   // Copies no button plays are removed by this write: count them, so the title matches the rows.
   const nAll = nW && nW + plan.rows.filter((r) => r.kind === "remove").length;
   const errors = plan.errors;
-  const row = (i) => `<div class="diff-row${i.writable ? "" : " unsup"}"><b>${esc(i.label)}${untested(i.editKey) ? `<br>${untested(i.editKey)}` : ""}</b><span class="old">${esc(i.baseText ?? (i.base === undefined ? "ไม่ทราบ" : i.fmt(i.base)))}</span><span>→</span>
-    <span class="new">${i.key === "led.color" ? `<span class="swatch-dot" style="background:${esc(i.value)}"></span>` : ""}${esc(i.fmt(i.value))}${i.writable && i.key.endsWith(".name") && fit(i.value) !== i.value ? `<br><span class="meta">บนจอยจะเป็น “${esc(fit(i.value))}” · ชื่อเต็มเก็บในแอป</span>` : ""}</span></div>`;
+  const row = (i) => `<div class="diff-row${i.writable ? "" : " unsup"}"><b>${nameHtml(i.label)}${untested(i.editKey) ? `<br>${untested(i.editKey)}` : ""}</b><span class="old">${nameHtml(i.baseText ?? (i.base === undefined ? "ไม่ทราบ" : i.fmt(i.base)))}</span><span>→</span>
+    <span class="new">${i.key === "led.color" ? `<span class="swatch-dot" style="background:${esc(i.value)}"></span>` : ""}${nameHtml(i.fmt(i.value))}${i.writable && i.key.endsWith(".name") && fit(i.value) !== i.value ? `<br><span class="meta">บนจอยจะเป็น “${esc(fit(i.value))}” · ชื่อเต็มเก็บในแอป</span>` : ""}</span></div>`;
   const slot = S.slots.activeSlot;
   const linked = S.current ? S.profiles.holding(S.current.wrapped) : [];
   const steps = (uid) => {

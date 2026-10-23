@@ -4,6 +4,9 @@
 export const PHOTO = { front: "./assets/apex6pro-front.jpg", back: "./assets/apex6pro-back.jpg", w: 1600, h: 1280 };
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+// A D-pad arrow standing alone in a label keeps an em-wide gap here; fitStages() draws the icon into
+// it (SVG text cannot hold an icon, and the system-font arrows come out at uneven sizes).
+const svgName = (s) => esc(s).replace(/(^|\s)([↑↓←→])(?=\s|$)/g, (m, pre, a) => `${pre}<tspan class="arw-gap" data-arw="${a}"> </tspan>`);
 
 // Back view: photo at (2, 98) scale 0.56. Seen from the back, the left of the image is the right hand.
 export const BACK = {
@@ -106,9 +109,9 @@ export function stageSvg(def, items, { kind = "back", label = "" } = {}) {
       const lx = def.labelX[c.side], kx = def.keyX[c.side];
       const anchor = left ? "end" : "start";
       const text = def.inline
-        ? `<text${it.mapped ? ' class="mk"' : ""} x="${lx}" y="${c.y + 4.5}" text-anchor="${anchor}"><tspan class="name">${esc(it.name)}</tspan><tspan class="val" dx="6">${esc(it.value)}</tspan></text>${(it.extra ?? []).map((x, i) => `<text class="extra${x.pend ? " pend" : ""}${x.mapped ? " mk" : ""}" x="${lx}" y="${c.y + 4.5 + 15 * (i + 1)}" text-anchor="${anchor}"><tspan class="xn">${esc(x.name)}</tspan><tspan class="xv" dx="5">${esc(x.value)}</tspan></text>`).join("")}`
-        : `<text class="name" x="${lx}" y="${c.y - 6}" text-anchor="${anchor}">${esc(it.name)}</text>
-           <text class="val" x="${lx}" y="${c.y + 13}" text-anchor="${anchor}">${esc(it.value)}</text>`;
+        ? `<text${it.mapped ? ' class="mk"' : ""} x="${lx}" y="${c.y + 4.5}" text-anchor="${anchor}"><tspan class="name">${svgName(it.name)}</tspan><tspan class="val" dx="6">${svgName(it.value)}</tspan></text>${(it.extra ?? []).map((x, i) => `<text class="extra${x.pend ? " pend" : ""}${x.mapped ? " mk" : ""}" x="${lx}" y="${c.y + 4.5 + 15 * (i + 1)}" text-anchor="${anchor}"><tspan class="xn">${esc(x.name)}</tspan><tspan class="xv" dx="5">${svgName(x.value)}</tspan></text>`).join("")}`
+        : `<text class="name" x="${lx}" y="${c.y - 6}" text-anchor="${anchor}">${svgName(it.name)}</text>
+           <text class="val" x="${lx}" y="${c.y + 13}" text-anchor="${anchor}">${svgName(it.value)}</text>`;
       const hitX = left ? 0 : kx - 12, hitW = left ? kx + 12 : 900 - (kx - 12);
       const hitH = (def.rowH ?? 44) + 15 * (it.extra?.length ?? 0);
       return `<g class="${cls}" data-pick="${c.id}" tabindex="0" role="button" aria-label="${esc(`${it.name}: ${it.value}${(it.extra ?? []).map((x) => ` · ${x.name}: ${x.value}`).join("")}${c.behind ? " · อยู่ด้านหลัง มองไม่เห็นจากด้านหน้า" : ""}`)}">
