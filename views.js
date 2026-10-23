@@ -5,7 +5,7 @@ import { BACK, FRONT, ALL, stageSvg, inset, TRIG_MARK, PHOTO, LED_PATH } from ".
 import {
   esc, pct, same, btnName, nameHtml, PRESS, GYRO_MODE, LED_MODE, LAYER_NAME, PRESET, TPRESET, GPRESET, AXIS, MACRO_MODE, TIMEOUT,
   labelTarget, baseTarget, isIdentity, evalCurve, macroSteps, macroUses, macroList, openMacro,
-  layerList, layerSwitches, layerKey, meta, gripPart, lraGrip, MACRO_PAD, NOT_ON_PAD,
+  layerList, layerSwitches, baseSwitches, lockedTarget, layerKey, meta, gripPart, lraGrip, MACRO_PAD, NOT_ON_PAD,
 } from "./model.js";
 import { BUTTONS, decodeMapping } from "./mapping.js";
 import { isWritable, HW_TESTED, hwTested, LAYER_MAX, NAME_MAX, nameBytes, MACRO_MAX, gyroPct, GYRO_MIDS_MAX, VIB_LEVELS, gripEndY, motorMode, FEEDBACK_MODE } from "./mapping-edit.js";
@@ -602,19 +602,7 @@ function layerPicker(S, D, cur) {
 // every other layer and those cells can't be edited: the firmware plays the button's own map in the
 // layer it holds (hardware: B hold → Shift with Shift's B = K typed k all the while), so anything set
 // there would go out too. In the layer a toggle goes to, the same press switches back to Base.
-const isSwitch = (t) => t?.type === "layer_hold" || t?.type === "layer_toggle";
-function baseSwitch(D, src) {
-  for (const p of PRESS) {
-    const t = shownTarget(D, 0, src, p.id);
-    if (isSwitch(t)) return { press: p.id, t };
-  }
-  return null;
-}
-// What a locked cell holds: switch back to Base, off (normal press), or nothing (long/double).
-function lockedTarget(sw, layer, press) {
-  if (sw.t.type === "layer_toggle" && layer === sw.t.layer && press === sw.press) return { type: "layer_toggle", layer: 0 };
-  return press === "simple" ? { type: "none" } : undefined;
-}
+const baseSwitch = (S, D, src) => baseSwitches(S, D, src)[0] ?? null;
 const LOCK_ICON = `<svg class="mx-lock" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><rect x="2.5" y="6.2" width="9" height="6.3" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M4.6 6.2V4.4a2.4 2.4 0 0 1 4.8 0v1.8" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>`;
 function lockNote(sw, src, cols) {
   const b = nameHtml(btnName(src));
@@ -634,12 +622,12 @@ function lockNote(sw, src, cols) {
 export function pressRows(S, D) {
   const src = S.ui.sel;
   const cols = liveLayers(S, D);
-  const sw = baseSwitch(D, src);
+  const sw = baseSwitch(S, D, src);
   return PRESS.slice(1).map((p) => p.id).filter((id) =>
     S.ui.press === id || S.ui.addedPress?.includes(id) ||
-    cols.some((l) => (sw && l.id !== 0 ? lockedTarget(sw, l.id, id) : shownTarget(D, l.id, src, id)) !== undefined));
+    cols.some((l) => (sw && l.id !== 0 ? lockedTarget(baseSwitches(S, D, src), l.id, id) : shownTarget(D, l.id, src, id)) !== undefined));
 }
-export const isLockedCell = (S, D, layer) => layer !== 0 && !!baseSwitch(D, S.ui.sel);
+export const isLockedCell = (S, D, layer) => layer !== 0 && !!baseSwitch(S, D, S.ui.sel);
 
 function pressAdd(S, D, shown) {
   const rt = S.current.cfg.runtime;
@@ -667,14 +655,14 @@ function buttonEditor(S, D) {
   // Adding and deleting layers is on the layer rows under the photo (changedList).
   const cols = liveLayers(S, D);
   const head = cols.map((l) => `<span class="mx-h"><b>${LAYER_NAME(l.id)}</b></span>`).join("");
-  const sw = baseSwitch(D, src);
+  const sw = baseSwitch(S, D, src);
   const shown = pressRows(S, D);
   const cells = PRESS.filter((p) => p.id === "simple" || shown.includes(p.id)).map((p) => `<span class="mx-k">${p.label}</span>${cols.map((l) => {
     const k = mapKey(l.id, src, p.id);
     if (sw && l.id !== 0) {
-      const t = lockedTarget(sw, l.id, p.id);
+      const t = lockedTarget(baseSwitches(S, D, src), l.id, p.id);
       const label = t ? labelTarget(t, cfg) : "ไม่ใช้";
-      return `<button class="mx-c lock${t ? "" : " unset"}" disabled aria-label="${esc(`${LAYER_NAME(l.id)} · ${p.label}: ${label} · แอปตั้งให้ แก้ไม่ได้`)}">${LOCK_ICON}<span>${label}</span></button>`;
+      return `<button class="mx-c lock${t ? "" : " unset"}${D.has(k) ? " pending" : ""}" disabled aria-label="${esc(`${LAYER_NAME(l.id)} · ${p.label}: ${label} · แอปตั้งให้ แก้ไม่ได้`)}">${LOCK_ICON}<span>${label}</span></button>`;
     }
     const v = shownTarget(D, l.id, src, p.id);
     const on = layer === l.id && press === p.id;
