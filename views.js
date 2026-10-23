@@ -5,7 +5,7 @@ import { BACK, FRONT, ALL, stageSvg, inset, TRIG_MARK, PHOTO, LED_PATH } from ".
 import {
   esc, pct, same, btnName, nameHtml, PRESS, GYRO_MODE, LED_MODE, LAYER_NAME, PRESET, TPRESET, GPRESET, AXIS, MACRO_MODE, TIMEOUT,
   labelTarget, baseTarget, isIdentity, evalCurve, macroSteps, macroUses, macroList, openMacro,
-  layerList, layerSwitches, layerKey, meta, gripPart, lraGrip, MACRO_PAD, NOT_ON_PAD,
+  layerList, layerSwitches, baseSwitches, lockedTarget, layerKey, meta, gripPart, lraGrip, MACRO_PAD, NOT_ON_PAD,
 } from "./model.js";
 import { BUTTONS, decodeMapping } from "./mapping.js";
 import { isWritable, HW_TESTED, hwTested, LAYER_MAX, NAME_MAX, nameBytes, MACRO_MAX, gyroPct, GYRO_MIDS_MAX, VIB_LEVELS, gripEndY, motorMode, FEEDBACK_MODE } from "./mapping-edit.js";
@@ -482,14 +482,13 @@ function changedList(S, D) {
   const foot = free > 0
     ? `<button class="link" data-act="layer-new">+ เพิ่ม layer</button><span class="meta">เพิ่มได้อีก ${free} layer${gone ? ` · ที่ลบไว้จะว่างหลังเขียนลงจอย` : ""}</span>`
     : `<span class="meta">ครบ ${LAYER_MAX} layer แล้ว${gone ? ` · ที่ลบไว้จะว่างหลังเขียนลงจอย` : ""}</span>`;
-  const sw = layerSwitches(S, D, (s) => s.to !== s.layer && !D.has(layerKey(s.layer, "delete")));
-  const trapped = list.filter((l) => l.id && sw.some((s) => s.to === l.id && s.type === "layer_toggle") && !sw.some((s) => s.layer === l.id));
-  const warn = trapped.map((l) => `<p class="notice" style="margin:12px 0 0;color:var(--ink)">${ICON.warn}<span>ปุ่มที่สลับเข้า ${LAYER_NAME(l.id)} จะค้างอยู่ที่นั่น ตั้งปุ่มใน ${LAYER_NAME(l.id)} ให้สลับกลับ ${LAYER_NAME(0)} ด้วย ไม่งั้นจะกลับไม่ได้</span></p>`).join("");
+  // No "stuck in a layer" warning: a toggle can only start in Base, and the app gives the same press
+  // in the layer it goes to a switch back to Base (lockedTarget).
   return `<section style="margin-top:24px">
     <div class="rule-head top"><h2>ปุ่มที่แก้ใน slot นี้</h2><span class="meta"><span class="marker-key">เหลือง</span> = ไม่ใช่ค่าเดิม · สีน้ำเงิน = ยังไม่ได้เขียนลงจอย · ทึบ = กำลังแก้ · สีดำ = อยู่บนจอยแล้ว</span></div>
     ${rows}
     <div class="lg-foot">${foot}</div>
-    ${warn}
+
   </section>`;
 }
 
@@ -534,7 +533,7 @@ const OUT_TYPES = [
   { id: "mouse", label: "เมาส์" },
   { id: "turbo", label: "Turbo" },
   { id: "macro", label: "Macro" },
-  { id: "layer", label: "สลับ layer" },
+  { id: "layer", label: "เปลี่ยน layer" },
   { id: "none", label: "ปิดปุ่ม" },
 ];
 const typeOf = (t) =>
@@ -592,29 +591,53 @@ function layerPicker(S, D, cur) {
   const dbl = S.ui.press === "double";
   const on = (id) => (cur?.type === "layer_hold" || cur?.type === "layer_toggle") && cur.layer === id;
   const name = (id) => LAYER_NAME(id);
-  return `<div class="seg" style="justify-self:start"><button class="${mode === "hold" ? "on" : ""}" data-act="layer-mode" data-mode="hold"${dbl ? ` disabled title="ดับเบิลคลิกใช้ได้แค่แบบสลับ"` : ""}>กดค้าง</button><button class="${mode === "toggle" ? "on" : ""}" data-act="layer-mode" data-mode="toggle">สลับ</button></div>
-    <p class="meta" style="margin:0;line-height:20px">${mode === "hold" ? "กดค้างไว้ ปุ่มอื่นจะทำตาม layer ที่เลือก ปล่อยแล้วกลับมา layer นี้" : `กดแล้วอยู่ใน layer ที่เลือกต่อไปเรื่อย ๆ ต้องมีปุ่มใน layer นั้นที่สลับกลับมา`}</p>
+  return `<div class="seg" style="justify-self:start"><button class="${mode === "hold" ? "on" : ""}" data-act="layer-mode" data-mode="hold"${dbl ? ` disabled title="ดับเบิลคลิกใช้ได้แค่แบบสลับ"` : ""}>ขณะกด</button><button class="${mode === "toggle" ? "on" : ""}" data-act="layer-mode" data-mode="toggle">สลับ</button></div>
+    <p class="meta" style="margin:0;line-height:20px">${mode === "hold" ? "ปุ่มอื่นทำตาม layer ที่เลือกเฉพาะตอนที่ยังกดอยู่ ปล่อยแล้วกลับ Base layer" : "กดครั้งแรกไป layer ที่เลือก กดอีกครั้งกลับ Base layer"}</p>
     <div>${others.map(
       (l) => `<button class="row" data-act="out" data-type="layer" data-mode="${mode}" data-to="${l.id}"><span class="v" style="font-weight:700${on(l.id) ? ";color:var(--cobalt)" : ""}">${esc(name(l.id))}${l.isNew ? ` <span class="small muted" style="font-weight:500">· เพิ่มใหม่</span>` : ""}</span>${ICON.chev}</button>`,
     ).join("")}</div>`;
 }
 
-// Hardware, owner 2026-10-23: B "hold → Shift layer" (normal press) with Shift's B set to K: holding
-// B typed k the whole time, and A gave Shift's J. So a button that holds a layer also plays its own
-// normal press of that layer while held; with nothing set there, that is the button itself.
-function holdLeakNote(S, D, src, cols) {
-  const cfg = S.current.cfg;
-  const live = new Set(cols.map((l) => l.id));
-  return cols
-    .map((l) => ({ from: l.id, t: shownTarget(D, l.id, src, "simple") }))
-    .filter(({ t }) => t?.type === "layer_hold" && live.has(t.layer))
-    .map(({ from, t }) => {
-      const there = shownTarget(D, t.layer, src, "simple");
-      if (there?.type === "none" || there?.type === "layer_hold" || there?.type === "layer_toggle") return "";
-      const what = there === undefined || isIdentity(there, src) ? btnName(src) : labelTarget(there, cfg);
-      return `<p class="meta hold-leak" style="margin:10px 0 0;line-height:20px">กด ${nameHtml(btnName(src))} ค้างใน ${esc(LAYER_NAME(from))} จอยจะส่ง <b style="color:var(--ink)">${nameHtml(what)}</b> ไปด้วยตลอดที่ค้าง (ช่อง ${esc(LAYER_NAME(t.layer))} · กดปกติ) · ถ้าไม่อยากให้ส่งอะไร ตั้งช่องนั้นเป็น "ปิดปุ่มนี้"</p>`;
-    })
-    .join("");
+// Owner's rule (2026-10-23): a button switches layers only from Base. Once it does, the app sets it in
+// every other layer and those cells can't be edited: the firmware plays the button's own map in the
+// layer it holds (hardware: B hold → Shift with Shift's B = K typed k all the while), so anything set
+// there would go out too. In the layer a toggle goes to, the same press switches back to Base.
+const baseSwitch = (S, D, src) => baseSwitches(S, D, src)[0] ?? null;
+const LOCK_ICON = `<svg class="mx-lock" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><rect x="2.5" y="6.2" width="9" height="6.3" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M4.6 6.2V4.4a2.4 2.4 0 0 1 4.8 0v1.8" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>`;
+function lockNote(sw, src, cols) {
+  const b = nameHtml(btnName(src));
+  const names = (ls) => ls.map((l) => esc(LAYER_NAME(l.id))).join(" และ ");
+  const back = sw.t.type === "layer_toggle" ? cols.filter((l) => l.id === sw.t.layer) : [];
+  const off = cols.filter((l) => l.id !== 0 && !back.includes(l));
+  const pl = PRESS.find((p) => p.id === sw.press).label;
+  const lines = [
+    back.length ? `ใน ${names(back)} ${sw.press === "simple" ? "กด" : pl} ${b} อีกครั้งเพื่อกลับ Base layer (แอปตั้งให้)` : "",
+    off.length ? `ใน ${names(off)} แอปปิด ${b} ไว้ จึงไม่มีอะไรส่งเข้าเกมเพิ่ม` : "",
+  ].filter(Boolean);
+  return `<div class="lock-note">${LOCK_ICON}<span><b>${b} ใช้เปลี่ยน layer</b> · ${lines.join(" · ")}<br>จะให้ ${b} ทำอย่างอื่นใน layer อื่น ให้เปลี่ยนช่อง Base layer · ${pl} ก่อน</span></div>`;
+}
+
+// Long and double press rows show only when some layer uses them, or the user just added one with
+// "+ เพิ่มแบบกด" (owner, 2026-10-23). An added row left unused goes when the button or page changes.
+export function pressRows(S, D) {
+  const src = S.ui.sel;
+  const cols = liveLayers(S, D);
+  const sw = baseSwitch(S, D, src);
+  return PRESS.slice(1).map((p) => p.id).filter((id) =>
+    S.ui.press === id || S.ui.addedPress?.includes(id) ||
+    cols.some((l) => (sw && l.id !== 0 ? lockedTarget(baseSwitches(S, D, src), l.id, id) : shownTarget(D, l.id, src, id)) !== undefined));
+}
+export const isLockedCell = (S, D, layer) => layer !== 0 && !!baseSwitch(S, D, S.ui.sel);
+
+function pressAdd(S, D, shown) {
+  const rt = S.current.cfg.runtime;
+  const left = PRESS.slice(1).filter((p) => !shown.includes(p.id));
+  if (!left.length) return "";
+  const why = { long: `กดค้างไว้นานกว่า ${D.get("runtime.long") ?? rt.long_press_ms} ms`, double: `กดสองครั้งติดกันภายใน ${D.get("runtime.double") ?? rt.double_press_ms} ms` };
+  return `<div class="press-add"><span class="menu-wrap">
+      <button class="link" data-act="press-menu" aria-haspopup="menu" aria-expanded="${!!S.ui.pressMenu}">+ เพิ่มแบบกด</button>
+      ${S.ui.pressMenu ? `<span class="menu left" role="menu" aria-label="เพิ่มแบบกด">${left.map((p) => `<button role="menuitem" data-act="press-add" data-press="${p.id}"><b>${p.label}</b><span>${why[p.id]}</span></button>`).join("")}</span>` : ""}
+    </span><span class="meta">${left.map((p) => p.label).join(" · ")}</span></div>`;
 }
 
 function buttonEditor(S, D) {
@@ -632,20 +655,29 @@ function buttonEditor(S, D) {
   // Adding and deleting layers is on the layer rows under the photo (changedList).
   const cols = liveLayers(S, D);
   const head = cols.map((l) => `<span class="mx-h"><b>${LAYER_NAME(l.id)}</b></span>`).join("");
-  const cells = PRESS.map((p) => `<span class="mx-k">${p.label}</span>${cols.map((l) => {
+  const sw = baseSwitch(S, D, src);
+  const shown = pressRows(S, D);
+  const cells = PRESS.filter((p) => p.id === "simple" || shown.includes(p.id)).map((p) => `<span class="mx-k">${p.label}</span>${cols.map((l) => {
     const k = mapKey(l.id, src, p.id);
+    if (sw && l.id !== 0) {
+      const t = lockedTarget(baseSwitches(S, D, src), l.id, p.id);
+      const label = t ? labelTarget(t, cfg) : "ไม่ใช้";
+      return `<button class="mx-c lock${t ? "" : " unset"}${D.has(k) ? " pending" : ""}" disabled aria-label="${esc(`${LAYER_NAME(l.id)} · ${p.label}: ${label} · แอปตั้งให้ แก้ไม่ได้`)}">${LOCK_ICON}<span>${label}</span></button>`;
+    }
     const v = shownTarget(D, l.id, src, p.id);
     const on = layer === l.id && press === p.id;
     return `<button class="mx-c${on ? " on" : ""}${D.has(k) ? " pending" : ""}${v === undefined ? " unset" : ""}" data-act="cell" data-layer="${l.id}" data-press="${p.id}" aria-label="${esc(`${LAYER_NAME(l.id)} · ${p.label}: ${labelTarget(v, cfg)}`)}">${nameHtml(labelTarget(v, cfg))}</button>`;
   }).join("")}`).join("");
   const rows = `<div class="mx" style="grid-template-columns:96px repeat(${cols.length}, minmax(0, 1fr))"><span class="mx-k"></span>${head}${cells}</div>`;
-  const leak = holdLeakNote(S, D, src, cols);
+  const leak = sw ? lockNote(sw, src, cols) : "";
   const k = mapKey(layer, src, press);
   const cur = shownTarget(D, layer, src, press);
   const type = ui.outType ?? typeOf(cur);
   const pl = PRESS.find((p) => p.id === press).label;
   const types = [...OUT_TYPES, ...(press !== "simple" ? [{ id: "unset", label: "ไม่ใช้" }] : [])]
-    .map((t) => `<button class="utab${t.id === type || (t.id === "unset" && cur === undefined && !ui.outType) ? " on" : ""}" data-act="outtype" data-type="${t.id}">${t.label}</button>`)
+    .map((t) => t.id === "layer" && layer !== 0
+      ? `<button class="utab" disabled title="เปลี่ยน layer ตั้งได้ใน Base layer เท่านั้น">${t.label}</button>`
+      : `<button class="utab${t.id === type || (t.id === "unset" && cur === undefined && !ui.outType) ? " on" : ""}" data-act="outtype" data-type="${t.id}">${t.label}</button>`)
     .join("");
   let body = "";
   if (type === "gamepad" || type === "turbo") {
@@ -696,10 +728,11 @@ function buttonEditor(S, D) {
       </span>
     </div>
     ${src.startsWith("D-pad") ? `<div class="seg" style="margin-top:16px">${["D-pad ↑", "D-pad ↓", "D-pad ←", "D-pad →"].map((d) => `<button class="${src === d ? "on" : ""}" data-act="dpad" data-dir="${esc(d)}">${nameHtml(btnName(d))}</button>`).join("")}</div>` : ""}
-    <div style="padding-top:20px"><div class="label" style="padding-bottom:8px">กด ${nameHtml(btnName(src))} แบบไหน ในแต่ละ layer · คลิกช่องที่จะแก้</div>${rows}${leak}</div>
+    <div style="padding-top:20px"><div class="label" style="padding-bottom:8px">กด ${nameHtml(btnName(src))} แบบไหน ในแต่ละ layer · คลิกช่องที่จะแก้</div>${rows}${pressAdd(S, D, shown)}${leak}</div>
     <div style="padding-top:28px;display:grid;gap:14px">
       <div class="label">${LAYER_NAME(layer)} · ${pl} ส่งเป็น</div>
       <div class="utabs" style="gap:20px">${types}</div>
+      ${layer !== 0 ? `<p class="meta" style="margin:0">เปลี่ยน layer ตั้งได้ใน Base layer เท่านั้น</p>` : ""}
       ${body}
       ${pend && (untested(k, cur) || !isWritable(k)) ? `<p style="margin:0">${untested(k, cur) || UNSUP}</p>` : ""}
     </div>`;
@@ -1530,7 +1563,7 @@ const WRITABLE_NOW = [
   { label: "เวลาตัดสินการกด", what: "กดค้าง · ดับเบิลคลิก", keys: ["runtime.long", "runtime.double"] },
   { label: "ชื่อ profile", what: "เฉพาะ slot ที่ใช้อยู่", keys: ["profile.name"] },
   { label: "Macro", what: "จากคลัง ใส่ลงทุก layer ที่ปุ่มเลือกใช้ · ไม่เกิน 8 ตัวต่อ layer", keys: ["macro"] },
-  { label: "ปุ่ม", what: "ปุ่มจอย · คีย์บอร์ด · เมาส์ · Turbo · Macro · สลับ layer · ปิดปุ่ม · ทุก layer", keys: ["map"] },
+  { label: "ปุ่ม", what: "ปุ่มจอย · คีย์บอร์ด · เมาส์ · Turbo · Macro · เปลี่ยน layer · ปิดปุ่ม · ทุก layer", keys: ["map"] },
   { label: "เพิ่ม / ลบ layer", what: "ไม่เกิน 4 layer ต่อ slot", keys: ["layer"] },
 ];
 const UNTESTED_SM = `<span class="tag untested" title="เขียนได้แล้ว แต่ยังไม่เคยลองกับจอยจริง">ยังไม่ทดสอบ</span>`;
