@@ -471,10 +471,8 @@ function changedList(S, D) {
       const ways = layerWays(S, D, l.id);
       const how = l.id === 0 ? "รูปจอยแสดง layer นี้" : ways.length ? nameHtml(ways.join(", ")) : "ยังไม่มีปุ่มพาไป";
       const items = groups.get(l.id).join("") || `<span class="lg-none">ทุกปุ่มเป็นค่าเดิม</span>`;
-      const name = S.ui.layerRenaming === l.id
-        ? `<input class="field lg-input" data-layer-name="${l.id}" value="${esc(S.names?.entry(S.uuid, layerNameId(S.current.slot, l.id))?.full ?? "")}" maxlength="${LAYER_NAME_MAX}" placeholder="${LAYER_DEFAULT(l.id)}" aria-label="ชื่อ ${esc(LAYER_NAME(l.id))}">`
-        : `<span class="lg-title"><span class="${l.id === S.ui.layer ? "chip" : "lg-plain"}">${esc(LAYER_NAME(l.id))}</span><button class="icon-btn sm" data-act="layer-rename" data-layer="${l.id}" aria-label="เปลี่ยนชื่อ ${esc(LAYER_NAME(l.id))}">${ICON.pencil}</button></span>`;
-      return `<div class="layer-group"><span class="lg-name">${name}<span class="lg-how">${S.ui.layerRenaming === l.id ? "Enter บันทึก · Esc ยกเลิก" : `${how}${l.isNew ? " · เพิ่มใหม่" : ""}`}</span></span>
+      const name = `<span class="lg-title"><span class="${l.id === S.ui.layer ? "chip" : "lg-plain"}">${esc(LAYER_NAME(l.id))}</span><button class="icon-btn sm" data-act="layer-rename" data-layer="${l.id}" aria-label="เปลี่ยนชื่อ ${esc(LAYER_NAME(l.id))}">${ICON.pencil}</button></span>`;
+      return `<div class="layer-group"><span class="lg-name">${name}<span class="lg-how">${how}${l.isNew ? " · เพิ่มใหม่" : ""}</span></span>
         <div class="lg-items">${items}</div><span class="lg-act">${l.id === 0 ? "" : layerMenu(S, l)}</span></div>`;
     })
     .join("");
@@ -504,6 +502,18 @@ function layerMenu(S, l) {
       <button role="menuitem" class="danger" data-act="layer-ask-delete" data-layer="${l.id}" ${S.writing ? "disabled" : ""}><b>ลบ ${name}</b><span>ปุ่มที่ตั้งไว้ใน layer นี้จะหายไปด้วย</span></button>
     </span>` : ""}
   </span>`;
+}
+
+// Renames a layer in a modal: the page doesn't redraw while the name is typed. The name is kept in
+// the app (model.js LAYER_NAME), so saving needs no write.
+export function layerRename(S, id) {
+  const now = S.names?.entry(S.uuid, layerNameId(S.current.slot, id))?.full ?? "";
+  return `<div class="state"><h2 id="sheet-title">เปลี่ยนชื่อ ${esc(LAYER_NAME(id))}</h2>
+    <p class="meta" style="font-size:14px;margin:6px 0 0">ชื่อเก็บไว้ในแอปนี้ ไม่ต้องเขียนลงจอย · เว้นว่างไว้เพื่อใช้ชื่อ ${LAYER_DEFAULT(id)}</p>
+    <input class="field" style="width:100%;margin-top:24px;font-size:20px;height:52px" data-layer-name="${id}" value="${esc(now)}" maxlength="${LAYER_NAME_MAX}" placeholder="${LAYER_DEFAULT(id)}" aria-label="ชื่อ layer" aria-describedby="layer-name-err">
+    <p class="meta err" id="layer-name-err" style="margin:8px 0 0;min-height:20px"></p>
+    <div class="d-actions" style="margin-top:20px"><button class="link" style="font-size:17px" data-act="close-sheet">ยกเลิก</button>
+      <button class="btn ink" data-act="layer-name-save" data-layer="${id}">บันทึก</button></div></div>`;
 }
 
 // Asks before a layer goes: what is set in it is lost, and presses that switch to it go back.
