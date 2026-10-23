@@ -193,6 +193,11 @@ button.row.sel .k { color: var(--cobalt); font-weight: 700; }
 .layer-group .lg-name { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; width: 140px; flex-shrink: 0; padding-right: 8px; font-size: 13px; font-weight: 700; line-height: 18px; color: var(--ink); }
 .layer-group .lg-name .chip { display: inline-block; padding: 3px 8px; background: var(--ink); color: #fff; font-weight: 700; }
 .layer-group .lg-plain { padding-left: 8px; }
+.layer-group .lg-title { display: flex; align-items: center; gap: 2px; max-width: 100%; }
+.layer-group .lg-title > span { overflow-wrap: anywhere; }
+.layer-group .lg-title .icon-btn.sm { width: 28px; height: 28px; flex-shrink: 0; color: var(--ink-3); }
+.layer-group .lg-title .icon-btn.sm:hover { color: var(--ink); }
+.layer-group .lg-input { width: 132px; height: 32px; font-size: 13px; font-weight: 700; padding: 0 8px; }
 .layer-group .lg-how { padding-left: 8px; font-size: 12px; font-weight: 500; line-height: 16px; color: var(--ink-2); }
 .layer-group .lg-items { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 0; flex: 1; min-height: 32px; }
 .layer-group .lg-none { font-size: 13px; font-weight: 500; color: var(--ink-3); }

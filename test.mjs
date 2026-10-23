@@ -1247,3 +1247,44 @@ console.log("press rows ok");
   assert.doesNotThrow(() => checkBaseSwitches({ "map.0.A.double": { type: "layer_toggle", layer: 1 }, "map.1.A.simple": { type: "none" } }));
 }
 console.log("base switches ok");
+
+// Layer names (owner, 2026-10-24): kept in the app per controller and slot, shown everywhere the
+// layer is named, and moved along when a write numbers the layers again.
+{
+  const V = await import("./views.js");
+  const { Drafts, LAYER_NAME, useLayerNames, slotLayerNames, labelTarget } = await import("./model.js");
+  const { Names } = await import("./names.js");
+  const mem = () => { const m = {}; return { getItem: (k) => m[k] ?? null, setItem: (k, v) => (m[k] = v) }; };
+  const names = new Names(mem());
+  names.put("U", "layer.0.1", "Aim", null);
+  names.put("U", "layer.1.1", "Other slot", null);
+  names.put("U", "layer.0.2", "<b>Drive</b>", null);
+  const cfg = {
+    name: "", links: {}, macro_names: [], runtime: { long_press_ms: 300, double_press_ms: 400 },
+    layers: [
+      { layer_id: 0, macros: [], mappings: [{ source: "B", identity: false, activators: [{ type: "simple", target: { type: "layer_hold", layer: 1 } }] }] },
+      { layer_id: 1, macros: [], mappings: [] },
+      { layer_id: 2, macros: [], mappings: [] },
+    ],
+  };
+  const S = { uuid: "U", names, current: { cfg, slot: 0 }, ui: { layer: 0, sel: "B", press: "simple", dpad: "D-pad ↑", layerMenu: null, addedPress: [] }, lib: { list: () => [], get: () => null }, plan: null, slots: { activeSlot: 0 } };
+  const D = new Drafts(S);
+  assert.deepEqual(slotLayerNames(S), { 1: "Aim", 2: "bDrive/b" }, "this slot only, without HTML characters");
+  useLayerNames(slotLayerNames(S));
+  assert.equal(LAYER_NAME(0), "Base layer");
+  assert.equal(labelTarget({ type: "layer_hold", layer: 1 }), "Aim ขณะกด");
+  let page = V.buttons(S, D);
+  assert.match(page, /<span class="mx-h"><b>Aim<\/b><\/span>/, "the matrix says the name");
+  assert.match(page, /data-act="layer-rename" data-layer="0"/, "Base can be renamed too");
+  S.ui.layerRenaming = 1;
+  page = V.buttons(S, D);
+  assert.match(page, /<input class="field lg-input" data-layer-name="1" value="Aim" maxlength="24" placeholder="Shift layer"/);
+  // A write that deletes layer 1: layer 2 becomes 1 and takes its name; Aim goes with its layer.
+  names.moveLayers("U", 0, [[0, 0], [2, 1]]);
+  assert.equal(names.entry("U", "layer.0.1").full, "<b>Drive</b>");
+  assert.equal(names.entry("U", "layer.0.2"), undefined);
+  assert.equal(names.entry("U", "layer.1.1").full, "Other slot", "other slots are left alone");
+  assert.equal(names.import("U", { kind: "names", names: { "layer.2.3": { full: "Fly" } } }), 1, "names files carry layer names");
+  useLayerNames({});
+}
+console.log("layer names ok");

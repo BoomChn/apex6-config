@@ -99,11 +99,28 @@ export class Names {
     const m = (this.all[uuid ?? "?"] ??= {});
     let n = 0;
     for (const [id, e] of Object.entries(data.names)) {
-      if (!/^(slot\.\d|macro\.\d\.\d+\.\d+)$/.test(id) || typeof e?.full !== "string") continue;
+      if (!/^(slot\.\d|macro\.\d\.\d+\.\d+|layer\.\d\.\d)$/.test(id) || typeof e?.full !== "string") continue;
       m[id] = { full: e.full.slice(0, APP_NAME_MAX), dev: typeof e.dev === "string" ? e.dev : null };
       n++;
     }
     this.save();
     return n;
+  }
+  // After a write, layer names follow their layers: `keep` is the layers the slot now holds, by the
+  // id each had before the write → its id now (the write numbers them again from 0). Names of
+  // layers not in it (deleted, or gone in a whole-profile write) are dropped.
+  moveLayers(uuid, slot, keep) {
+    const m = this.all[uuid ?? "?"];
+    if (!m) return;
+    const old = {};
+    for (const id of Object.keys(m)) {
+      const [kind, s, layer] = id.split(".");
+      if (kind !== "layer" || Number(s) !== slot) continue;
+      old[layer] = m[id];
+      delete m[id];
+    }
+    for (const [from, to] of keep) if (old[from]) m[`layer.${slot}.${to}`] = old[from];
+    if (!Object.keys(m).length) delete this.all[uuid ?? "?"];
+    this.save();
   }
 }
