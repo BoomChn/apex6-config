@@ -408,8 +408,28 @@ export function buttons(S, D) {
       ${stageSvg(def, items, { kind: "front" })}
       ${changedList(S, D)}
     </div>
-    <div>${buttonEditor(S, D)}${timing(S, D)}</div>
+    <div class="btn-panel">${ui.sel ? buttonEditor(S, D) : overview(S, D, items)}${timing(S, D)}</div>
   </div>`;
+}
+
+// No button picked (a click on empty space or Esc lets go): every button of the slot in every
+// layer, numbered like the photo. A row picks its button.
+function overview(S, D, items) {
+  const cols = liveLayers(S, D);
+  const head = `<span class="ov-k">ปุ่ม</span>${cols.map((l) => `<span class="ov-h">${LAYER_NAME(l.id)}</span>`).join("")}`;
+  const rows = ALL.callouts.map((c, i) => {
+    const it = items[c.id];
+    const src = c.id === "DPAD" ? S.ui.dpad : ALL_SRC[c.id];
+    const cells = cols.map((l) => {
+      if (it.state === "nomap") return `<span class="ov-v">${esc(it.value)}</span>`;
+      const st = buttonState(S, D, l.id, src);
+      return `<span class="ov-v${st.changed ? " set" : ""}${st.pend ? " pending" : ""}">${st.changed ? `<span class="mk">${nameHtml(st.value)}</span>` : st.value}</span>`;
+    }).join("");
+    return `<button class="ov-row" data-pick="${c.id}" style="grid-template-columns:var(--ov-cols)" aria-label="${esc(`แก้ ${it.name}`)}"><span class="ov-k"><span class="ov-n">${i + 1}</span><b>${nameHtml(it.name)}</b></span>${cells}</button>`;
+  }).join("");
+  return `<div class="head-inset ov-head"><div class="t"><h2>ทุกปุ่มใน Slot ${S.slots.activeSlot + 1}</h2>
+      <div class="status">คลิกปุ่มบนรูป หรือคลิกแถวด้านล่าง เพื่อแก้ปุ่มนั้น</div></div></div>
+    <div class="ov" style="--ov-cols:150px repeat(${cols.length}, minmax(0, 1fr))"><div class="ov-row ov-top" style="grid-template-columns:var(--ov-cols)">${head}</div>${rows}</div>`;
 }
 
 // The buttons that take the controller into a layer, drafts included: "กด M3 ค้างไว้",
@@ -653,7 +673,7 @@ function buttonEditor(S, D) {
         <div class="status${pend ? " pending" : ""}">${pend ? `แก้แล้ว · ค่าบนจอย: ${nameHtml(labelTarget(base, cfg))}` : `ค่าบนจอย: ${nameHtml(labelTarget(base, cfg))}`}</div></div>
       <span style="display:grid;justify-items:end;gap:12px;white-space:nowrap">
         ${pend ? `<button class="link" data-act="revert-btn" title="ยกเลิกที่แก้ กลับไปเป็นค่าที่อยู่บนจอยตอนนี้">คืนค่าบนจอย</button>` : ""}
-        ${isFactory ? "" : `<button class="link" data-act="factory-btn" title="กดปกติส่ง ${esc(btnName(src))} เอง ไม่มีกดค้างหรือดับเบิลคลิก">ตั้งเป็นค่าเริ่มต้น</button>`}
+        ${isFactory ? "" : `<button class="link" data-act="factory-btn" title="กดปกติส่ง ${esc(btnName(src))} เอง ไม่มีกดค้างหรือดับเบิลคลิก">รีเซ็ตปุ่มนี้</button>`}
       </span>
     </div>
     ${src.startsWith("D-pad") ? `<div class="seg" style="margin-top:16px">${["D-pad ↑", "D-pad ↓", "D-pad ←", "D-pad →"].map((d) => `<button class="${src === d ? "on" : ""}" data-act="dpad" data-dir="${esc(d)}">${nameHtml(btnName(d))}</button>`).join("")}</div>` : ""}

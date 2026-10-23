@@ -1374,12 +1374,15 @@ document.addEventListener("click", (e) => {
     S.ui.picker = null;
     if (!e.target.closest("[data-act]")) return render();
   }
+  let closed = false;
   if (S.ui.slotMenu != null && !e.target.closest(".menu-wrap")) {
     S.ui.slotMenu = null;
+    closed = true;
     render();
   }
   if (S.ui.layerMenu != null && !e.target.closest(".menu-wrap")) {
     S.ui.layerMenu = null;
+    closed = true;
     render();
   }
   const el = e.target.closest("[data-act]");
@@ -1392,8 +1395,20 @@ document.addEventListener("click", (e) => {
     return;
   }
   const co = e.target.closest("[data-pick]");
-  if (co) pick(co.dataset.pick);
+  if (co) return pick(co.dataset.pick);
+  // Buttons: a click on empty space lets go of the picked button. A click that only closed a menu
+  // doesn't, and nothing in the right-hand panel or on any control does.
+  if (!closed && isEmptyClick(e.target)) unpick();
 });
+
+const isEmptyClick = (t) =>
+  S.tab === "buttons" && S.ui.sel && !sheet.open && t.isConnected !== false && !t.closest(".btn-panel, button, input, select, textarea, a, label, dialog, [contenteditable]");
+
+function unpick() {
+  S.ui.sel = null;
+  S.ui.outType = null;
+  render();
+}
 
 // Capture phase, so nothing else on the page sees a key meant for the controller.
 window.addEventListener("keydown", (e) => S.ui.kbListen && kbCapture(e), true);
@@ -1427,6 +1442,7 @@ document.addEventListener("keydown", (e) => {
     document.querySelector(`[data-act="layer-menu"][data-layer="${id}"]`)?.focus();
     return;
   }
+  if (e.key === "Escape" && S.tab === "buttons" && S.ui.sel && !sheet.open && !e.target.closest?.("input, select, textarea, [contenteditable]")) return unpick();
   const co = e.target.closest?.("[data-pick]");
   if (co && (e.key === "Enter" || e.key === " ")) {
     e.preventDefault();
