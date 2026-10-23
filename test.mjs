@@ -542,7 +542,7 @@ console.log("macro create/delete ok");
   assert.equal(nextLayerId(S3, D3), 3, "a layer awaiting deletion keeps its id");
   D3.set("map.0.M1.simple", { type: "layer_hold", layer: 2 });
   D3.set("map.2.A.simple", { type: "btn_gamepad", button: "B" });
-  assert.equal(labelTarget(D3.get("map.0.M1.simple")), "กดค้างเข้า Layer 2");
+  assert.equal(labelTarget(D3.get("map.0.M1.simple")), "Layer 2 ขณะกด");
   assert.deepEqual(layerSwitches(S3, D3).map((s) => [s.layer, s.source, s.type, s.to]), [[0, "M1", "layer_hold", 2]]);
   assert.deepEqual(D3.items().map((i) => [i.writable, i.label]), [[true, "เพิ่ม Layer 2"], [true, "ลบ Shift layer"], [true, "ปุ่ม M1 (Base layer) · กดปกติ"], [true, "ปุ่ม A (Layer 2) · กดปกติ"]]);
   const out = applyEdits(sample, D3.writable());
@@ -1155,7 +1155,7 @@ console.log("hw tested ok");
   page = V.buttons(S, D);
   assert.doesNotMatch(page, /<b>Shift layer<\/b>|data-layer="1"/, "a deleted layer is gone from the page");
   assert.match(page, /aria-label="Base layer · กดปกติ: M3"/, "presses that switched to it show what the write leaves");
-  assert.match(page, /ค่าบนจอย: กดค้างเข้า Shift layer/, "the controller still holds it until the write");
+  assert.match(page, /ค่าบนจอย: Shift layer ขณะกด/, "the controller still holds it until the write");
   assert.doesNotMatch(page, /data-act="pick-src" data-src="M3"/, "M3 ends up default, so it leaves the changed list");
   assert.match(page, /data-act="pick-src" data-src="M4"/, "M4 keeps its double press");
   assert.match(page, /เพิ่มได้อีก 2 layer · ที่ลบไว้จะว่างหลังเขียนลงจอย/, "its id is taken until the write");
@@ -1166,8 +1166,9 @@ console.log("hw tested ok");
 }
 console.log("layer delete ok");
 
-// Hold button inside its own layer (owner, 2026-10-23): B "hold → Shift layer" with Shift's B set to
-// K typed k all the while B was held. The editor says what the held button sends there.
+// Layer switches only from Base (owner, 2026-10-23). Hardware: a button that holds a layer also plays
+// its own map there (B hold → Shift with Shift's B = K typed k while held), so once B switches layers its
+// cells in the other layers are locked to what the app writes: off, or switch back for a toggle.
 {
   const V = await import("./views.js");
   const { Drafts } = await import("./model.js");
@@ -1181,14 +1182,17 @@ console.log("layer delete ok");
   const S = { current: { cfg, slot: 0 }, ui: { layer: 0, sel: "B", press: "simple", dpad: "D-pad ↑", layerMenu: null }, lib: { list: () => [], get: () => null }, plan: null, slots: { activeSlot: 0 } };
   const D = new Drafts(S);
   let page = V.buttons(S, D);
-  assert.match(page, /class="meta hold-leak"[^<]*กด B ค้างใน Base layer จอยจะส่ง <b[^>]*>B<\/b>/, "nothing set in Shift: B itself goes out while held");
-  D.set("map.1.B.simple", { type: "btn_keyboard", key: 14, modifier: 0 });
+  assert.match(page, /class="mx-c lock" disabled aria-label="Shift layer · กดปกติ: ปิดปุ่ม/, "held layer: B off there");
+  assert.match(page, /class="mx-c lock unset" disabled aria-label="Shift layer · กดค้าง: ไม่ใช้/);
+  assert.match(page, /class="lock-note"[\s\S]*ใน Shift layer แอปปิด B ไว้/);
+  D.set("map.0.B.simple", { type: "layer_toggle", layer: 1 });
   page = V.buttons(S, D);
-  assert.match(page, /hold-leak[\s\S]*จอยจะส่ง <b[^>]*>K<\/b>/, "Shift's B is what goes out");
-  D.set("map.1.B.simple", { type: "none" });
-  assert.doesNotMatch(V.buttons(S, D), /hold-leak/, "turned off in Shift: no note");
-  S.ui.sel = "A";
-  D.set("map.1.B.simple", { type: "btn_keyboard", key: 14, modifier: 0 });
-  assert.doesNotMatch(V.buttons(S, D), /hold-leak/, "only on the button that holds the layer");
+  assert.match(page, /aria-label="Shift layer · กดปกติ: สลับกลับ Base layer/, "toggle: the same press switches back");
+  assert.match(page, /ใน Shift layer กด B อีกครั้งเพื่อกลับ Base layer/);
+  D.set("map.0.B.simple", { type: "btn_gamepad", button: "B" });
+  page = V.buttons(S, D);
+  assert.doesNotMatch(page, /mx-c lock|lock-note/, "a plain button is editable in every layer");
+  S.ui.layer = 1;
+  assert.match(V.buttons(S, D), /<button class="utab" disabled title="เปลี่ยน layer ตั้งได้ใน Base layer เท่านั้น">เปลี่ยน layer<\/button>/, "no layer switch outside Base");
 }
-console.log("hold button in its layer ok");
+console.log("layer switch from Base only ok");

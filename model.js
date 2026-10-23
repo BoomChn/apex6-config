@@ -54,8 +54,8 @@ export function labelTarget(t, cfg) {
   if (t.type === "btn_gamepad") return `${btnName(t.button)}`;
   if (t.type === "turbo_gamepad") return `Turbo ${btnName(t.button)} · ${t.interval_ms} ms`;
   if (t.type === "macro") return `Macro · ${t.uid ? cfg?.lib?.get(t.uid)?.name ?? "ไม่มีในคลังแล้ว" : macroName(cfg, t.layer ?? 0, t.macro)}`;
-  if (t.type === "layer_hold") return `กดค้างเข้า ${LAYER_NAME(t.layer)}`;
-  if (t.type === "layer_toggle") return `สลับไป ${LAYER_NAME(t.layer)}`;
+  if (t.type === "layer_hold") return `${LAYER_NAME(t.layer)} ขณะกด`;
+  if (t.type === "layer_toggle") return t.layer === 0 ? `สลับกลับ ${LAYER_NAME(0)}` : `สลับไป ${LAYER_NAME(t.layer)}`;
   return targetLabel(t);
 }
 

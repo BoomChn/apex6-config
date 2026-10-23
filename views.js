@@ -534,7 +534,7 @@ const OUT_TYPES = [
   { id: "mouse", label: "เมาส์" },
   { id: "turbo", label: "Turbo" },
   { id: "macro", label: "Macro" },
-  { id: "layer", label: "สลับ layer" },
+  { id: "layer", label: "เปลี่ยน layer" },
   { id: "none", label: "ปิดปุ่ม" },
 ];
 const typeOf = (t) =>
@@ -592,8 +592,8 @@ function layerPicker(S, D, cur) {
   const dbl = S.ui.press === "double";
   const on = (id) => (cur?.type === "layer_hold" || cur?.type === "layer_toggle") && cur.layer === id;
   const name = (id) => LAYER_NAME(id);
-  return `<div class="seg" style="justify-self:start"><button class="${mode === "hold" ? "on" : ""}" data-act="layer-mode" data-mode="hold"${dbl ? ` disabled title="ดับเบิลคลิกใช้ได้แค่แบบสลับ"` : ""}>กดค้าง</button><button class="${mode === "toggle" ? "on" : ""}" data-act="layer-mode" data-mode="toggle">สลับ</button></div>
-    <p class="meta" style="margin:0;line-height:20px">${mode === "hold" ? "กดค้างไว้ ปุ่มอื่นจะทำตาม layer ที่เลือก ปล่อยแล้วกลับมา layer นี้" : `กดแล้วอยู่ใน layer ที่เลือกต่อไปเรื่อย ๆ ต้องมีปุ่มใน layer นั้นที่สลับกลับมา`}</p>
+  return `<div class="seg" style="justify-self:start"><button class="${mode === "hold" ? "on" : ""}" data-act="layer-mode" data-mode="hold"${dbl ? ` disabled title="ดับเบิลคลิกใช้ได้แค่แบบสลับ"` : ""}>ขณะกด</button><button class="${mode === "toggle" ? "on" : ""}" data-act="layer-mode" data-mode="toggle">สลับ</button></div>
+    <p class="meta" style="margin:0;line-height:20px">${mode === "hold" ? "ปุ่มอื่นทำตาม layer ที่เลือกเฉพาะตอนที่ยังกดอยู่ ปล่อยแล้วกลับ Base layer" : "กดครั้งแรกไป layer ที่เลือก กดอีกครั้งกลับ Base layer"}</p>
     <div>${others.map(
       (l) => `<button class="row" data-act="out" data-type="layer" data-mode="${mode}" data-to="${l.id}"><span class="v" style="font-weight:700${on(l.id) ? ";color:var(--cobalt)" : ""}">${esc(name(l.id))}${l.isNew ? ` <span class="small muted" style="font-weight:500">· เพิ่มใหม่</span>` : ""}</span>${ICON.chev}</button>`,
     ).join("")}</div>`;
@@ -619,12 +619,15 @@ function lockedTarget(sw, layer, press) {
 const LOCK_ICON = `<svg class="mx-lock" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><rect x="2.5" y="6.2" width="9" height="6.3" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M4.6 6.2V4.4a2.4 2.4 0 0 1 4.8 0v1.8" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>`;
 function lockNote(sw, src, cols) {
   const b = nameHtml(btnName(src));
-  const others = cols.filter((l) => l.id !== 0).map((l) => esc(LAYER_NAME(l.id))).join(" และ ");
+  const names = (ls) => ls.map((l) => esc(LAYER_NAME(l.id))).join(" และ ");
+  const back = sw.t.type === "layer_toggle" ? cols.filter((l) => l.id === sw.t.layer) : [];
+  const off = cols.filter((l) => l.id !== 0 && !back.includes(l));
   const pl = PRESS.find((p) => p.id === sw.press).label;
-  const how = sw.t.type === "layer_toggle"
-    ? `${pl} ${b} อีกครั้งใน ${esc(LAYER_NAME(sw.t.layer))} เพื่อกลับ Base layer`
-    : `ตอนกด ${b} ค้าง จอยจะไม่ส่งอะไรเพิ่ม`;
-  return `<div class="lock-note">${LOCK_ICON}<span><b>${b} ใช้สลับ layer แล้ว</b> · ช่องใน ${others} แอปตั้งให้เองและแก้ไม่ได้ · ${how}<br>อยากให้ ${b} ทำอย่างอื่นใน layer อื่น ให้เปลี่ยนช่อง Base layer · ${pl} ก่อน</span></div>`;
+  const lines = [
+    back.length ? `ใน ${names(back)} ${sw.press === "simple" ? "กด" : pl} ${b} อีกครั้งเพื่อกลับ Base layer (แอปตั้งให้)` : "",
+    off.length ? `ใน ${names(off)} แอปปิด ${b} ไว้ จึงไม่มีอะไรส่งเข้าเกมเพิ่ม` : "",
+  ].filter(Boolean);
+  return `<div class="lock-note">${LOCK_ICON}<span><b>${b} ใช้เปลี่ยน layer</b> · ${lines.join(" · ")}<br>จะให้ ${b} ทำอย่างอื่นใน layer อื่น ให้เปลี่ยนช่อง Base layer · ${pl} ก่อน</span></div>`;
 }
 
 function buttonEditor(S, D) {
@@ -647,7 +650,7 @@ function buttonEditor(S, D) {
     const k = mapKey(l.id, src, p.id);
     if (sw && l.id !== 0) {
       const t = lockedTarget(sw, l.id, p.id);
-      const label = t?.type === "layer_toggle" ? "สลับกลับ Base" : t ? "ปิดปุ่ม" : "—";
+      const label = t ? labelTarget(t, cfg) : "ไม่ใช้";
       return `<button class="mx-c lock${t ? "" : " unset"}" disabled aria-label="${esc(`${LAYER_NAME(l.id)} · ${p.label}: ${label} · แอปตั้งให้ แก้ไม่ได้`)}">${LOCK_ICON}<span>${label}</span></button>`;
     }
     const v = shownTarget(D, l.id, src, p.id);
@@ -662,7 +665,7 @@ function buttonEditor(S, D) {
   const pl = PRESS.find((p) => p.id === press).label;
   const types = [...OUT_TYPES, ...(press !== "simple" ? [{ id: "unset", label: "ไม่ใช้" }] : [])]
     .map((t) => t.id === "layer" && layer !== 0
-      ? `<button class="utab" disabled title="สลับ layer ตั้งได้ที่ Base layer เท่านั้น">${t.label}</button>`
+      ? `<button class="utab" disabled title="เปลี่ยน layer ตั้งได้ใน Base layer เท่านั้น">${t.label}</button>`
       : `<button class="utab${t.id === type || (t.id === "unset" && cur === undefined && !ui.outType) ? " on" : ""}" data-act="outtype" data-type="${t.id}">${t.label}</button>`)
     .join("");
   let body = "";
@@ -718,7 +721,7 @@ function buttonEditor(S, D) {
     <div style="padding-top:28px;display:grid;gap:14px">
       <div class="label">${LAYER_NAME(layer)} · ${pl} ส่งเป็น</div>
       <div class="utabs" style="gap:20px">${types}</div>
-      ${layer !== 0 ? `<p class="meta" style="margin:0">สลับ layer ตั้งได้ที่ Base layer เท่านั้น · ใน ${esc(LAYER_NAME(layer))} ตั้งเป็นอย่างอื่นได้ทุกแบบ</p>` : ""}
+      ${layer !== 0 ? `<p class="meta" style="margin:0">เปลี่ยน layer ตั้งได้ใน Base layer เท่านั้น</p>` : ""}
       ${body}
       ${pend && (untested(k, cur) || !isWritable(k)) ? `<p style="margin:0">${untested(k, cur) || UNSUP}</p>` : ""}
     </div>`;
@@ -1549,7 +1552,7 @@ const WRITABLE_NOW = [
   { label: "เวลาตัดสินการกด", what: "กดค้าง · ดับเบิลคลิก", keys: ["runtime.long", "runtime.double"] },
   { label: "ชื่อ profile", what: "เฉพาะ slot ที่ใช้อยู่", keys: ["profile.name"] },
   { label: "Macro", what: "จากคลัง ใส่ลงทุก layer ที่ปุ่มเลือกใช้ · ไม่เกิน 8 ตัวต่อ layer", keys: ["macro"] },
-  { label: "ปุ่ม", what: "ปุ่มจอย · คีย์บอร์ด · เมาส์ · Turbo · Macro · สลับ layer · ปิดปุ่ม · ทุก layer", keys: ["map"] },
+  { label: "ปุ่ม", what: "ปุ่มจอย · คีย์บอร์ด · เมาส์ · Turbo · Macro · เปลี่ยน layer · ปิดปุ่ม · ทุก layer", keys: ["map"] },
   { label: "เพิ่ม / ลบ layer", what: "ไม่เกิน 4 layer ต่อ slot", keys: ["layer"] },
 ];
 const UNTESTED_SM = `<span class="tag untested" title="เขียนได้แล้ว แต่ยังไม่เคยลองกับจอยจริง">ยังไม่ทดสอบ</span>`;
