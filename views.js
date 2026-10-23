@@ -1469,11 +1469,12 @@ export function review(S, D) {
     const m = S.lib.get(uid);
     return m ? `${macroSteps(m.actions)} ขั้น · ${MACRO_MODE[m.mode] ?? m.mode}` : "";
   };
-  const diff = (label, old, nw) => `<div class="diff-row"><b>${esc(label)}<br>${UNTESTED}</b><span class="old">${esc(old)}</span><span>→</span><span class="new">${esc(nw)}</span></div>`;
+  const diff = (label, old, nw, tag = UNTESTED) => `<div class="diff-row"><b>${esc(label)}${tag ? `<br>${tag}` : ""}</b><span class="old">${esc(old)}</span><span>→</span><span class="new">${esc(nw)}</span></div>`;
   const macroRow = (r) => {
     const L = LAYER_NAME(r.layer);
-    if (r.kind === "add") return diff(`ใส่ ${r.name} ลง ${L}`, "ไม่มีในจอย", steps(r.uid));
-    if (r.kind === "update") return diff(`อัปเดต ${r.name} · ${L}`, "แบบเดิมในจอย", steps(r.uid));
+    const key = `macro.${r.layer}.${r.id}.set`;
+    if (r.kind === "add") return diff(`ใส่ ${r.name} ลง ${L}`, "ไม่มีในจอย", steps(r.uid), untested(key));
+    if (r.kind === "update") return diff(`อัปเดต ${r.name} · ${L}`, "แบบเดิมในจอย", steps(r.uid), untested(key));
     if (r.kind === "remove") return diff(`เอา ${r.name} ออกจาก ${L}`, "อยู่ในจอย", "ไม่มีปุ่มเล่นแล้ว · ยังอยู่ในคลัง");
     if (r.kind === "rename") return diff(`ชื่อ macro · ${L}`, "ชื่อเดิมในจอย", r.name || "ไม่มีชื่อ");
     return diff("ชื่อ macro บนจอย", `ไม่เกิน ${NAME_MAX} ไบต์`, r.cap ? `ตัดเหลือ ${r.cap} ไบต์ต่อชื่อ ให้พอที่เก็บชื่อ 255 ไบต์` : "ไม่ใส่ชื่อ ที่เก็บชื่อ 255 ไบต์ไม่พอ");
