@@ -1,7 +1,7 @@
 import { Apex6, RAM, hex, crc32 } from "./protocol.js";
 import { decodeMapping } from "./mapping.js";
 import { unwrapMapping, applyEdits, sameBytes, deadzoneMax, curveEndMin, curveStartMax, MACRO_STEPS_MAX, motorCmd, motorMode, FEEDBACK_MODE, gyroByte, gyroPct, GYRO_MIDS_MAX } from "./mapping-edit.js";
-import { Drafts, meta, esc, resolveNames, resolveMacros, macroPlan, writeEdits, macroUses, openMacro, layerMoves, nameId, evalCurve, layerKey, layerList, nextLayerId, LAYER_NAME, btnName } from "./model.js";
+import { Drafts, meta, esc, resolveNames, resolveMacros, macroPlan, writeEdits, macroUses, openMacro, layerMoves, nameId, evalCurve, layerKey, layerList, nextLayerId, LAYER_NAME, btnName, useLayerNames, slotLayerNames, layerNameId } from "./model.js";
 import { Names, SlotSeen, fit } from "./names.js";
 import { Library } from "./macros.js";
 import { Profiles, toWrite, named, slotsOf } from "./profiles.js";
@@ -57,6 +57,7 @@ const PAGES = {
 
 // The macro plan follows the drafts and the library, so it is worked out again on every render.
 function refreshPlan() {
+  useLayerNames(slotLayerNames(S));
   try {
     S.plan = S.current ? macroPlan(S, D) : null;
   } catch (e) {
@@ -592,6 +593,10 @@ async function runWrite({ edits = null, drafts = null, links = null, data = null
     W.crc = (back.data[2] | (back.data[3] << 8)).toString(16).padStart(4, "0").toUpperCase();
     // Any write numbers the layers again from 0 (normalizeLayers); what stays open follows.
     const moves = edits ? layerMoves(S, D) : [];
+    // Layer names follow too; a whole-profile write keeps them by position, as far as it has layers.
+    const nLayers = unwrapMapping(back.data).cfg.layers.length;
+    const kept = edits ? layerList(S, D).filter((l) => !l.deleted).map((l) => l.id) : [...Array(nLayers).keys()];
+    S.names.moveLayers(S.uuid, slot, kept.map((id) => [id, moves.find((m) => m.from === id)?.to ?? id]));
     if (edits) for (const k of drafts ?? Object.keys(edits)) D.map.delete(k);
     const moved = (id) => moves.find((m) => m.from === id)?.to ?? id;
     S.ui.layer = moved(S.ui.layer);
@@ -997,6 +1002,8 @@ const ACTIONS = {
     const id = nextLayerId(S, D);
     if (id === null) return toast("โปรไฟล์นี้มี layer ครบแล้ว", true);
     D.set(layerKey(id, "new"), true);
+    // A name left from a layer that had this id and was never written doesn't carry over.
+    S.names.put(S.uuid, layerNameId(S.current.slot, id), "", null);
     S.ui.layer = id;
     render();
     toast(`เพิ่ม ${LAYER_NAME(id)} แล้ว · ยังไม่ได้เขียนลงจอย`);
@@ -1014,6 +1021,17 @@ const ACTIONS = {
     S.ui.press = p;
     S.ui.outType = null;
     render();
+  },
+  // Layer names live in the app (model.js LAYER_NAME): saved as typed, no write needed.
+  "layer-rename": (el) => {
+    const id = Number(el.dataset.layer);
+    S.ui.layerMenu = null;
+    S.ui.layerRenaming = id;
+    S.ui.layerRenameFrom = S.names.entry(S.uuid, layerNameId(S.current.slot, id))?.full ?? "";
+    render();
+    const input = document.querySelector("[data-layer-name]");
+    input?.focus();
+    input?.select();
   },
   "layer-menu": (el) => {
     const id = Number(el.dataset.layer);
@@ -1483,6 +1501,11 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     pick(co.dataset.pick);
   }
+  const ln = e.target.closest?.("[data-layer-name]");
+  if (ln && (e.key === "Enter" || e.key === "Escape")) {
+    e.preventDefault();
+    return finishLayerName(ln, e.key === "Escape");
+  }
   const rn = e.target.closest?.("[data-rename]");
   if (rn && (e.key === "Enter" || e.key === "Escape")) {
     if (e.key === "Escape") {
@@ -1549,6 +1572,16 @@ document.addEventListener("input", (e) => {
     renderChrome();
     return;
   }
+  if ("layerName" in el.dataset && S.current) {
+    // Saved as it is typed, so the matrix and the rows follow; Enter tidies it, Esc puts it back.
+    S.names.put(S.uuid, layerNameId(S.current.slot, Number(el.dataset.layerName)), el.value, null);
+    const at = el.selectionStart;
+    render();
+    const f = document.querySelector("[data-layer-name]");
+    f?.focus();
+    f?.setSelectionRange(at, at);
+    return;
+  }
   const key = el.dataset.key;
   if (!key || !S.current) return;
   if (el.type === "range") {
@@ -1587,6 +1620,8 @@ document.addEventListener("change", (e) => {
     setGyroButton(Number(el.dataset.gyroBtn), el.value);
     return render();
   }
+  // Leaving the name field is the same as Enter.
+  if ("layerName" in el.dataset && S.current) return finishLayerName(el, false);
   const key = el.dataset.key;
   if (!key || !S.current) return;
   if (el.type === "checkbox") setDraft(key, el.checked);
@@ -1608,6 +1643,22 @@ document.addEventListener("change", (e) => {
   }
   render();
 });
+
+// Ends a layer rename: Esc puts the old name back; otherwise the name is kept trimmed, unless another
+// layer has it (two layers with one name can't be told apart in the matrix or the write review).
+function finishLayerName(el, cancel) {
+  if (S.ui.layerRenaming == null) return;
+  const id = Number(el.dataset.layerName);
+  const nid = layerNameId(S.current.slot, id);
+  const name = el.value.trim();
+  const clash = !cancel && name && layerList(S, D).find((l) => !l.deleted && l.id !== id && LAYER_NAME(l.id).toLowerCase() === name.toLowerCase());
+  if (clash) toast(`มี layer ชื่อ "${name}" อยู่แล้ว · ใช้ชื่อเดิม`, true);
+  S.names.put(S.uuid, nid, cancel || clash ? S.ui.layerRenameFrom ?? "" : name, null);
+  S.ui.layerRenaming = null;
+  S.ui.layerRenameFrom = null;
+  render();
+  document.querySelector(`[data-act="layer-rename"][data-layer="${id}"]`)?.focus();
+}
 
 async function importNames(el) {
   const file = el.files[0];

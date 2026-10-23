@@ -46,7 +46,26 @@ export const gyroActText = (list) =>
 export const GYRO_MODE = { disable: "ปิด", left_joystick: "Stick ซ้าย", right_joystick: "Stick ขวา", mouse: "เมาส์" };
 // In the official page's order (lighting.js LIGHT_MODE).
 export const LED_MODE = { default: "ค่าเริ่มต้น", streaming: "ไหลวน", breathing: "หายใจ", gradient: "ไล่สี", solid: "สีเดียว", off: "ปิด" };
-export const LAYER_NAME = (id) => (id === 0 ? "Base layer" : id === 1 ? "Shift layer" : `Layer ${id}`);
+export const LAYER_DEFAULT = (id) => (id === 0 ? "Base layer" : id === 1 ? "Shift layer" : `Layer ${id}`);
+// Layer names the user gave (owner, 2026-10-24). The controller has no place for them, so the app
+// keeps them per controller and slot (names.js, ids "layer.<slot>.<layer>"), and the app sets the
+// loaded slot's names before every render.
+let layerNames = {};
+export const useLayerNames = (names) => (layerNames = names ?? {});
+export const LAYER_NAME = (id) => layerNames[id] || LAYER_DEFAULT(id);
+export const LAYER_NAME_MAX = 24;
+export const layerNameId = (slot, id) => `layer.${slot}.${id}`;
+export function slotLayerNames(S) {
+  const out = {};
+  if (!S.current || !S.names) return out;
+  for (const [id, e] of Object.entries(S.names.all[S.uuid ?? "?"] ?? {})) {
+    const [kind, slot, layer] = id.split(".");
+    // The name goes into the page's HTML in many places, so the characters HTML uses are left out.
+    const name = e.full.replace(/[<>&"']/g, "").trim();
+    if (kind === "layer" && Number(slot) === S.current.slot && name) out[Number(layer)] = name;
+  }
+  return out;
+}
 
 export function labelTarget(t, cfg) {
   if (t === undefined) return "ยังไม่กำหนด";

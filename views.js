@@ -3,7 +3,7 @@
 
 import { BACK, FRONT, ALL, stageSvg, inset, TRIG_MARK, PHOTO, LED_PATH } from "./stage.js";
 import {
-  esc, pct, same, btnName, nameHtml, PRESS, GYRO_MODE, LED_MODE, LAYER_NAME, PRESET, TPRESET, GPRESET, AXIS, MACRO_MODE, TIMEOUT,
+  esc, pct, same, btnName, nameHtml, PRESS, GYRO_MODE, LED_MODE, LAYER_NAME, LAYER_DEFAULT, LAYER_NAME_MAX, layerNameId, PRESET, TPRESET, GPRESET, AXIS, MACRO_MODE, TIMEOUT,
   labelTarget, baseTarget, isIdentity, evalCurve, macroSteps, macroUses, macroList, openMacro,
   layerList, layerSwitches, baseSwitches, layerKey, meta, gripPart, lraGrip, MACRO_PAD, NOT_ON_PAD,
 } from "./model.js";
@@ -471,7 +471,10 @@ function changedList(S, D) {
       const ways = layerWays(S, D, l.id);
       const how = l.id === 0 ? "รูปจอยแสดง layer นี้" : ways.length ? nameHtml(ways.join(", ")) : "ยังไม่มีปุ่มพาไป";
       const items = groups.get(l.id).join("") || `<span class="lg-none">ทุกปุ่มเป็นค่าเดิม</span>`;
-      return `<div class="layer-group"><span class="lg-name"><span class="${l.id === S.ui.layer ? "chip" : "lg-plain"}">${LAYER_NAME(l.id)}</span><span class="lg-how">${how}${l.isNew ? " · เพิ่มใหม่" : ""}</span></span>
+      const name = S.ui.layerRenaming === l.id
+        ? `<input class="field lg-input" data-layer-name="${l.id}" value="${esc(S.names?.entry(S.uuid, layerNameId(S.current.slot, l.id))?.full ?? "")}" maxlength="${LAYER_NAME_MAX}" placeholder="${LAYER_DEFAULT(l.id)}" aria-label="ชื่อ ${esc(LAYER_NAME(l.id))}">`
+        : `<span class="lg-title"><span class="${l.id === S.ui.layer ? "chip" : "lg-plain"}">${esc(LAYER_NAME(l.id))}</span><button class="icon-btn sm" data-act="layer-rename" data-layer="${l.id}" aria-label="เปลี่ยนชื่อ ${esc(LAYER_NAME(l.id))}">${ICON.pencil}</button></span>`;
+      return `<div class="layer-group"><span class="lg-name">${name}<span class="lg-how">${S.ui.layerRenaming === l.id ? "Enter บันทึก · Esc ยกเลิก" : `${how}${l.isNew ? " · เพิ่มใหม่" : ""}`}</span></span>
         <div class="lg-items">${items}</div><span class="lg-act">${l.id === 0 ? "" : layerMenu(S, l)}</span></div>`;
     })
     .join("");
@@ -1591,7 +1594,7 @@ export function review(S, D) {
   const sub = errors.length ? esc(errors.join(" · ")) : nW ? "ตรวจก่อนเขียน · อย่าถอดสายระหว่างเขียน" : `${esc(stuck)} ยังเขียนลงจอยไม่ได้ เลยเก็บเป็นร่างไว้ในหน้านี้ · ค่าบนจอยยังเหมือนเดิม`;
   return `<h2 class="d-title" id="sheet-title">${nW ? `เขียน ${nAll} การเปลี่ยนแปลงลงจอย` : "ยังไม่มีอะไรที่เขียนลงจอยได้"}</h2>
     <p class="d-sub">${sub}</p>
-    ${nW ? `<div class="d-group"><div class="rule-head"><h2>Slot ${slot + 1}${D.get(`slot.${slot}.name`) ? ` · ${esc(D.get(`slot.${slot}.name`))}` : ""}</h2><span class="meta">ค่าบนจอย → ค่าใหม่</span></div>${slotItems.map(row).join("")}${plan.rows.map(macroRow).join("")}${moves.map((m) => diff(`เลข layer · ${LAYER_NAME(m.from)}`, LAYER_NAME(m.from), `${LAYER_NAME(m.to)} · จอยหา layer จากลำดับ เลขต้องต่อกัน`)).join("")}</div>` : ""}
+    ${nW ? `<div class="d-group"><div class="rule-head"><h2>Slot ${slot + 1}${D.get(`slot.${slot}.name`) ? ` · ${esc(D.get(`slot.${slot}.name`))}` : ""}</h2><span class="meta">ค่าบนจอย → ค่าใหม่</span></div>${slotItems.map(row).join("")}${plan.rows.map(macroRow).join("")}${moves.map((m) => diff(`เลข layer · ${esc(LAYER_NAME(m.from))}`, `เลข ${m.from}`, `เลข ${m.to} · จอยหา layer จากลำดับ เลขต้องต่อกัน`)).join("")}</div>` : ""}
     ${unsup.length ? `<div class="d-group"><div class="rule-head"><h2>ยังเขียนลงจอยไม่ได้</h2><span class="meta">เก็บเป็นร่างในหน้านี้ ไม่ส่งลงจอย</span></div>${unsup.map(row).join("")}</div>` : ""}
     ${nW ? "" : `<div class="d-group"><div class="rule-head thin"><h2>ที่เขียนลงจอยได้ตอนนี้</h2></div>${WRITABLE_NOW.map((g) => `<div class="can-row"><span class="can-l"><b>${g.label}</b>${g.keys.every((k) => HW_TESTED.has(k)) ? "" : UNTESTED_SM}</span><span>${g.what}</span></div>`).join("")}</div>`}
     ${nW ? `<p class="notice" style="margin-top:24px;font-size:15px;color:var(--ink)">${ICON.file}<span><b>สำรองค่าบนจอยเป็นไฟล์อัตโนมัติก่อนเขียนทุกครั้ง</b> <span class="muted">· กู้คืนได้ที่ Device &amp; backup</span></span></p>` : ""}
