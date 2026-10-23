@@ -210,6 +210,47 @@ button.row.sel .k { color: var(--cobalt); font-weight: 700; }
 .keytag.pending { border-color: var(--cobalt); color: var(--cobalt); }
 .keytag.fill { background: var(--cobalt); border-color: var(--cobalt); color: #fff !important; }
 .keytag.ink { background: var(--ink); color: #fff; height: 26px; min-width: 0; }
+/* Keyboard target: a box that takes one key after a click (views.js keyboardPicker). */
+.kb { display: grid; gap: 12px; margin-top: 4px; }
+.kb-box {
+  width: 100%; min-height: 128px; padding: 16px; border-radius: 6px; background: var(--ground);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+  font: inherit; color: var(--ink); text-align: center;
+}
+.kb-box.empty { border: 1.5px dashed var(--keycap); cursor: pointer; }
+.kb-box.empty:hover, .kb-box.set:hover { border-color: var(--ink); }
+.kb-box.set { border: 1px solid var(--keycap); cursor: pointer; }
+.kb-box.set.pending, .kb-box.set.pending:hover { border-color: var(--cobalt); }
+.kb-box.listening { border: 2px solid var(--cobalt); background: var(--cobalt-faint); gap: 14px; }
+.kb-prompt { display: inline-flex; align-items: center; gap: 10px; font-size: 18px; line-height: 24px; font-weight: 700; }
+.kb-box.listening .kb-prompt { font-size: 20px; color: var(--cobalt); }
+.kb-ico { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; }
+.kb-caret { width: 2px; height: 24px; border-radius: 1px; background: var(--cobalt); animation: kb-blink 1.06s steps(1) infinite; }
+@keyframes kb-blink { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .kb-caret { animation: none; } }
+.kb-mods { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: center; }
+.kb-mod {
+  height: 28px; padding: 0 10px; border: 1px solid #c9d1f5; border-radius: 5px; background: var(--ground);
+  display: inline-flex; align-items: center; font-size: 13px; font-weight: 600; color: var(--ink-2);
+}
+.kb-mod.on { background: var(--cobalt); border-color: var(--cobalt); color: #fff; font-weight: 700; }
+.kb-note { padding-left: 6px; font-size: 13px; line-height: 16px; font-weight: 500; color: var(--ink-2); }
+.kb-combo { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: center; }
+.kb-cap {
+  min-width: 48px; height: 48px; padding: 0 14px; border: 1.5px solid var(--ink); border-bottom-width: 4px; border-radius: 7px;
+  display: inline-flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 700;
+}
+.kb-box.pending .kb-cap { border-color: var(--cobalt); color: var(--cobalt); }
+.kb-plus { font-size: 18px; color: var(--ink-3); }
+.kb-hid { font: 500 12px/16px var(--mono); color: var(--ink-3); }
+.kb-foot { display: flex; justify-content: space-between; align-items: center; gap: 24px; }
+.kb-foot .link { font-size: 13px; white-space: nowrap; }
+.kb-hint { margin: -4px 0 0; line-height: 20px; }
+.kb-list { display: grid; gap: 14px; padding-top: 8px; border-top: 1px solid var(--hairline); }
+.kb-group { display: grid; gap: 8px; }
+.kb-group .keys { gap: 6px; }
+.key.kb-k { width: auto; min-width: 44px; height: 36px; padding: 0 10px; font-size: 14px; }
+
 /* D-pad directions (nameHtml): one icon set, so ↑ and → come out the same size: 18px in 15px text,
    20px on a keycap, as in the Paper design. */
 .key .arw { width: 1.33em; height: 1.33em; vertical-align: -0.3em; }

@@ -7,6 +7,7 @@ import { Library } from "./macros.js";
 import { Profiles, toWrite, named, slotsOf } from "./profiles.js";
 import { DEFAULT_PROFILE } from "./defaults.js";
 import { decodeLighting, encodeLighting, LIGHT_COLORS_MAX, CustomColors, CUSTOM_MAX, hexToHsv, hsvToHex, normHex, GOLD } from "./lighting.js";
+import { MOD_ONLY, MOD_CODE, keyOfCode, modsOfEvent } from "./keys.js";
 import * as V from "./views.js";
 
 const $ = (s) => document.querySelector(s);
@@ -875,7 +876,68 @@ function setOutput(el) {
   render();
 }
 
+// Keyboard target (keys.js). The box listens only after a click and stops after one key or combo.
+const kbKey = () => `map.${S.ui.layer}.${S.ui.sel}.${S.ui.press}`;
+function setKeyboard(key, modifier) {
+  D.set(kbKey(), { type: "btn_keyboard", key, modifier });
+  S.ui.outType = "keyboard";
+}
+function kbStop(keep = false) {
+  Object.assign(S.ui, { kbListen: false, kbHeld: 0, kbPeak: 0 });
+  if (!keep) render();
+}
+function kbListen() {
+  Object.assign(S.ui, { kbListen: true, kbHeld: 0, kbPeak: 0, kbList: false });
+  render();
+}
+// keydown/keyup while listening. Every key is taken (Esc and Tab too): cancel is a click.
+function kbCapture(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  if (e.type === "keydown" && e.repeat) return;
+  const bit = MOD_CODE[e.code];
+  if (bit) {
+    if (e.type === "keydown") {
+      S.ui.kbHeld |= bit;
+      S.ui.kbPeak |= bit;
+    } else {
+      S.ui.kbHeld &= ~bit;
+      // Modifiers pressed and let go with no other key: the modifier alone (key 0xFF).
+      if (!S.ui.kbHeld && S.ui.kbPeak) {
+        setKeyboard(MOD_ONLY, S.ui.kbPeak);
+        return kbStop();
+      }
+    }
+    return render();
+  }
+  if (e.type !== "keydown") return;
+  const k = keyOfCode(e.code);
+  if (!k) return toast(`คีย์ ${e.code || e.key} ไม่อยู่ในรายการที่จอยรับ เลือกคีย์อื่น หรือเลือกจากรายการ`, true);
+  setKeyboard(k.key, modsOfEvent(e));
+  kbStop();
+}
+
 const ACTIONS = {
+  "kb-listen": kbListen,
+  "kb-cancel": () => kbStop(),
+  "kb-list": () => {
+    S.ui.kbList = !S.ui.kbList;
+    render();
+  },
+  "kb-pick": (el) => {
+    const cur = D.get(kbKey());
+    setKeyboard(Number(el.dataset.key), cur?.type === "btn_keyboard" ? cur.modifier ?? 0 : 0);
+    render();
+  },
+  "kb-mod": (el) => {
+    const cur = D.get(kbKey());
+    const kb = cur?.type === "btn_keyboard" ? cur : null;
+    const mod = (kb?.modifier ?? 0) ^ Number(el.dataset.bit);
+    const key = kb?.key ?? MOD_ONLY;
+    if (key === MOD_ONLY && !mod) return toast("ต้องมีคีย์อย่างน้อย 1 ตัว เลือกคีย์ก่อนแล้วค่อยเอา modifier ออก", true);
+    setKeyboard(key, mod);
+    render();
+  },
   connect,
   disconnect,
   reload: () => loadAll(),
@@ -1291,6 +1353,11 @@ function hexdump(b) {
 }
 
 document.addEventListener("click", (e) => {
+  // A click anywhere but the listening key box stops it and keeps the key there was.
+  if (S.ui.kbListen && !e.target.closest("[data-kb-box]")) {
+    kbStop(true);
+    if (!e.target.closest("[data-act]")) return render();
+  }
   // A click outside the color picker closes it (the + button toggles it itself).
   if (S.ui.picker && !e.target.closest("[data-picker]") && !e.target.closest('[data-act="color-new"]')) {
     S.ui.picker = null;
@@ -1312,6 +1379,11 @@ document.addEventListener("click", (e) => {
   const co = e.target.closest("[data-pick]");
   if (co) pick(co.dataset.pick);
 });
+
+// Capture phase, so nothing else on the page sees a key meant for the controller.
+window.addEventListener("keydown", (e) => S.ui.kbListen && kbCapture(e), true);
+window.addEventListener("keyup", (e) => S.ui.kbListen && kbCapture(e), true);
+window.addEventListener("blur", () => S.ui.kbListen && kbStop());
 
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && S.ui.picker) return closePicker();

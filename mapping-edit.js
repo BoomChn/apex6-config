@@ -2,6 +2,7 @@
 // We patch single bytes instead of re-encoding, so everything we don't touch stays byte-identical.
 
 import { decodeMapping, BUTTONS, GYRO_AXES } from "./mapping.js";
+import { keyProblem } from "./keys.js";
 
 // CRC-16/CCITT-FALSE (poly 0x1021, init 0xFFFF); the wrapper CRC covers the XMUL blob only.
 export function crc16(bytes) {
@@ -317,6 +318,13 @@ export function checkProfile(wrapped) {
         // A layer switch must reach a layer there is; a macro target plays a macro of its own layer.
         if ((t.type === "layer_hold" || t.type === "layer_toggle") && !(t.layer < cfg.layers.length)) fail(`ปุ่ม ${m.source} ใน ${where(l)} สลับไป layer ${t.layer} ที่ไม่มี`);
         if (t.type === "macro" && !ids.includes(t.macro)) fail(`ปุ่ม ${m.source} ใน ${where(l)} เล่น macro #${t.macro + 1} ที่ไม่มีใน layer นี้`);
+        const kp = t.type === "btn_keyboard" && keyProblem(t.key, t.modifier);
+        if (kp) fail(`ปุ่ม ${m.source} ใน ${where(l)}: ${kp}`);
+      }
+    for (const m of l.macros)
+      for (const a of m.actions) {
+        const kp = a.target?.type === "btn_keyboard" && keyProblem(a.target.key, a.target.modifier);
+        if (kp) fail(`macro #${m.macro_id + 1} ใน ${where(l)}: ${kp}`);
       }
   }
   // Gyro block (TLV 5): only values the official app knows. Its schema wants 1–4 activation slots.

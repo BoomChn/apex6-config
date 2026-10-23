@@ -13,6 +13,7 @@ import { fit, APP_NAME_MAX } from "./names.js";
 import { slotsOf, crcOf } from "./profiles.js";
 import { DEFAULT_PROFILE } from "./defaults.js";
 import { LED_KEY, hasSpeed, hasColors, LIGHT_COLORS_MAX, SPEED_MIN, SPEED_MAX, PRESETS, CUSTOM_MAX, hsvToHex } from "./lighting.js";
+import { KEY_GROUPS, MODS, keyCaps } from "./keys.js";
 
 export const TABS = [
   { id: "profiles", label: "Profiles" },
@@ -465,6 +466,47 @@ const typeOf = (t) =>
 // Hold works for a normal or long press; a double press can only toggle (as in the official app).
 export const layerMode = (S, cur) => (S.ui.press === "double" ? "toggle" : cur?.type === "layer_toggle" ? "toggle" : cur?.type === "layer_hold" ? "hold" : S.ui.layerMode ?? "hold");
 
+// Keyboard: the box takes a key only after a click, so a stray key press on this page can't change
+// a key that is already set. It takes one key (or one combo), then stops; a click elsewhere cancels.
+const KB_ICON = `<svg class="kb-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="6" width="19" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"/></svg>`;
+const hex2 = (n) => `0x${n.toString(16).toUpperCase().padStart(2, "0")}`;
+
+function keyboardPicker(ui, cur, pend) {
+  const had = cur?.type === "btn_keyboard" ? cur : null;
+  const caps = (t) => keyCaps(t.key, t.modifier).map((c) => `<span class="kb-cap">${esc(c)}</span>`).join(`<span class="kb-plus">+</span>`);
+  const listLink = `<button class="link" data-act="kb-list">${ui.kbList ? "ซ่อนรายการ" : "เลือกจากรายการ"}</button>`;
+  let box, foot;
+  if (ui.kbListen) {
+    const held = MODS.filter((m) => ui.kbHeld & m.bit);
+    box = `<div class="kb-box listening" data-kb-box role="status" aria-live="polite">
+        <span class="kb-prompt"><span class="kb-caret"></span>${had ? "กดคีย์ใหม่บนคีย์บอร์ด" : "กดคีย์ที่ต้องการบนคีย์บอร์ด"}</span>
+        <span class="kb-mods">${MODS.map((m) => `<span class="kb-mod${ui.kbHeld & m.bit ? " on" : ""}">${m.label}</span>`).join("")}
+          <span class="kb-note">${held.length ? `กด ${held.map((m) => m.label).join(" + ")} ค้างอยู่ · กดคีย์ต่อได้เลย` : "กด Ctrl Shift Alt Win ค้างไว้ก่อนได้"}</span></span>
+      </div>`;
+    foot = `<div class="kb-foot">${had ? `<span class="meta">คีย์เดิม <b style="color:var(--ink)">${esc(keyCaps(had.key, had.modifier).join(" + "))}</b></span><button class="link" data-act="kb-cancel">ยกเลิก ใช้คีย์เดิม</button>` : `<span></span><button class="link" data-act="kb-cancel">ยกเลิก</button>`}</div>
+      <p class="meta kb-hint">รับคีย์ครั้งเดียวแล้วหยุดเอง · คลิกนอกกล่องก็ยกเลิกได้ · บางคีย์ Windows ไม่ส่งมาให้แอป เช่น PrtSc หรือ Win + L</p>`;
+  } else if (had) {
+    box = `<button class="kb-box set${pend ? " pending" : ""}" data-act="kb-listen" aria-label="${esc(`คีย์ ${keyCaps(had.key, had.modifier).join(" + ")} คลิกแล้วกดคีย์ใหม่เพื่อเปลี่ยน`)}">
+        <span class="kb-combo">${caps(had)}</span>
+        <span class="kb-hid">key ${hex2(had.key)} · modifier ${hex2(had.modifier ?? 0)}</span>
+      </button>`;
+    foot = `<div class="kb-foot"><span class="meta">คลิกที่กล่องแล้วกดใหม่ เพื่อเปลี่ยนคีย์</span>${listLink}</div>`;
+  } else {
+    box = `<button class="kb-box empty" data-act="kb-listen">
+        <span class="kb-prompt">${KB_ICON}คลิกที่นี่ แล้วกดคีย์ที่ต้องการ</span>
+        <span class="meta">ตั้งคีย์ผสมได้ เช่น Ctrl + Shift + M</span>
+      </button>`;
+    foot = `<div class="kb-foot"><span class="meta">ยังไม่รับคีย์จนกว่าจะคลิก กดคีย์บอร์ดตอนนี้ไม่มีผล</span>${listLink}</div>`;
+  }
+  const list = ui.kbList && !ui.kbListen
+    ? `<div class="kb-list">
+        <div class="kb-group"><span class="label">กดร่วมกับ</span><div class="keys">${MODS.map((m) => `<button class="key kb-k${had && had.modifier & m.bit ? " on" : ""}" data-act="kb-mod" data-bit="${m.bit}" aria-pressed="${!!(had && had.modifier & m.bit)}">${m.label}</button>`).join("")}</div></div>
+        ${KEY_GROUPS.map((g) => `<div class="kb-group"><span class="label">${g.name}</span><div class="keys">${g.keys.map((x) => `<button class="key kb-k${had?.key === x.key ? " on" : ""}" data-act="kb-pick" data-key="${x.key}">${esc(x.label)}</button>`).join("")}</div></div>`).join("")}
+      </div>`
+    : "";
+  return `<div class="kb">${box}${foot}${list}</div>`;
+}
+
 function layerPicker(S, D, cur) {
   const layer = S.ui.layer;
   const others = layerList(S, D).filter((l) => !l.deleted && l.id !== layer);
@@ -544,7 +586,7 @@ function buttonEditor(S, D) {
   } else if (type === "layer") {
     body = layerPicker(S, D, cur);
   } else if (type === "keyboard") {
-    body = `<p class="meta" style="margin-top:16px;line-height:22px">${cur?.type === "btn_keyboard" ? `ค่าบนจอย: ${esc(labelTarget(cur, cfg))}<br>` : ""}ตาราง keycode ของจอยยังไม่ยืนยัน จึงยังเลือกคีย์จากหน้านี้ไม่ได้</p>`;
+    body = keyboardPicker(ui, cur, D.has(k));
   } else if (type === "none") {
     body = `<p class="meta" style="margin-top:16px">กดปุ่มนี้แล้วจะไม่ส่งอะไรออกไป</p>
       <button class="btn${cur?.type === "none" ? " ink" : ""}" style="margin-top:12px" data-act="out" data-type="none">ปิดปุ่มนี้</button>`;
@@ -1395,7 +1437,7 @@ const WRITABLE_NOW = [
   { label: "เวลาตัดสินการกด", what: "กดค้าง · ดับเบิลคลิก", keys: ["runtime.long", "runtime.double"] },
   { label: "ชื่อ profile", what: "เฉพาะ slot ที่ใช้อยู่", keys: ["profile.name"] },
   { label: "Macro", what: "จากคลัง ใส่ลงทุก layer ที่ปุ่มเลือกใช้ · ไม่เกิน 8 ตัวต่อ layer", keys: ["macro"] },
-  { label: "ปุ่ม", what: "ปุ่มจอย · เมาส์ · Turbo · Macro · สลับ layer · ปิดปุ่ม · ทุก layer", keys: ["map"] },
+  { label: "ปุ่ม", what: "ปุ่มจอย · คีย์บอร์ด · เมาส์ · Turbo · Macro · สลับ layer · ปิดปุ่ม · ทุก layer", keys: ["map"] },
   { label: "เพิ่ม / ลบ layer", what: "ไม่เกิน 4 layer ต่อ slot", keys: ["layer"] },
 ];
 const UNTESTED_SM = `<span class="tag untested" title="เขียนได้แล้ว แต่ยังไม่เคยลองกับจอยจริง">ยังไม่ทดสอบ</span>`;
