@@ -1276,9 +1276,13 @@ console.log("base switches ok");
   let page = V.buttons(S, D);
   assert.match(page, /<span class="mx-h"><b>Aim<\/b><\/span>/, "the matrix says the name");
   assert.match(page, /data-act="layer-rename" data-layer="0"/, "Base can be renamed too");
-  S.ui.layerRenaming = 1;
-  page = V.buttons(S, D);
-  assert.match(page, /<input class="field lg-input" data-layer-name="1" value="Aim" maxlength="24" placeholder="Shift layer"/);
+  // Renaming is a modal, so the page doesn't redraw under the typing (inline, the redraw ended the
+  // rename after one letter).
+  const sheet = V.layerRename(S, 1);
+  assert.match(sheet, /<h2 id="sheet-title">เปลี่ยนชื่อ Aim<\/h2>/);
+  assert.match(sheet, /data-layer-name="1" value="Aim" maxlength="24" placeholder="Shift layer"/);
+  assert.match(sheet, /data-act="layer-name-save" data-layer="1"/);
+  assert.doesNotMatch(page, /data-layer-name=/, "no name field on the page itself");
   // A write that deletes layer 1: layer 2 becomes 1 and takes its name; Aim goes with its layer.
   names.moveLayers("U", 0, [[0, 0], [2, 1]]);
   assert.equal(names.entry("U", "layer.0.1").full, "<b>Drive</b>");

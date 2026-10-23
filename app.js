@@ -1022,17 +1022,15 @@ const ACTIONS = {
     S.ui.outType = null;
     render();
   },
-  // Layer names live in the app (model.js LAYER_NAME): saved as typed, no write needed.
+  // Layer names live in the app (model.js LAYER_NAME), in a modal (views.js layerRename).
   "layer-rename": (el) => {
-    const id = Number(el.dataset.layer);
     S.ui.layerMenu = null;
-    S.ui.layerRenaming = id;
-    S.ui.layerRenameFrom = S.names.entry(S.uuid, layerNameId(S.current.slot, id))?.full ?? "";
-    render();
-    const input = document.querySelector("[data-layer-name]");
+    showSheet(V.layerRename(S, Number(el.dataset.layer)));
+    const input = sheet.querySelector("[data-layer-name]");
     input?.focus();
     input?.select();
   },
+  "layer-name-save": (el) => saveLayerName(Number(el.dataset.layer)),
   "layer-menu": (el) => {
     const id = Number(el.dataset.layer);
     S.ui.layerMenu = S.ui.layerMenu === id ? null : id;
@@ -1502,9 +1500,9 @@ document.addEventListener("keydown", (e) => {
     pick(co.dataset.pick);
   }
   const ln = e.target.closest?.("[data-layer-name]");
-  if (ln && (e.key === "Enter" || e.key === "Escape")) {
+  if (ln && e.key === "Enter") {
     e.preventDefault();
-    return finishLayerName(ln, e.key === "Escape");
+    return saveLayerName(Number(ln.dataset.layerName));
   }
   const rn = e.target.closest?.("[data-rename]");
   if (rn && (e.key === "Enter" || e.key === "Escape")) {
@@ -1572,16 +1570,6 @@ document.addEventListener("input", (e) => {
     renderChrome();
     return;
   }
-  if ("layerName" in el.dataset && S.current) {
-    // Saved as it is typed, so the matrix and the rows follow; Enter tidies it, Esc puts it back.
-    S.names.put(S.uuid, layerNameId(S.current.slot, Number(el.dataset.layerName)), el.value, null);
-    const at = el.selectionStart;
-    render();
-    const f = document.querySelector("[data-layer-name]");
-    f?.focus();
-    f?.setSelectionRange(at, at);
-    return;
-  }
   const key = el.dataset.key;
   if (!key || !S.current) return;
   if (el.type === "range") {
@@ -1620,8 +1608,6 @@ document.addEventListener("change", (e) => {
     setGyroButton(Number(el.dataset.gyroBtn), el.value);
     return render();
   }
-  // Leaving the name field is the same as Enter.
-  if ("layerName" in el.dataset && S.current) return finishLayerName(el, false);
   const key = el.dataset.key;
   if (!key || !S.current) return;
   if (el.type === "checkbox") setDraft(key, el.checked);
@@ -1644,20 +1630,21 @@ document.addEventListener("change", (e) => {
   render();
 });
 
-// Ends a layer rename: Esc puts the old name back; otherwise the name is kept trimmed, unless another
-// layer has it (two layers with one name can't be told apart in the matrix or the write review).
-function finishLayerName(el, cancel) {
-  if (S.ui.layerRenaming == null) return;
-  const id = Number(el.dataset.layerName);
-  const nid = layerNameId(S.current.slot, id);
-  const name = el.value.trim();
-  const clash = !cancel && name && layerList(S, D).find((l) => !l.deleted && l.id !== id && LAYER_NAME(l.id).toLowerCase() === name.toLowerCase());
-  if (clash) toast(`มี layer ชื่อ "${name}" อยู่แล้ว · ใช้ชื่อเดิม`, true);
-  S.names.put(S.uuid, nid, cancel || clash ? S.ui.layerRenameFrom ?? "" : name, null);
-  S.ui.layerRenaming = null;
-  S.ui.layerRenameFrom = null;
-  render();
-  document.querySelector(`[data-act="layer-rename"][data-layer="${id}"]`)?.focus();
+// Saves the name typed in the rename modal, trimmed; empty means the default name. Another layer's
+// name is refused: two layers with one name can't be told apart in the matrix or the write review.
+function saveLayerName(id) {
+  const input = sheet.querySelector("[data-layer-name]");
+  if (!input || !S.current) return;
+  const name = input.value.trim();
+  const clash = name && layerList(S, D).find((l) => !l.deleted && l.id !== id && LAYER_NAME(l.id).toLowerCase() === name.toLowerCase());
+  if (clash) {
+    sheet.querySelector("#layer-name-err").textContent = `มี layer ชื่อ "${name}" อยู่แล้ว ตั้งชื่ออื่น`;
+    return input.focus();
+  }
+  S.names.put(S.uuid, layerNameId(S.current.slot, id), name, null);
+  // The close event renders the page; then focus goes back to this layer's pencil.
+  sheet.addEventListener("close", () => document.querySelector(`[data-act="layer-rename"][data-layer="${id}"]`)?.focus(), { once: true });
+  sheet.close();
 }
 
 async function importNames(el) {
