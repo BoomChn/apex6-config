@@ -566,6 +566,14 @@ dialog.sheet[open] { animation: rise .22s cubic-bezier(.16, 1, .3, 1); }
 .mx-c:hover:not(:disabled):not(.on) { background: #fafafa; }
 .mx-c.on { outline: 2px solid var(--cobalt); outline-offset: -4px; border-radius: 8px; background: var(--cobalt-tint-faint, #F5F7FE); }
 .mx-c:disabled { color: var(--ink-3); cursor: default; }
+.mx-c.lock { display: flex; align-items: center; gap: 6px; background: #F6F6F6; color: var(--ink-2); font-weight: 600; border-bottom-color: #fff; }
+.mx-c.lock.unset { font-weight: 500; color: var(--ink-3); }
+.mx-c.lock .mx-lock { flex-shrink: 0; color: var(--ink-3); }
+.mx-c.lock span { overflow: hidden; text-overflow: ellipsis; }
+.lock-note { display: flex; gap: 10px; align-items: flex-start; margin-top: 12px; padding: 12px 14px; background: #F6F6F6; border-radius: 8px; font-size: 14px; line-height: 21px; color: var(--ink-2); }
+.lock-note b { color: var(--ink); }
+.lock-note .mx-lock { margin-top: 3px; flex-shrink: 0; }
+.utab:disabled { color: var(--ink-3); opacity: .55; cursor: not-allowed; }
 .co .extra { font-size: 12px; line-height: 15px; }
 .co .extra .xn { font-weight: 600; fill: var(--ink-2); }
 .co .extra .xv { font-weight: 700; fill: var(--ink); }

@@ -599,22 +599,32 @@ function layerPicker(S, D, cur) {
     ).join("")}</div>`;
 }
 
-// Hardware, owner 2026-10-23: B "hold → Shift layer" (normal press) with Shift's B set to K: holding
-// B typed k the whole time, and A gave Shift's J. So a button that holds a layer also plays its own
-// normal press of that layer while held; with nothing set there, that is the button itself.
-function holdLeakNote(S, D, src, cols) {
-  const cfg = S.current.cfg;
-  const live = new Set(cols.map((l) => l.id));
-  return cols
-    .map((l) => ({ from: l.id, t: shownTarget(D, l.id, src, "simple") }))
-    .filter(({ t }) => t?.type === "layer_hold" && live.has(t.layer))
-    .map(({ from, t }) => {
-      const there = shownTarget(D, t.layer, src, "simple");
-      if (there?.type === "none" || there?.type === "layer_hold" || there?.type === "layer_toggle") return "";
-      const what = there === undefined || isIdentity(there, src) ? btnName(src) : labelTarget(there, cfg);
-      return `<p class="meta hold-leak" style="margin:10px 0 0;line-height:20px">กด ${nameHtml(btnName(src))} ค้างใน ${esc(LAYER_NAME(from))} จอยจะส่ง <b style="color:var(--ink)">${nameHtml(what)}</b> ไปด้วยตลอดที่ค้าง (ช่อง ${esc(LAYER_NAME(t.layer))} · กดปกติ) · ถ้าไม่อยากให้ส่งอะไร ตั้งช่องนั้นเป็น "ปิดปุ่มนี้"</p>`;
-    })
-    .join("");
+// Owner's rule (2026-10-23): a button switches layers only from Base. Once it does, the app sets it in
+// every other layer and those cells can't be edited: the firmware plays the button's own map in the
+// layer it holds (hardware: B hold → Shift with Shift's B = K typed k all the while), so anything set
+// there would go out too. In the layer a toggle goes to, the same press switches back to Base.
+const isSwitch = (t) => t?.type === "layer_hold" || t?.type === "layer_toggle";
+function baseSwitch(D, src) {
+  for (const p of PRESS) {
+    const t = shownTarget(D, 0, src, p.id);
+    if (isSwitch(t)) return { press: p.id, t };
+  }
+  return null;
+}
+// What a locked cell holds: switch back to Base, off (normal press), or nothing (long/double).
+function lockedTarget(sw, layer, press) {
+  if (sw.t.type === "layer_toggle" && layer === sw.t.layer && press === sw.press) return { type: "layer_toggle", layer: 0 };
+  return press === "simple" ? { type: "none" } : undefined;
+}
+const LOCK_ICON = `<svg class="mx-lock" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><rect x="2.5" y="6.2" width="9" height="6.3" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M4.6 6.2V4.4a2.4 2.4 0 0 1 4.8 0v1.8" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>`;
+function lockNote(sw, src, cols) {
+  const b = nameHtml(btnName(src));
+  const others = cols.filter((l) => l.id !== 0).map((l) => esc(LAYER_NAME(l.id))).join(" และ ");
+  const pl = PRESS.find((p) => p.id === sw.press).label;
+  const how = sw.t.type === "layer_toggle"
+    ? `${pl} ${b} อีกครั้งใน ${esc(LAYER_NAME(sw.t.layer))} เพื่อกลับ Base layer`
+    : `ตอนกด ${b} ค้าง จอยจะไม่ส่งอะไรเพิ่ม`;
+  return `<div class="lock-note">${LOCK_ICON}<span><b>${b} ใช้สลับ layer แล้ว</b> · ช่องใน ${others} แอปตั้งให้เองและแก้ไม่ได้ · ${how}<br>อยากให้ ${b} ทำอย่างอื่นใน layer อื่น ให้เปลี่ยนช่อง Base layer · ${pl} ก่อน</span></div>`;
 }
 
 function buttonEditor(S, D) {
@@ -632,20 +642,28 @@ function buttonEditor(S, D) {
   // Adding and deleting layers is on the layer rows under the photo (changedList).
   const cols = liveLayers(S, D);
   const head = cols.map((l) => `<span class="mx-h"><b>${LAYER_NAME(l.id)}</b></span>`).join("");
+  const sw = baseSwitch(D, src);
   const cells = PRESS.map((p) => `<span class="mx-k">${p.label}</span>${cols.map((l) => {
     const k = mapKey(l.id, src, p.id);
+    if (sw && l.id !== 0) {
+      const t = lockedTarget(sw, l.id, p.id);
+      const label = t?.type === "layer_toggle" ? "สลับกลับ Base" : t ? "ปิดปุ่ม" : "—";
+      return `<button class="mx-c lock${t ? "" : " unset"}" disabled aria-label="${esc(`${LAYER_NAME(l.id)} · ${p.label}: ${label} · แอปตั้งให้ แก้ไม่ได้`)}">${LOCK_ICON}<span>${label}</span></button>`;
+    }
     const v = shownTarget(D, l.id, src, p.id);
     const on = layer === l.id && press === p.id;
     return `<button class="mx-c${on ? " on" : ""}${D.has(k) ? " pending" : ""}${v === undefined ? " unset" : ""}" data-act="cell" data-layer="${l.id}" data-press="${p.id}" aria-label="${esc(`${LAYER_NAME(l.id)} · ${p.label}: ${labelTarget(v, cfg)}`)}">${nameHtml(labelTarget(v, cfg))}</button>`;
   }).join("")}`).join("");
   const rows = `<div class="mx" style="grid-template-columns:96px repeat(${cols.length}, minmax(0, 1fr))"><span class="mx-k"></span>${head}${cells}</div>`;
-  const leak = holdLeakNote(S, D, src, cols);
+  const leak = sw ? lockNote(sw, src, cols) : "";
   const k = mapKey(layer, src, press);
   const cur = shownTarget(D, layer, src, press);
   const type = ui.outType ?? typeOf(cur);
   const pl = PRESS.find((p) => p.id === press).label;
   const types = [...OUT_TYPES, ...(press !== "simple" ? [{ id: "unset", label: "ไม่ใช้" }] : [])]
-    .map((t) => `<button class="utab${t.id === type || (t.id === "unset" && cur === undefined && !ui.outType) ? " on" : ""}" data-act="outtype" data-type="${t.id}">${t.label}</button>`)
+    .map((t) => t.id === "layer" && layer !== 0
+      ? `<button class="utab" disabled title="สลับ layer ตั้งได้ที่ Base layer เท่านั้น">${t.label}</button>`
+      : `<button class="utab${t.id === type || (t.id === "unset" && cur === undefined && !ui.outType) ? " on" : ""}" data-act="outtype" data-type="${t.id}">${t.label}</button>`)
     .join("");
   let body = "";
   if (type === "gamepad" || type === "turbo") {
@@ -700,6 +718,7 @@ function buttonEditor(S, D) {
     <div style="padding-top:28px;display:grid;gap:14px">
       <div class="label">${LAYER_NAME(layer)} · ${pl} ส่งเป็น</div>
       <div class="utabs" style="gap:20px">${types}</div>
+      ${layer !== 0 ? `<p class="meta" style="margin:0">สลับ layer ตั้งได้ที่ Base layer เท่านั้น · ใน ${esc(LAYER_NAME(layer))} ตั้งเป็นอย่างอื่นได้ทุกแบบ</p>` : ""}
       ${body}
       ${pend && (untested(k, cur) || !isWritable(k)) ? `<p style="margin:0">${untested(k, cur) || UNSUP}</p>` : ""}
     </div>`;
