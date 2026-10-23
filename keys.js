@@ -1,7 +1,6 @@
 // Keyboard targets (target type 1): key = USB HID usage (keyboard page), modifier = HID bit mask
 // Ctrl 1, Shift 2, Alt 4, Win 8 (right-hand ones 16–128). A modifier alone is key 0xFF with its bits.
-// The keys offered are the ones the official site's picker offers (PROTOCOL.md "Keyboard targets"),
-// plus F13–F24, which the official picker doesn't offer and which are not tried on the controller yet.
+// The keys offered are the ones the official site's picker offers (PROTOCOL.md "Keyboard targets").
 
 export const MOD_ONLY = 0xff;
 export const MODS = [
@@ -21,7 +20,6 @@ const MODS_R = [
 // [event.code, HID usage, label], grouped as the list picker shows them.
 const ROWS = [
   ["ฟังก์ชัน", [["Escape", 41, "Esc"], ...Array.from({ length: 12 }, (_, i) => [`F${i + 1}`, 58 + i, `F${i + 1}`])]],
-  ["F13–F24", Array.from({ length: 12 }, (_, i) => [`F${i + 13}`, 104 + i, `F${i + 13}`])],
   ["ตัวเลข", [["Backquote", 53, "`"], ...Array.from({ length: 9 }, (_, i) => [`Digit${i + 1}`, 30 + i, `${i + 1}`]), ["Digit0", 39, "0"], ["Minus", 45, "-"], ["Equal", 46, "="], ["Backspace", 42, "Backspace"]]],
   ["ตัวอักษร", [
     ...[..."QWERTYUIOP"].map((c) => [`Key${c}`, 4 + c.charCodeAt(0) - 65, c]),
@@ -41,16 +39,16 @@ const ROWS = [
 export const KEY_GROUPS = ROWS.map(([name, keys]) => ({ name, keys: keys.map(([code, key, label]) => ({ code, key, label })) }));
 const ALL = KEY_GROUPS.flatMap((g) => g.keys);
 const BY_CODE = new Map(ALL.map((k) => [k.code, k]));
-const BY_KEY = new Map(ALL.map((k) => [k.key, k]));
+// F13–F24 (HID 104–115) are not offered: owner 2026-10-23, Shift layer RM set to F24 gave nothing in
+// a key tester while M in the same place typed m. Kept here so a profile made elsewhere still names them.
+const F13_F24 = Array.from({ length: 12 }, (_, i) => ({ code: `F${i + 13}`, key: 104 + i, label: `F${i + 13}` }));
+const BY_KEY = new Map([...ALL, ...F13_F24].map((k) => [k.key, k]));
 
 // event.code of a modifier → its (left) bit.
 export const MOD_CODE = {
   ControlLeft: 1, ControlRight: 1, ShiftLeft: 2, ShiftRight: 2,
   AltLeft: 4, AltRight: 4, MetaLeft: 8, MetaRight: 8, OSLeft: 8, OSRight: 8,
 };
-
-// F13–F24 (HID 104–115): outside the official picker, not confirmed on hardware.
-export const isExtraKey = (key) => key >= 104 && key <= 115;
 
 export const keyOfCode = (code) => BY_CODE.get(code) ?? null;
 export const modsOfEvent = (e) => (e.ctrlKey ? 1 : 0) | (e.shiftKey ? 2 : 0) | (e.altKey ? 4 : 0) | (e.metaKey ? 8 : 0);
@@ -67,5 +65,6 @@ export const keyLabel = (key, modifier) => keyCaps(key, modifier).join(" + ");
 export function keyProblem(key, modifier = 0) {
   if (key === MOD_ONLY) return modifier ? null : "คีย์ 0xFF ต้องมี Ctrl, Shift, Alt หรือ Win อย่างน้อย 1 ตัว";
   if (!(key >= 4 && key <= 0xe7)) return `คีย์ 0x${key.toString(16)} ไม่ใช่คีย์บอร์ด`;
+  if (key >= 104 && key <= 115) return `F${key - 91} จอยส่งไปไม่ถึง Windows เปลี่ยนเป็นคีย์อื่นก่อน (ลอง F24 กับจอยจริงแล้ว ไม่มีอะไรเกิดขึ้น)`;
   return null;
 }
