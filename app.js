@@ -1,7 +1,7 @@
 import { Apex6, RAM, hex, crc32 } from "./protocol.js";
 import { decodeMapping } from "./mapping.js";
 import { unwrapMapping, applyEdits, sameBytes, deadzoneMax, curveEndMin, curveStartMax, MACRO_STEPS_MAX, motorCmd, motorMode, FEEDBACK_MODE, gyroByte, gyroPct, GYRO_MIDS_MAX } from "./mapping-edit.js";
-import { Drafts, meta, esc, resolveNames, resolveMacros, macroPlan, writeEdits, macroUses, openMacro, layerMoves, nameId, evalCurve, layerKey, layerList, nextLayerId, LAYER_NAME, btnName, lockSwitches } from "./model.js";
+import { Drafts, meta, esc, resolveNames, resolveMacros, macroPlan, writeEdits, macroUses, openMacro, layerMoves, nameId, evalCurve, layerKey, layerList, nextLayerId, LAYER_NAME, btnName } from "./model.js";
 import { Names, SlotSeen, fit } from "./names.js";
 import { Library } from "./macros.js";
 import { Profiles, toWrite, named, slotsOf } from "./profiles.js";
@@ -57,7 +57,6 @@ const PAGES = {
 
 // The macro plan follows the drafts and the library, so it is worked out again on every render.
 function refreshPlan() {
-  if (S.current) lockSwitches(S, D);
   try {
     S.plan = S.current ? macroPlan(S, D) : null;
   } catch (e) {
@@ -1007,14 +1006,12 @@ const ACTIONS = {
     render();
     if (S.ui.pressMenu) document.querySelector(".menu [role=menuitem]:not(:disabled)")?.focus();
   },
-  // Adds a long or double press row and opens its cell in the layer being edited (Base when that
-  // layer's cells are locked to a layer switch).
+  // Adds a long or double press row and opens its cell in the layer being edited.
   "press-add": (el) => {
     const p = el.dataset.press;
     S.ui.pressMenu = false;
     S.ui.addedPress = [...new Set([...S.ui.addedPress, p])];
     S.ui.press = p;
-    if (V.isLockedCell(S, D, S.ui.layer)) S.ui.layer = 0;
     S.ui.outType = null;
     render();
   },
