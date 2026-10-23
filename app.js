@@ -6,6 +6,7 @@ import { Names, SlotSeen, fit } from "./names.js";
 import { Library } from "./macros.js";
 import { Profiles, toWrite, named, slotsOf } from "./profiles.js";
 import { DEFAULT_PROFILE } from "./defaults.js";
+import { decodeLighting, encodeLighting, LIGHT_COLORS_MAX } from "./lighting.js";
 import * as V from "./views.js";
 
 const $ = (s) => document.querySelector(s);
@@ -18,13 +19,15 @@ const S = {
   info: null, sku: null, uuid: null, vers: null, slots: null,
   current: null, // { wrapped, cfg, slot } as last read from the controller
   motor: null, // RAM 0x06 (motor output) as last read, or null when it could not be read
+  light: null, // { wrapped, cfg (decodeLighting), slot }: RAM 0x04 as last read, or null when it could not be read
+  lightError: null,
   readAt: null,
   loading: null,
   loadError: null,
   connectError: null,
   tab: tabFromHash(),
   // ui.macro: uid of the library macro the Macros page has open; macroQ/pickQ: list filters.
-  ui: { layer: 0, layerMode: "hold", sel: "M1", press: "simple", outType: null, dpad: "D-pad ↑", renaming: null, slotMenu: null, macro: null, step: 0, macroQ: "", pickQ: "" },
+  ui: { layer: 0, layerMode: "hold", sel: "M1", press: "simple", outType: null, dpad: "D-pad ↑", renaming: null, slotMenu: null, macro: null, step: 0, macroQ: "", pickQ: "", ledPick: 0 },
   log: [],
   backups: [],
   dump: null,
@@ -164,6 +167,7 @@ function softUpdate(key) {
 function outText(key, label) {
   const v = D.get(key);
   if (key.startsWith("led.bright") || key.startsWith("screen.bright")) return `${v}%`;
+  if (key === "led.speed") return meta(key, S).fmt(v);
   if (key.startsWith("gyro.")) return `${v}%`;
   if (key.startsWith("grip.") || key.startsWith("gripfb.")) return meta(key, S).fmt(v);
   return `${Math.round((v / 255) * 100)}%  ·  ${v}`;
@@ -257,6 +261,7 @@ async function loadAll() {
     S.current = { wrapped: data, cfg, slot: activeSlot };
     // Trigger feedback on/off lives in RAM 0x06; without it those switches stay drafts.
     S.motor = (await safe(() => pad.readRam(RAM.MOTOR)))?.data ?? null;
+    await loadLight(activeSlot);
     // A name drafted for a slot that is no longer loaded can't be written now: keep it in the app.
     for (const k of D.pendingKeys("slot.")) {
       const i = Number(k.split(".")[1]);
@@ -279,12 +284,26 @@ async function loadAll() {
   render();
 }
 
+// RGB lighting of the active slot (RAM 0x04). Without it the Lighting page stays drafts only.
+async function loadLight(slot) {
+  S.light = null;
+  S.lightError = null;
+  try {
+    const { data, activeSlot } = await S.pad.readRam(RAM.LIGHTING);
+    if (activeSlot !== slot) throw new Error(`จอยตอบไฟของ Slot ${activeSlot + 1} แทน Slot ${slot + 1}`);
+    S.light = { wrapped: data, cfg: decodeLighting(data), slot };
+  } catch (e) {
+    console.warn(e);
+    S.lightError = e.message;
+  }
+}
+
 async function disconnect() {
   await stopLive();
   await S.pad?.close().catch(() => {});
   S.pad = null;
   S.current = null;
-  S.info = S.sku = S.uuid = S.vers = S.slots = S.motor = null;
+  S.info = S.sku = S.uuid = S.vers = S.slots = S.motor = S.light = null;
   D.clear();
   if (S.demo) {
     S.demo = false;
@@ -515,9 +534,9 @@ function openReview() {
 // switches (Drafts.motorCmds), sent with 0x53 once the profile is in.
 // data: a whole profile written instead of edits; names: [id, full name] the app keeps once it is in;
 // profile: the library profile data comes from, which takes the bytes read back.
-async function runWrite({ edits = null, drafts = null, links = null, data = null, names = [], profile = null, motor = [], reason, title, doneTitle, failTitle }) {
+async function runWrite({ edits = null, drafts = null, links = null, data = null, names = [], profile = null, motor = [], light = null, reason, title, doneTitle, failTitle }) {
   const slot = S.current.slot;
-  const steps = ["สำรองไฟล์", `ส่งข้อมูล Slot ${slot + 1}`, "ตรวจ CRC กับจอย", ...(motor.length ? ["ตั้งบีบไกแล้วด้ามสั่น"] : [])];
+  const steps = ["สำรองไฟล์", `ส่งข้อมูล Slot ${slot + 1}`, "ตรวจ CRC กับจอย", ...(motor.length ? ["ตั้งบีบไกแล้วด้ามสั่น"] : []), ...(light ? ["ตั้งไฟ RGB"] : [])];
   W = { title, doneTitle, failTitle, slot, name: S.current.cfg.name || "", at: 0, steps, bytes: null };
   S.writing = true;
   showSheet(V.writing(W));
@@ -528,6 +547,8 @@ async function runWrite({ edits = null, drafts = null, links = null, data = null
     if (fresh.activeSlot !== slot || !sameBytes(fresh.data, S.current.wrapped)) {
       throw new Error("ค่าในจอยไม่ตรงกับที่แสดงอยู่ (อาจสลับ slot หรือถูกแก้จากที่อื่น) อ่านค่าจากจอยใหม่แล้วลองอีกครั้ง");
     }
+    // Lighting is checked and encoded before anything is sent, so a bad value stops the whole write.
+    const lightNext = light && (await lightBefore(light, slot));
     const info = await S.pad.getRamInfo(RAM.MAPPING);
     if (info.status !== 0 || info.len !== fresh.data.length || info.crc32 !== crc32(fresh.data)) {
       throw new Error(`จอยรายงานความยาว/CRC ไม่ตรงกับที่อ่านได้ (status=${info.status}) ยกเลิกแล้ว ไม่ได้เขียนอะไร`);
@@ -586,6 +607,11 @@ async function runWrite({ edits = null, drafts = null, links = null, data = null
       showSheet(V.writing(W));
       await writeMotor(motor, slot);
     }
+    if (light) {
+      W.at = steps.length - 1;
+      showSheet(V.writing(W));
+      await writeLight(light, lightNext, slot);
+    }
     D.prune();
     W.left = D.count();
     S.writing = false;
@@ -622,6 +648,25 @@ async function writeMotor(list, slot) {
     }
     D.map.delete(m.key);
   }
+}
+
+// Re-read the slot's lighting, check it is what the page shows, and encode the new one (checkLighting).
+async function lightBefore({ light }, slot) {
+  const fresh = await S.pad.readRam(RAM.LIGHTING);
+  if (fresh.activeSlot !== slot || !S.light || !sameBytes(fresh.data, S.light.wrapped)) {
+    throw new Error("ไฟในจอยไม่ตรงกับที่แสดงอยู่ (อาจสลับ slot หรือถูกแก้จากที่อื่น) อ่านค่าจากจอยใหม่แล้วลองอีกครั้ง");
+  }
+  return encodeLighting(light, { keptSpeed: S.light.cfg.speed });
+}
+
+// RGB lighting (RAM 0x04), after the profile: write, read back, compare every byte.
+async function writeLight({ keys }, next, slot) {
+  if (!sameBytes(next, S.light.wrapped)) await S.pad.writeRam(RAM.LIGHTING, next);
+  const back = await S.pad.readRam(RAM.LIGHTING);
+  if (back.activeSlot !== slot) throw new Error(`จอยเปลี่ยนไปใช้ Slot ${back.activeSlot + 1} ระหว่างตั้งไฟ RGB`);
+  if (!sameBytes(back.data, next)) throw new Error("ตั้งไฟ RGB แล้ว อ่านกลับมาไม่ตรงกับที่เขียน ค่าอื่นในโปรไฟล์เขียนเสร็จแล้ว");
+  S.light = { wrapped: back.data, cfg: decodeLighting(back.data), slot };
+  for (const k of keys) D.map.delete(k);
 }
 
 // ---------------- Events ----------------
@@ -689,6 +734,15 @@ function setGyroButton(i, button) {
   else if (i < list.length) list[i] = { activation, button };
   else list.push({ activation, button });
   if (list.length) setDraft("gyro.activation", list);
+}
+
+// A picked color: the one color of solid, or the selected one of the breathing/gradient set.
+function setLedColor(hex) {
+  const mode = D.get("led.mode");
+  if (mode !== "breathing" && mode !== "gradient") return setDraft("led.color", hex);
+  const list = [...D.get("led.colors")];
+  list[Math.min(S.ui.ledPick, list.length - 1)] = hex;
+  setDraft("led.colors", list);
 }
 
 function setDraft(key, v) {
@@ -767,7 +821,7 @@ const ACTIONS = {
     const plan = macroPlan(S, D);
     if (plan.errors.length) return toast(plan.errors[0], true);
     const { edits, drafts } = writeEdits(D, plan);
-    runWrite({ edits, drafts, links: plan.links, motor: D.motorCmds(), reason: "ก่อนเขียน", title: "กำลังเขียนลงจอย", doneTitle: "เขียนเสร็จ ตรงกับจอยแล้ว", failTitle: "เขียนไม่สำเร็จ" });
+    runWrite({ edits, drafts, links: plan.links, motor: D.motorCmds(), light: D.lightWrite(), reason: "ก่อนเขียน", title: "กำลังเขียนลงจอย", doneTitle: "เขียนเสร็จ ตรงกับจอยแล้ว", failTitle: "เขียนไม่สำเร็จ" });
   },
   "see-log": () => {
     sheet.close();
@@ -866,6 +920,28 @@ const ACTIONS = {
     if (src.startsWith("D-pad")) S.ui.dpad = src;
     selectSource(src);
     S.ui.layer = Number(el.dataset.layer);
+    render();
+  },
+  "led-color": (el) => {
+    setLedColor(el.dataset.val);
+    render();
+  },
+  "led-pick": (el) => {
+    S.ui.ledPick = Number(el.dataset.i);
+    render();
+  },
+  "led-add": () => {
+    const list = D.get("led.colors");
+    if (list.length >= LIGHT_COLORS_MAX) return toast(`ใส่ได้ไม่เกิน ${LIGHT_COLORS_MAX} สี`, true);
+    setDraft("led.colors", [...list, list[list.length - 1]]);
+    S.ui.ledPick = list.length;
+    render();
+  },
+  "led-del": () => {
+    const list = D.get("led.colors");
+    if (list.length <= 1) return;
+    setDraft("led.colors", list.filter((_, i) => i !== S.ui.ledPick));
+    S.ui.ledPick = Math.max(0, S.ui.ledPick - 1);
     render();
   },
   set: (el) => {
@@ -1263,7 +1339,8 @@ document.addEventListener("change", (e) => {
     } else setDraft(key, v);
   } else if ("hex" in el.dataset) {
     const m = el.value.trim().match(/^#?([0-9a-f]{6})$/i);
-    if (m) setDraft(key, `#${m[1].toUpperCase()}`);
+    if (m && key === "led.color") setLedColor(`#${m[1].toUpperCase()}`);
+    else if (m) setDraft(key, `#${m[1].toUpperCase()}`);
     else if (el.value.trim()) toast("รหัสสีต้องเป็น #RRGGBB", true);
   } else if (el.type === "range") {
     // already applied on input

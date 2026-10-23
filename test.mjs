@@ -908,3 +908,105 @@ console.log("write count ok");
   for (const b of ["C", "Z", "M5", "M6"]) assert.ok(!MACRO_PAD.includes(b), `macro pad offers ${b}`);
 }
 console.log("macro pad ok");
+
+// RGB lighting, RAM 0x04 (lighting.js). Layout from the official codec (2026-10-23).
+{
+  const { decodeLighting, encodeLighting, checkLighting, composeLighting, lightValue } = await import("./lighting.js");
+  const { LIGHT_DEFAULT, LIGHT_EMPTY } = await import("./mock-device.js");
+  const { Drafts, writeEdits, macroPlan } = await import("./model.js");
+  // The official site's default. Its wrapper CRC16 (0xAB26) matches no CRC16 of the blob and the
+  // official reader skips it, so only LGHT's own checksums are checked.
+  const d = decodeLighting(LIGHT_DEFAULT);
+  assert.deepEqual(d, { version: 2, mode: "streaming", bright: 25, speed: 51, colors: [], vibration: false });
+  const re = encodeLighting(d, { keptSpeed: 51 });
+  assert.ok(sameBytes(re.subarray(4), LIGHT_DEFAULT.subarray(4)) && re[0] === 22, "re-encodes the same blob");
+  assert.equal(re[2] | (re[3] << 8), crc16(re.subarray(4)), "written with the CRC16 the official app writes");
+  assert.deepEqual(decodeLighting(LIGHT_EMPTY), { empty: true }, "a slot never set reads RGBD");
+  const bad = LIGHT_DEFAULT.slice();
+  bad[17] = 26;
+  assert.throws(() => decodeLighting(bad), /checksum ของข้อมูล/);
+  const badHead = LIGHT_DEFAULT.slice();
+  badHead[8] = 3;
+  assert.throws(() => decodeLighting(badHead), /checksum ของ header/);
+  assert.throws(() => decodeLighting(LIGHT_DEFAULT.subarray(0, 20)), /ความยาว/);
+  // Every mode round-trips.
+  for (const L of [
+    { mode: "off", bright: null, speed: null, colors: [], vibration: false },
+    { mode: "solid", bright: 80, speed: null, colors: ["#E0303A"], vibration: true },
+    { mode: "breathing", bright: 0, speed: 10, colors: ["#FFD700"], vibration: false },
+    { mode: "gradient", bright: 100, speed: 100, colors: Array(8).fill("#3080FF"), vibration: false },
+    { mode: "default", bright: 80, speed: 50, colors: [], vibration: false },
+  ]) {
+    const w = encodeLighting(L);
+    assert.deepEqual(decodeLighting(w), { version: 2, ...L });
+    assert.equal(w[0] | (w[1] << 8), w.length);
+  }
+  // checkLighting: the limits of the controller and the official app, edges included.
+  const ok = { mode: "gradient", bright: 50, speed: 50, colors: ["#FFFFFF"], vibration: false };
+  checkLighting(ok);
+  for (const [bad, re] of [
+    [{ mode: "rainbow" }, /โหมด/],
+    [{ bright: 101 }, /ความสว่าง/],
+    [{ bright: -1 }, /ความสว่าง/],
+    [{ bright: 50.5 }, /ความสว่าง/],
+    [{ speed: 0 }, /ความเร็ว/],
+    [{ speed: 110 }, /ความเร็ว/],
+    [{ speed: 55 }, /ความเร็ว/],
+    [{ colors: [] }, /สี/],
+    [{ colors: Array(9).fill("#FFFFFF") }, /สี/],
+    [{ colors: ["red"] }, /#RRGGBB/],
+    [{ mode: "solid", colors: ["#FFFFFF", "#000000"] }, /1 สี/],
+  ]) assert.throws(() => checkLighting({ ...ok, ...bad }), re, JSON.stringify(bad));
+  checkLighting({ ...ok, speed: 51 }, { keptSpeed: 51 });
+  assert.throws(() => encodeLighting({ ...ok, bright: 200 }), /ไม่เขียนไฟลงจอย/, "encode checks first");
+  // Off needs nothing else.
+  checkLighting({ mode: "off", bright: null, speed: null, colors: [], vibration: false });
+
+  // Drafts: led keys write to RAM 0x04 only once lighting was read, never into the profile.
+  const S = { current: { cfg: wcfg, slot: 1 }, light: { wrapped: LIGHT_DEFAULT, cfg: d, slot: 1 }, lib: { list: () => [] } };
+  const D = new Drafts(S);
+  assert.equal(D.get("led.mode"), "streaming");
+  assert.equal(D.get("led.speed"), 5, "speed byte 51 shows as level 5");
+  D.set("led.bright", 60);
+  let lw = D.lightWrite();
+  assert.deepEqual(lw.light, { mode: "streaming", bright: 60, speed: 51, colors: [], vibration: false }, "an untouched speed keeps its byte");
+  assert.deepEqual(D.writable(), {}, "nothing for the profile");
+  D.set("led.speed", 7);
+  assert.equal(D.lightWrite().light.speed, 70);
+  D.set("led.mode", "solid");
+  D.set("led.color", "#00FF00");
+  lw = D.lightWrite();
+  assert.deepEqual(lw.light, { mode: "solid", bright: 60, speed: null, colors: ["#00FF00"], vibration: false });
+  assert.deepEqual(lw.keys.sort(), ["led.bright", "led.color", "led.mode", "led.speed"]);
+  encodeLighting(lw.light, { keptSpeed: d.speed });
+  D.set("led.mode", "gradient");
+  assert.deepEqual(D.lightWrite().light.colors, ["#FFD700"], "a new color set starts from gold, as the official app");
+  // A slot never set: modes start from the official app's defaults.
+  const S2 = { ...S, light: { wrapped: LIGHT_EMPTY, cfg: { empty: true }, slot: 1 } };
+  const D2 = new Drafts(S2);
+  assert.equal(D2.get("led.mode"), null);
+  D2.set("led.mode", "breathing");
+  assert.deepEqual(D2.lightWrite().light, { mode: "breathing", bright: 80, speed: 50, colors: ["#FFD700"], vibration: false });
+  assert.equal(lightValue({ empty: true }, "led.bright"), 80);
+  // Lighting that couldn't be read stays a draft.
+  const D3 = new Drafts({ ...S, light: null });
+  D3.set("led.mode", "off");
+  assert.equal(D3.lightWrite(), null);
+  assert.equal(D3.items()[0].writable, false);
+  // The profile write leaves led drafts to the lighting step.
+  const { drafts } = writeEdits(D, { edits: {}, links: [], rows: [], errors: [] });
+  assert.deepEqual(drafts, []);
+  assert.equal(composeLighting(d, (k) => lightValue(d, k)).speed, 51);
+  // A write of lighting alone leaves the profile alone: macro copies no button plays stay (demo, 2026-10-23).
+  const { profileDrafts } = await import("./model.js");
+  const SL = { ...S, plan: { rows: [{ kind: "remove", layer: 0, id: 0 }], moves: [] } };
+  const DL = new Drafts(SL);
+  DL.set("led.bright", 60);
+  assert.equal(profileDrafts(SL, DL), false);
+  assert.equal(DL.count(), 1, "the copy is not counted for removal");
+  assert.deepEqual(writeEdits(DL, { edits: { "macro.0.0.delete": true }, profile: false }).edits, {}, "and not removed");
+  DL.set("stick.left.deadzone", 10);
+  assert.equal(profileDrafts(SL, DL), true);
+  assert.equal(DL.count(), 3);
+}
+console.log("lighting ok");

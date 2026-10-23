@@ -12,6 +12,7 @@ import { isWritable, HW_TESTED, NAME_MAX, nameBytes, MACRO_MAX, gyroPct, GYRO_MI
 import { fit, APP_NAME_MAX } from "./names.js";
 import { slotsOf, crcOf } from "./profiles.js";
 import { DEFAULT_PROFILE } from "./defaults.js";
+import { LED_KEY, hasSpeed, hasColors, LIGHT_COLORS_MAX, SPEED_MIN, SPEED_MAX } from "./lighting.js";
 
 export const TABS = [
   { id: "profiles", label: "Profiles" },
@@ -41,7 +42,7 @@ const ICON = {
 const UNSUP = `<span class="tag unsup">ยังเขียนลงจอยไม่ได้ · เก็บเป็นร่างในหน้านี้</span>`;
 // Writable, but only tried against the mock so far.
 const UNTESTED = `<span class="tag untested" title="เขียนได้แล้ว แต่ยังไม่เคยลองกับจอยจริง ทุกครั้งที่เขียนจะสำรองไฟล์ให้ก่อน">ยังไม่ทดสอบกับจอยจริง</span>`;
-const untested = (key) => (isWritable(key) && !HW_TESTED.has(key) ? UNTESTED : "");
+const untested = (key) => ((isWritable(key) || LED_KEY.test(key ?? "")) && !HW_TESTED.has(key) ? UNTESTED : "");
 const pendCls = (on) => (on ? " pending" : "");
 
 // ---------------- Top bar & tabs ----------------
@@ -214,7 +215,7 @@ export function profiles(S, D) {
   const renamePending = D.pendingKeys("slot.").length;
   return `${head("Profiles", "4 slot บนตัวจอย แก้ที่ slot ตรงๆ · คลังเก็บสำเนาไว้ใส่ slot ไหนก็ได้ ใส่แล้วไม่สร้างของซ้ำ")}
   <div class="split wide-right l640" style="grid-template-columns:minmax(0,640px) minmax(0,1fr)">
-    <div>${frontFigure(S, D, { screen: `แสดงชื่อ slot ที่ใช้อยู่: ${slotName(S, D, active)}`, screenSub: "เขียนชื่อลงจอได้ไหม ยังไม่ยืนยัน" })}</div>
+    <div>${frontFigure(S, D, { screen: `แสดงชื่อ slot ที่ใช้อยู่: ${slotName(S, D, active)}`, screenSub: "เขียนชื่อลงจอได้ไหม ยังไม่ยืนยัน", ...ledCallout(S, D) })}</div>
     <div>
       <div class="rule-head" style="display:grid;grid-template-columns:112px 1fr auto"><span class="label">Slot</span><span class="label">ชื่อและสิ่งที่ตั้งไว้</span><span class="label">จัดการ</span></div>
       ${rows}
@@ -1180,43 +1181,75 @@ export function liveImu(v) {
 
 // ---------------- 07 Lighting & screen ----------------
 
-const SWATCHES = ["#FF5A1F", "#E0303A", "#F2C230", "#38B26B", "#2F7BEA", "#7A4BE0", "#FFFFFF"];
+const SWATCHES = ["#FF5A1F", "#E0303A", "#F2C230", "#FFD700", "#38B26B", "#2F7BEA", "#7A4BE0", "#FFFFFF"];
+
+// The slot's lighting as drafted: what the photo glows with and what its callout says.
+function ledCallout(S, D) {
+  const pend = D.pendingKeys("led.").length > 0;
+  if (!S.light) return { ledValue: S.lightError ? "อ่านค่าไฟไม่ได้" : "ค่าบนจอยยังอ่านไม่ได้", ledPending: pend };
+  const mode = D.get("led.mode");
+  const colors = mode === "solid" ? [D.get("led.color")] : hasColors(mode) ? D.get("led.colors") : [];
+  const bright = mode && mode !== "off" ? D.get("led.bright") : null;
+  const ledValue = !mode ? "ยังไม่เคยตั้ง · ไฟแบบติดเครื่อง" : mode === "off" ? "ปิดไฟ" : `${LED_MODE[mode]}${colors.length ? ` ${colors.join(" ")}` : ""} · ${bright}%`;
+  // Default and streaming run their own colors: the photo shows a neutral glow for them.
+  const glow = mode && mode !== "off" ? colors[0] ?? "#9AA3FF" : null;
+  return { led: glow ? { color: glow, bright: Math.max(20, bright) } : null, ledLabel: pend ? "ไฟ RGB · แก้แล้ว" : "ไฟ RGB", ledValue, ledPending: pend };
+}
 
 export function lighting(S, D) {
-  const mode = D.get("led.mode");
-  const color = D.get("led.color");
-  // The photo glows at 70% while the brightness is unknown; the callout states only what is set.
-  const brightSet = D.get("led.bright");
-  const bright = brightSet ?? 70;
-  const pend = D.pendingKeys("led.").length > 0;
-  const showColor = mode && mode !== "off" ? color : null;
-  const ledValue = !pend ? "ค่าบนจอยยังอ่านไม่ได้" : mode === "off" ? "ปิดไฟ" : `${LED_MODE[mode] ?? "—"}${color ? ` ${color.toUpperCase()}` : ""}${brightSet != null ? ` · ${brightSet}%` : ""}`;
-  // Mode and screen timeout can't be read yet: say so next to them, rather than nothing selected.
-  const unread = (v) => (v == null ? `<span class="meta" style="margin-left:auto">ยังอ่านไม่ได้</span>` : "");
+  const slot = S.slots.activeSlot;
+  const ok = !!S.light;
+  const mode = ok ? D.get("led.mode") : null;
+  const multi = hasColors(mode);
+  const colors = multi ? D.get("led.colors") : [];
+  const pick = Math.min(S.ui.ledPick ?? 0, Math.max(0, colors.length - 1));
+  const color = mode === "solid" ? D.get("led.color") : multi ? colors[pick] : null;
+  const pendMode = D.has("led.mode");
   const modes = Object.entries(LED_MODE)
-    .map(([id, l]) => `<button class="utab${mode === id ? " on pending" : ""}" style="${mode === id ? "color:var(--cobalt)" : ""}" data-act="set" data-key="led.mode" data-val="${id}">${l}</button>`)
+    .map(([id, l]) => `<button class="utab${mode === id ? " on" : ""}${mode === id && pendMode ? " pending" : ""}" data-act="set" data-key="led.mode" data-val="${id}" ${ok ? "" : "disabled"}>${l}</button>`)
     .join("");
   const sw = SWATCHES.map(
-    (c) => `<button aria-label="สี ${c}" data-act="set" data-key="led.color" data-val="${c}" style="width:34px;height:34px;border-radius:17px;border:${color === c ? "2px solid #111" : c === "#FFFFFF" ? "1px solid #949494" : "0"};background:${c};box-shadow:${color === c ? "inset 0 0 0 3px #fff" : "none"};padding:0"></button>`,
+    (c) => `<button aria-label="สี ${c}" data-act="led-color" data-val="${c}" style="width:34px;height:34px;border-radius:17px;border:${color === c ? "2px solid #111" : c === "#FFFFFF" ? "1px solid #949494" : "0"};background:${c};box-shadow:${color === c ? "inset 0 0 0 3px #fff" : "none"};padding:0"></button>`,
   ).join("");
+  const pendColor = D.has(multi ? "led.colors" : "led.color");
+  const chips = multi
+    ? `<div style="display:flex;align-items:center;gap:10px;margin-top:22px;flex-wrap:wrap">
+        <span class="meta" style="width:100%">${mode === "breathing" ? "สีที่หายใจวนไป" : "สีที่ไล่ต่อกัน"} · ${colors.length}/${LIGHT_COLORS_MAX} สี · กดเลือกสีที่จะเปลี่ยน${pendColor ? ` · <span class="pending">แก้แล้ว</span>` : ""}</span>
+        ${colors.map((c, i) => `<button data-act="led-pick" data-i="${i}" aria-label="สีที่ ${i + 1} ${c}" aria-pressed="${i === pick}" style="width:44px;height:44px;border-radius:8px;background:${c};border:${i === pick ? "3px solid #111" : "1px solid #949494"};padding:0"></button>`).join("")}
+        ${colors.length < LIGHT_COLORS_MAX ? `<button class="link" data-act="led-add">+ เพิ่มสี</button>` : ""}
+        ${colors.length > 1 ? `<button class="link muted" data-act="led-del">ลบสีที่ ${pick + 1}</button>` : ""}
+      </div>`
+    : "";
+  const picker = mode === "solid" || multi
+    ? `${chips}<div style="display:flex;align-items:center;gap:12px;margin-top:18px;flex-wrap:wrap">${sw}
+          <label class="field${pendColor ? " pending" : ""}" style="width:auto;display:inline-flex;align-items:center;gap:8px;height:36px;margin-left:12px;padding:0 10px">
+            <span style="width:14px;height:14px;background:${color};border:1px solid #949494"></span>
+            <input data-key="led.color" data-hex value="${esc(color ?? "")}" placeholder="#RRGGBB" maxlength="7" style="border:0;width:84px;font:600 14px var(--mono);padding:0;outline:none" aria-label="รหัสสี"></label>
+        </div>`
+    : mode === "default" || mode === "streaming"
+      ? `<p class="meta" style="margin-top:18px">โหมดนี้จอยเลือกสีเอง ตั้งได้แค่ความสว่างและความเร็ว</p>`
+      : "";
+  const lit = mode && mode !== "off";
+  // Screen timeout can't be read yet: say so next to it, rather than nothing selected.
   const timeout = D.get("screen.timeout");
-  return `${head("Lighting & screen", "ทั้งเครื่อง · ใช้กับทุก slot")}
+  const unread = (v) => (v == null ? `<span class="meta" style="margin-left:auto">ยังอ่านไม่ได้</span>` : "");
+  const note = !ok
+    ? `<p class="notice" style="margin-top:20px">${ICON.warn}<span>${S.lightError ? `อ่านค่าไฟจากจอยไม่ได้ (${esc(S.lightError)}) เลยยังตั้งไฟไม่ได้` : "ยังไม่ได้อ่านค่าไฟจากจอย"}</span></p>`
+    : !mode
+      ? `<p class="meta" style="margin-top:16px">Slot นี้ยังไม่เคยตั้งไฟ จอยใช้ไฟแบบติดเครื่อง · เลือกโหมดเพื่อตั้ง</p>`
+      : "";
+  return `${head("Lighting & screen", `ไฟ RGB ของ Slot ${slot + 1} · สลับ slot แล้วไฟเปลี่ยนตาม · จอตั้งทั้งเครื่อง`)}
   <div class="split wide-right l740" style="grid-template-columns:minmax(0,740px) minmax(0,1fr)">
-    <div>${frontFigure(S, D, {
-      screen: `ชื่อ slot และแบต`, screenSub: "รูปแบบจริงยังไม่ยืนยัน",
-      led: showColor ? { color: showColor, bright } : null, ledLabel: pend ? "ไฟ RGB · แก้แล้ว" : "ไฟ RGB", ledValue, ledPending: pend,
-    })}</div>
+    <div>${frontFigure(S, D, { screen: `ชื่อ slot และแบต`, screenSub: "รูปแบบจริงยังไม่ยืนยัน", ...ledCallout(S, D) })}</div>
     <div>
       <section>
-        <div class="rule-head"><h2>ไฟ RGB</h2><span class="meta">แถบไฟใต้ตัวจอย</span></div>
-        <div class="utabs" style="margin-top:20px;align-items:center">${modes}${unread(mode)}</div>
-        <div style="display:flex;align-items:center;gap:12px;margin-top:22px;flex-wrap:wrap">${sw}
-          <label class="field" style="width:auto;display:inline-flex;align-items:center;gap:8px;height:36px;margin-left:12px;padding:0 10px">
-            <span style="width:14px;height:14px;background:${color ?? "#fff"};border:1px solid #949494"></span>
-            <input data-key="led.color" data-hex value="${esc((color ?? "").toUpperCase())}" placeholder="#RRGGBB" maxlength="7" style="border:0;width:84px;font:600 14px var(--mono);padding:0;outline:none" aria-label="รหัสสี"></label>
-        </div>
-        <div style="margin-top:24px">${slider("led.bright", "ความสว่าง", D, { min: 0, max: 100, fmt: (v) => (v == null ? "ยังอ่านไม่ได้" : `${v}%`) })}</div>
-        <p class="meta" style="margin-top:16px">ภาพจอยด้านซ้ายแสดงสีที่ตั้งค้างไว้ ยังไม่รู้ว่าแสดงผลบนจอยทันทีได้ไหม · ${UNSUP}</p>
+        <div class="rule-head"><h2>ไฟ RGB</h2><span class="meta" style="display:flex;align-items:center;gap:12px">แถบไฟใต้ตัวจอย · Slot ${slot + 1}${ok ? untested("led.mode") : ""}</span></div>
+        <div class="utabs" style="margin-top:20px;align-items:center">${modes}</div>
+        ${note}${picker}
+        ${lit ? `<div style="margin-top:24px">${slider("led.bright", "ความสว่าง", D, { min: 0, max: 100, fmt: (v) => `${v}%`, tag: false })}</div>` : ""}
+        ${lit && hasSpeed(mode) && mode !== "default" ? `<div style="margin-top:20px">${slider("led.speed", "ความเร็ว", D, { min: SPEED_MIN, max: SPEED_MAX, fmt: (v) => `ระดับ ${v}`, tag: false })}</div>` : ""}
+        ${lit ? `<div style="margin-top:20px">${check("led.vibration", "ไฟกระพริบตามแรงสั่นของจอย", D)}</div>` : ""}
+        ${ok ? `<p class="meta" style="margin-top:16px">กดเขียนลงจอยแล้วไฟจะเปลี่ยนทันที · ภาพจอยด้านซ้ายเป็นแค่ตัวอย่างสี</p>` : ""}
       </section>
       <section style="margin-top:40px">
         <div class="rule-head"><h2>จอบนตัวจอย</h2><span class="meta">ตัวอย่าง · รูปแบบจริงยังไม่ยืนยัน</span></div>
@@ -1229,6 +1262,7 @@ export function lighting(S, D) {
         </div>
         <div style="margin-top:20px"><div style="display:flex;align-items:baseline;margin-bottom:10px"><b>ปิดจออัตโนมัติหลัง</b>${unread(timeout)}</div>
           <div class="seg">${Object.entries(TIMEOUT).map(([v, l]) => `<button class="${String(timeout) === v ? "on" : ""}" data-act="set" data-key="screen.timeout" data-val="${v}" data-numval>${l}</button>`).join("")}</div></div>
+        <p class="meta" style="margin-top:16px">${UNSUP}</p>
       </section>
     </div>
   </div>`;
