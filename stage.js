@@ -108,7 +108,7 @@ export function stageSvg(def, items, { kind = "back", label = "" } = {}) {
     })
     .join("");
   const { x, y, w, h } = def.img;
-  return `<div class="stage"><svg viewBox="${def.view}" role="group" aria-label="${esc(label || (kind === "back" ? "ภาพจอยด้านหลัง" : "ภาพจอยด้านหน้า"))}">
+  return `<div class="stage"><svg viewBox="${def.view}" data-view="${def.view}" role="group" aria-label="${esc(label || (kind === "back" ? "ภาพจอยด้านหลัง" : "ภาพจอยด้านหน้า"))}">
     <image href="${kind === "back" ? PHOTO.back : PHOTO.front}" x="${x}" y="${y}" width="${w}" height="${h}" preserveAspectRatio="xMidYMid meet"/>
     ${groups}
   </svg></div>`;
