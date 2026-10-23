@@ -28,7 +28,7 @@ const S = {
   connectError: null,
   tab: tabFromHash(),
   // ui.macro: uid of the library macro the Macros page has open; macroQ/pickQ: list filters.
-  ui: { layer: 0, layerMode: "hold", sel: "M1", press: "simple", outType: null, dpad: "D-pad ↑", renaming: null, slotMenu: null, macro: null, step: 0, macroQ: "", pickQ: "", ledPick: 0, picker: null },
+  ui: { layer: 0, layerMode: "hold", sel: "M1", press: "simple", outType: null, dpad: "D-pad ↑", renaming: null, slotMenu: null, layerMenu: null, macro: null, step: 0, macroQ: "", pickQ: "", ledPick: 0, picker: null },
   log: [],
   backups: [],
   dump: null,
@@ -993,8 +993,22 @@ const ACTIONS = {
     render();
     toast(`เพิ่ม ${LAYER_NAME(id)} แล้ว · ยังไม่ได้เขียนลงจอย`);
   },
+  "layer-menu": (el) => {
+    const id = Number(el.dataset.layer);
+    S.ui.layerMenu = S.ui.layerMenu === id ? null : id;
+    render();
+    if (S.ui.layerMenu === id) document.querySelector(".menu [role=menuitem]:not(:disabled)")?.focus();
+  },
+  // Deleting a layer asks first (owner, 2026-10-23); once confirmed the layer is gone from the page.
+  "layer-ask-delete": (el) => {
+    S.ui.layerMenu = null;
+    render();
+    showSheet(V.layerDelete(S, D, Number(el.dataset.layer)));
+    sheet.querySelector(".btn.danger")?.focus();
+  },
   "layer-delete": (el) => {
     const id = Number(el.dataset.layer);
+    if (!id) return;
     // Drafts in that layer go with it, and so do drafted presses that switch to it.
     D.clear(`map.${id}.`);
     for (const k of D.pendingKeys("map.")) {
@@ -1002,17 +1016,14 @@ const ACTIONS = {
       if ((v?.type === "layer_hold" || v?.type === "layer_toggle") && v.layer === id) D.map.delete(k);
     }
     // What is on the controller is only marked; a layer that was never written is just dropped.
-    if (D.has(layerKey(id, "new"))) D.map.delete(layerKey(id, "new"));
-    else {
-      D.set(layerKey(id, "delete"), true);
-      toast("ปุ่มที่สลับมา layer นี้จะกลับเป็นค่าเดิมตอนเขียนลงจอย");
-    }
+    const isNew = D.has(layerKey(id, "new"));
+    if (isNew) D.map.delete(layerKey(id, "new"));
+    else D.set(layerKey(id, "delete"), true);
     S.ui.layer = 0;
+    S.ui.press = "simple";
+    if (sheet.open) sheet.close();
     render();
-  },
-  "layer-undelete": (el) => {
-    D.map.delete(layerKey(Number(el.dataset.layer), "delete"));
-    render();
+    toast(isNew ? `เอา ${LAYER_NAME(id)} ออกแล้ว` : `ลบ ${LAYER_NAME(id)} แล้ว · ยังไม่ได้เขียนลงจอย`);
   },
   "layer-mode": (el) => {
     const key = `map.${S.ui.layer}.${S.ui.sel}.${S.ui.press}`;
@@ -1367,6 +1378,10 @@ document.addEventListener("click", (e) => {
     S.ui.slotMenu = null;
     render();
   }
+  if (S.ui.layerMenu != null && !e.target.closest(".menu-wrap")) {
+    S.ui.layerMenu = null;
+    render();
+  }
   const el = e.target.closest("[data-act]");
   if (el && !el.disabled) {
     const fn = ACTIONS[el.dataset.act];
@@ -1403,6 +1418,13 @@ document.addEventListener("keydown", (e) => {
     S.ui.slotMenu = null;
     render();
     document.querySelector(`[data-act="slot-menu"][data-slot="${i}"]`)?.focus();
+    return;
+  }
+  if (e.key === "Escape" && S.ui.layerMenu != null) {
+    const id = S.ui.layerMenu;
+    S.ui.layerMenu = null;
+    render();
+    document.querySelector(`[data-act="layer-menu"][data-layer="${id}"]`)?.focus();
     return;
   }
   const co = e.target.closest?.("[data-pick]");
