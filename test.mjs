@@ -1010,3 +1010,42 @@ console.log("macro pad ok");
   assert.equal(DL.count(), 3);
 }
 console.log("lighting ok");
+
+// "สร้างสีเอง" on Lighting: made colors kept by the app, at most CUSTOM_MAX, deletable.
+{
+  const { CustomColors, CUSTOM_MAX, PRESETS, hexToHsv, hsvToHex, normHex } = await import("./lighting.js");
+  const mem = () => {
+    const m = new Map();
+    return { getItem: (k) => m.get(k) ?? null, setItem: (k, v) => m.set(k, v) };
+  };
+  const st = mem();
+  const C = new CustomColors(st);
+  assert.deepEqual(C.list(), []);
+  assert.equal(C.add("#00b8a9"), "added");
+  assert.equal(C.add("00B8A9"), "known", "same color in any case or without # is not added twice");
+  assert.equal(C.add(PRESETS[0]), "known", "a ready color is not copied into the row");
+  assert.throws(() => C.add("#12345"), /#RRGGBB/);
+  assert.deepEqual(new CustomColors(st).list(), ["#00B8A9"], "kept across loads");
+  for (let i = 1; i < CUSTOM_MAX; i++) assert.equal(C.add(`#00000${i}`), "added");
+  assert.equal(C.add("#123456"), "full", "the row holds at most CUSTOM_MAX");
+  assert.equal(C.list().length, CUSTOM_MAX);
+  // Delete: the one asked, any case; a color not in the row is a no-op.
+  assert.equal(C.remove("#00b8a9"), true);
+  assert.equal(C.remove("#00B8A9"), false);
+  assert.ok(!new CustomColors(st).list().includes("#00B8A9"), "the delete is kept");
+  assert.equal(C.add("#123456"), "added", "room again after a delete");
+  // Broken or hand-edited storage doesn't break the page.
+  const bad = mem();
+  bad.setItem("apex6.customColors", "{oops");
+  assert.deepEqual(new CustomColors(bad).list(), []);
+  bad.setItem("apex6.customColors", JSON.stringify(["#ff0000", "nope", "#FF0000", ...Array(10).fill(0).map((_, i) => `#1111${i}${i}`)]));
+  const loaded = new CustomColors(bad).list();
+  assert.equal(loaded[0], "#FF0000");
+  assert.equal(loaded.length, CUSTOM_MAX, "deduped, invalid dropped, capped");
+  assert.doesNotThrow(() => new CustomColors(null).add("#ABCDEF"), "works without storage");
+  // Picker conversions round-trip every ready color and the edges.
+  for (const h of [...PRESETS, "#000000", "#FF0000", "#00B8A9", "#808080"]) assert.equal(hsvToHex(hexToHsv(h)), h, h);
+  assert.equal(normHex(" 00b8a9 "), "#00B8A9");
+  assert.equal(normHex("#GGGGGG"), null);
+}
+console.log("custom colors ok");

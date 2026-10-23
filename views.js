@@ -12,7 +12,7 @@ import { isWritable, HW_TESTED, NAME_MAX, nameBytes, MACRO_MAX, gyroPct, GYRO_MI
 import { fit, APP_NAME_MAX } from "./names.js";
 import { slotsOf, crcOf } from "./profiles.js";
 import { DEFAULT_PROFILE } from "./defaults.js";
-import { LED_KEY, hasSpeed, hasColors, LIGHT_COLORS_MAX, SPEED_MIN, SPEED_MAX } from "./lighting.js";
+import { LED_KEY, hasSpeed, hasColors, LIGHT_COLORS_MAX, SPEED_MIN, SPEED_MAX, PRESETS, CUSTOM_MAX, hsvToHex } from "./lighting.js";
 
 export const TABS = [
   { id: "profiles", label: "Profiles" },
@@ -1181,7 +1181,26 @@ export function liveImu(v) {
 
 // ---------------- 07 Lighting & screen ----------------
 
-const SWATCHES = ["#FF5A1F", "#E0303A", "#F2C230", "#FFD700", "#38B26B", "#2F7BEA", "#7A4BE0", "#FFFFFF"];
+// "สร้างสีเอง": a saturation × value square for the hue on the bar below it, and the hex code.
+// P: { h, s, v } (S.ui.picker). app.js moves the handles in place while they are dragged.
+export function colorPicker(P) {
+  const hex = hsvToHex(P);
+  const hue = `hsl(${Math.round(P.h)}, 100%, 50%)`;
+  return `<div class="cpick" data-picker role="dialog" aria-label="สร้างสีเอง">
+    <div style="display:flex;align-items:baseline;justify-content:space-between"><b style="font-size:15px">สร้างสีเอง</b><span class="meta" style="font-size:13px">ลากในช่องเพื่อเลือก</span></div>
+    <div class="cpick-sv" data-sv style="background:linear-gradient(to top,#000,rgba(0,0,0,0)),linear-gradient(to right,#fff,${hue})" aria-label="ความสด และความสว่างของสี">
+      <span data-sv-dot style="left:${P.s * 100}%;top:${(1 - P.v) * 100}%"></span></div>
+    <div class="cpick-hue" data-hue aria-label="โทนสี"><span data-hue-dot style="left:${(P.h / 360) * 100}%;background:${hue}"></span></div>
+    <div style="display:flex;align-items:center;gap:10px;margin-top:16px">
+      <span data-picker-prev style="width:40px;height:40px;border-radius:20px;background:${hex};border:1px solid #E2E2E2;flex-shrink:0"></span>
+      <label class="field" style="flex:1;display:flex;align-items:center;gap:6px;height:40px;padding:0 12px"><span style="font:600 14px var(--mono);color:var(--ink-3)">#</span>
+        <input data-picker-hex value="${hex.slice(1)}" maxlength="7" spellcheck="false" autocomplete="off" style="border:0;width:100%;font:600 15px var(--mono);padding:0;outline:none;text-transform:uppercase" aria-label="รหัสสี (hex)"></label>
+    </div>
+    <div style="display:flex;align-items:center;justify-content:flex-end;gap:20px;margin-top:18px">
+      <button class="link" style="font-size:15px" data-act="picker-cancel">ยกเลิก</button>
+      <button class="btn primary" style="height:40px;padding:0 18px" data-act="picker-apply">ใช้สีนี้</button></div>
+  </div>`;
+}
 
 // The slot's lighting as drafted: what the photo glows with and what its callout says.
 function ledCallout(S, D) {
@@ -1208,10 +1227,15 @@ export function lighting(S, D) {
   const modes = Object.entries(LED_MODE)
     .map(([id, l]) => `<button class="utab${mode === id ? " on" : ""}${mode === id && pendMode ? " pending" : ""}" data-act="set" data-key="led.mode" data-val="${id}" ${ok ? "" : "disabled"}>${l}</button>`)
     .join("");
-  const sw = SWATCHES.map(
-    (c) => `<button aria-label="สี ${c}" data-act="led-color" data-val="${c}" style="width:34px;height:34px;border-radius:17px;border:${color === c ? "2px solid #111" : c === "#FFFFFF" ? "1px solid #949494" : "0"};background:${c};box-shadow:${color === c ? "inset 0 0 0 3px #fff" : "none"};padding:0"></button>`,
-  ).join("");
   const pendColor = D.has(multi ? "led.colors" : "led.color");
+  // The picked color is ringed: ink when it is what the slot holds, cobalt when it is an edit.
+  const sw = (c, custom) => {
+    const on = color === c;
+    return `<button aria-label="สี ${c}${custom ? " · สีที่สร้างเอง กดค้าง คลิกขวา หรือกด Delete เพื่อลบ" : ""}" aria-pressed="${on}" data-act="led-color" data-val="${c}"${custom ? ` data-custom="${c}"` : ""} class="swatch" style="border:${on ? `2px solid ${pendColor ? "var(--cobalt)" : "#111"}` : c === "#FFFFFF" ? "1px solid #949494" : "0"};background:${c};box-shadow:${on ? "inset 0 0 0 3px #fff" : "none"}"></button>`;
+  };
+  const custom = S.colors.list();
+  const open = !!S.ui.picker;
+  const plus = `<button class="swatch swatch-new${open ? " on" : ""}" data-act="color-new" aria-label="สร้างสีเอง" aria-expanded="${open}"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M7 1v12M1 7h12" stroke="#111" stroke-width="2" stroke-linecap="round"/></svg></button>`;
   const chips = multi
     ? `<div style="display:flex;align-items:center;gap:10px;margin-top:22px;flex-wrap:wrap">
         <span class="meta" style="width:100%">${mode === "breathing" ? "สีที่หายใจวนไป" : "สีที่ไล่ต่อกัน"} · ${colors.length}/${LIGHT_COLORS_MAX} สี · กดเลือกสีที่จะเปลี่ยน${pendColor ? ` · <span class="pending">แก้แล้ว</span>` : ""}</span>
@@ -1221,11 +1245,12 @@ export function lighting(S, D) {
       </div>`
     : "";
   const picker = mode === "solid" || multi
-    ? `${chips}<div style="display:flex;align-items:center;gap:12px;margin-top:18px;flex-wrap:wrap">${sw}
-          <label class="field${pendColor ? " pending" : ""}" style="width:auto;display:inline-flex;align-items:center;gap:8px;height:36px;margin-left:12px;padding:0 10px">
-            <span style="width:14px;height:14px;background:${color};border:1px solid #949494"></span>
-            <input data-key="led.color" data-hex value="${esc(color ?? "")}" placeholder="#RRGGBB" maxlength="7" style="border:0;width:84px;font:600 14px var(--mono);padding:0;outline:none" aria-label="รหัสสี"></label>
-        </div>`
+    ? `${chips}<div class="swatch-wrap" style="margin-top:18px">
+        <div class="swatch-row">${PRESETS.map((c) => sw(c, false)).join("")}
+          ${custom.length ? `<span style="width:1px;height:26px;background:var(--hairline);margin:0 2px"></span>${custom.map((c) => sw(c, true)).join("")}` : ""}${plus}
+          ${open ? colorPicker(S.ui.picker) : ""}</div>
+        <p class="meta" style="margin:12px 0 0">${custom.length ? `สีที่สร้างเองเก็บไว้ในแอป ใช้ได้ทุก slot · กดค้างที่สีเพื่อลบ · ${custom.length}/${CUSTOM_MAX}` : "กด + เพื่อสร้างสีเอง สีที่สร้างเก็บไว้ในแอป ใช้ได้ทุก slot"}${pendColor && color ? ` · <span class="pending" style="font-weight:600">${color}</span>` : ""}</p>
+      </div>`
     : mode === "default" || mode === "streaming"
       ? `<p class="meta" style="margin-top:18px">โหมดนี้จอยเลือกสีเอง ตั้งได้แค่ความสว่างและความเร็ว</p>`
       : "";
