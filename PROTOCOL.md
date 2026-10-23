@@ -6,6 +6,7 @@ Source: `vendor-gpa6-core-*.js` and `vendor-gpa6-codec-*.js` from space_station.
 - WebHID filter: VID `0x37D7`, PID `0x2502` or `0x2401`, usagePage `0xFFA0`.
 - Output: report ID and size are taken from the first output report of the `0xFFA0` collection (default ID 0, 63 bytes). Frame is zero-padded.
 - Max frame 32 bytes. Request/response is serialized; timeout 1500 ms, 3 retries.
+- Steam (owner's PC, wired USB, 2026-10-23) lists it as a generic "XInput Controller #1", Device Support `37d7-2502-340d757c (0x37d7,0x2502)`, with an Xbox layout and no gyro or motion settings. So Steam Input gyro and Steam gyro calibration can't be used. Use the controller's own gyro (profile section 5) instead.
 
 ## Framing
 Request: `5A A5 <cmd> <len=payload+2> <payload…> <sum>`
