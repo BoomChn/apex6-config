@@ -1062,6 +1062,9 @@ console.log("custom colors ok");
   // Values from the official site's table.
   assert.deepEqual(["KeyA", "KeyM", "KeyZ", "Digit1", "Digit0", "Enter", "Escape", "F1", "F12", "Space", "ArrowRight", "ArrowUp", "Numpad9"].map((c) => keyOfCode(c).key), [4, 16, 29, 30, 39, 40, 41, 58, 69, 44, 79, 82, 97]);
   assert.equal(keyOfCode("PrintScreen"), null, "not in the official picker");
+  // F13–F24 are added by this app (HID 104–115), in the range checkProfile takes.
+  assert.deepEqual(["F13", "F24"].map((c) => keyOfCode(c).key), [104, 115]);
+  assert.equal(keyLabel(115, 1), "Ctrl + F24");
   assert.equal(keyOfCode("ShiftLeft"), null, "modifiers are bits, not keys");
   assert.equal(MOD_CODE.ShiftRight, 2, "right-hand modifiers are written as the left bit");
   assert.equal(modsOfEvent({ ctrlKey: true, shiftKey: true }), 3);
@@ -1076,6 +1079,9 @@ console.log("custom colors ok");
   const alone = applyEdits(sample, { "map.0.M1.simple": { type: "btn_keyboard", key: MOD_ONLY, modifier: 2 } });
   assert.deepEqual(at(alone), { type: "btn_keyboard", key: 0xff, modifier: 2 });
   checkProfile(alone);
+  const f24 = applyEdits(sample, { "map.0.M1.simple": { type: "btn_keyboard", key: 115, modifier: 0 } });
+  assert.deepEqual(at(f24), { type: "btn_keyboard", key: 115, modifier: 0 });
+  checkProfile(f24);
   // Find the key byte by comparing two keys, then poke it (and the modifier) to what the firmware can't use.
   const w2 = applyEdits(sample, { "map.0.M1.simple": { type: "btn_keyboard", key: 17, modifier: 3 } });
   const ki = w.findIndex((x, i) => i > 3 && x !== w2[i]);
@@ -1100,6 +1106,9 @@ console.log("keyboard ok");
   const { hwTested } = await import("./mapping-edit.js");
   assert.equal(hwTested("map.0.M1.simple", { type: "btn_keyboard", key: 14, modifier: 2 }), true);
   assert.equal(hwTested("map.1.A.long", { type: "btn_keyboard", key: 14, modifier: 0 }), true);
+  assert.equal(hwTested("map.0.M1.simple", { type: "btn_keyboard", key: 69, modifier: 0 }), true, "F12");
+  assert.equal(hwTested("map.0.M1.simple", { type: "btn_keyboard", key: 115, modifier: 0 }), false, "F24 not tried yet");
+  assert.equal(hwTested("map.0.M1.simple", { type: "btn_keyboard", key: 104, modifier: 1 }), false, "F13 not tried yet");
   assert.equal(hwTested("map.0.M1.simple", { type: "btn_mouse", mouse: 0 }), false);
   assert.equal(hwTested("map.0.M4.simple", { type: "layer_hold", layer: 1 }), true);
   assert.equal(hwTested("map.0.M4.double", { type: "layer_toggle", layer: 1 }), false);

@@ -2,7 +2,7 @@
 // We patch single bytes instead of re-encoding, so everything we don't touch stays byte-identical.
 
 import { decodeMapping, BUTTONS, GYRO_AXES } from "./mapping.js";
-import { keyProblem } from "./keys.js";
+import { keyProblem, isExtraKey } from "./keys.js";
 
 // CRC-16/CCITT-FALSE (poly 0x1021, init 0xFFFF); the wrapper CRC covers the XMUL blob only.
 export function crc16(bytes) {
@@ -244,7 +244,8 @@ export const HW_TESTED_TARGETS = new Set(["btn_keyboard", "btn_gamepad", "layer_
 // Putting a library macro into a layer (macro.<layer>.<id>.set) is confirmed with it; removing a
 // copy and macro names are not yet.
 const HW_TESTED_MACRO = /^macro\.\d+\.\d+\.set$/;
-export const hwTested = (key, value) => HW_TESTED.has(key) || HW_TESTED_MACRO.test(key ?? "") || (MAP_KEY.test(key ?? "") && HW_TESTED_TARGETS.has(value?.type));
+// F13–F24 are keyboard targets too, but the official picker never sends them: not confirmed yet.
+export const hwTested = (key, value) => HW_TESTED.has(key) || HW_TESTED_MACRO.test(key ?? "") || (MAP_KEY.test(key ?? "") && HW_TESTED_TARGETS.has(value?.type) && !(value.type === "btn_keyboard" && isExtraKey(value.key)));
 
 // Returns a new wrapped buffer with the given edits applied and the CRC16 updated.
 // edits: { "stick.left.deadzone": 20, "gyro.mode": "mouse", ... }
