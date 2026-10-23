@@ -55,6 +55,14 @@ Key events: 0x20 `"ENABLE_KEY_EVENT"` / `"DISABLE_KEY_EVENT"`. The controller th
 - v1.8 vs v1.9: the official codec writes version 9 whenever the profile has a name (TLV 0x20), else the version it read. Nothing else in the blob differs, so withNames turns a v1.8 profile into v1.9 when it adds a name. Confirmed on hardware 2026-10-23: slot 3, reset to this default by the app, then renamed and written, took the name.
 - Write CRC is CRC-32 (IEEE) over the whole wrapped buffer. 0xA3 INFO `[1, ramId]` returns the same len + crc32 for the current buffer.
 
+## On-controller screen image (GIF upload)
+Source: ControllerScreenBody-*.js and vendor-xhaptics-engine-*.js from the official site, and the installed engine (2026-10-23).
+- The site does not send the image over WebHID. It POSTs the frames to the local "xHaptics Engine" (`C:\Program Files\Flydigi\Engine`), `http://127.0.0.1:18757/api/screen/upload/content` with `{uid, deviceCode, leaseId, frames (Base64), frameInterval, isRestoreDefault, timeoutSeconds: 600}`, then follows progress on a ws:// stream. The engine hands the job to `firmware/FirmwareConsole.exe`, the same path as a firmware upgrade (names ScreenFirmwareUpdater, ScreenUpgradePicType), and the site shows "waiting for controller reconnect".
+- The engine refuses other origins: a request from another origin gets 403 `engine.auth.origin-denied`. So this app cannot upload images, and the HID transfer itself is unknown.
+- Frames are 160×80 RGB565 (25,600 bytes + 4). The site takes GIF, PNG or JPG, crops to the screen, has a frame-count limit and a frame interval of 1–2500 ms.
+- The request has no slot or cfgId: there is one image for the whole controller, not one per profile.
+- Confirmed on hardware 2026-10-23: the owner uploaded a GIF from the official site (screen page only, nothing saved on other pages), and the slots, buttons and settings set by this app read back unchanged.
+
 ## Verified on hardware (2026-10-21)
 - 0x01, 0x04, 0x07, 0x0F, 0xA1, and 0xA3 reads for RAM 0x01 and 0x05 all reply as documented.
 - The 0xA1 per-slot CRC16 equals the CRC16 in the RAM 0x05 wrapper for the active slot. The CRC can tell you whether a slot changed without reading it.
