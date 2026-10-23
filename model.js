@@ -6,6 +6,7 @@ import { isWritable, LAYER_MAX, layerRenumber, gyroPct, vibLevel, gripCurve, gri
 import { planMacros } from "./macros.js";
 import { fit } from "./names.js";
 import { targetLabel } from "./profile-view.js";
+import { LED_KEY, lightValue, composeLighting } from "./lighting.js";
 
 export const pct = (v) => `${Math.round((v / 255) * 100)}%`;
 export const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -36,7 +37,8 @@ export const gyroCurveText = (c) =>
 export const gyroActText = (list) =>
   list?.length ? list.map((a) => `${a.activation === "toggle" ? "กดสลับ" : "กดค้าง"} ${btnName(a.button)}`).join(", ") : "ไม่ตั้ง · ทำงานตลอด";
 export const GYRO_MODE = { disable: "ปิด", left_joystick: "Stick ซ้าย", right_joystick: "Stick ขวา", mouse: "เมาส์" };
-export const LED_MODE = { off: "ปิด", solid: "สีเดียว", breath: "หายใจ", cycle: "ไล่สี" };
+// In the official page's order (lighting.js LIGHT_MODE).
+export const LED_MODE = { default: "ค่าเริ่มต้น", streaming: "ไหลวน", breathing: "หายใจ", gradient: "ไล่สี", solid: "สีเดียว", off: "ปิด" };
 export const LAYER_NAME = (id) => (id === 0 ? "Base layer" : id === 1 ? "Shift layer" : `Layer ${id}`);
 
 export function labelTarget(t, cfg) {
@@ -149,8 +151,17 @@ export function macroPlan(S, D) {
   // The write numbers the layers again from 0 (normalizeLayers): the links follow.
   const to = layerRenumber(layers);
   plan.moves = layerMoves(S, D);
+  // Whether the write changes the profile at all. Lighting is its own RAM region: a write of
+  // lighting alone leaves the profile, and the macro copies no button plays, as they are.
+  plan.profile = profileDrafts(S, D) || plan.rows.some((r) => r.kind === "update" || r.kind === "rename") || plan.moves.length > 0;
+  if (!plan.profile) plan.rows = plan.rows.filter((r) => r.kind !== "remove");
   plan.links = Object.fromEntries(Object.entries(plan.links).map(([k, v]) => [`${to.get(Number(k.split(".")[0]))}.${k.split(".")[1]}`, v]));
   return plan;
+}
+
+// A draft the next write puts into the profile (RAM 0x05 or the motor commands with it), not lighting.
+export function profileDrafts(S, D) {
+  return [...D.map.keys()].some((k) => editKey(k, S) && !LED_KEY.test(k));
 }
 
 // Layers whose id the next write changes, so each one sits at the position of its id (see
@@ -165,9 +176,9 @@ export function layerMoves(S, D) {
 // keys the write takes care of.
 export function writeEdits(D, plan) {
   const edits = D.writable();
-  const drafts = D.items().filter((i) => i.writable && !FEEDBACK_KEY.test(i.key)).map((i) => i.key);
+  const drafts = D.items().filter((i) => i.writable && !FEEDBACK_KEY.test(i.key) && !LED_KEY.test(i.key)).map((i) => i.key);
   for (const [k, v] of Object.entries(edits)) if (v?.type === "macro") delete edits[k];
-  return { edits: { ...edits, ...plan.edits }, drafts };
+  return { edits: plan.profile === false ? edits : { ...edits, ...plan.edits }, drafts };
 }
 
 // Presses in the loaded slot that will play this library macro: [{ layer, source, press }].
@@ -297,8 +308,10 @@ export function meta(key, S) {
     return { tab: "profiles", group: "slot", label: `Slot ${i + 1} · ชื่อ`, base, fmt: (v) => v || "ไม่มีชื่อ", slot: i };
   }
   if (a === "led") {
-    const what = { mode: "โหมด", color: "สี", bright: "ความสว่าง" }[b];
-    return { tab: "lighting", group: "device", label: `ไฟ RGB · ${what}`, base: undefined, fmt: b === "mode" ? (v) => LED_MODE[v] : b === "bright" ? (v) => `${v}%` : (v) => v.toUpperCase() };
+    // Lighting belongs to the slot (RAM 0x04 follows the active slot), so it goes with the slot's drafts.
+    const what = { mode: "โหมด", color: "สี", colors: "ชุดสี", bright: "ความสว่าง", speed: "ความเร็ว", vibration: "กระพริบตามแรงสั่น" }[b];
+    const fmt = { mode: (v) => LED_MODE[v] ?? "ยังไม่เคยตั้ง", color: (v) => v.toUpperCase(), colors: (v) => v.join(" "), bright: (v) => `${v}%`, speed: (v) => `ระดับ ${v}`, vibration: onOff }[b];
+    return { tab: "lighting", group: "slot", label: `ไฟ RGB · ${what}`, base: S.light ? lightValue(S.light.cfg, key) : undefined, fmt };
   }
   if (a === "screen") {
     return { tab: "lighting", group: "device", label: b === "bright" ? "จอบนตัวจอย · ความสว่าง" : "จอบนตัวจอย · ปิดอัตโนมัติ", base: undefined, fmt: b === "bright" ? (v) => `${v}%` : (v) => TIMEOUT[v] };
@@ -330,6 +343,8 @@ export function editKey(key, S) {
   if (fb) return cfg?.[`vibration_trigger_${fb[1]}`] ? `vibtrig.${fb[1]}.curve` : null;
   // On/off is sent with 0x53 after the profile, once RAM 0x06 could be read.
   if (FEEDBACK_KEY.test(key)) return S.motor ? key : null;
+  // Lighting is its own RAM region (0x04), written after the profile once it could be read.
+  if (LED_KEY.test(key)) return S.light ? key : null;
   const k = key === `slot.${S.current?.slot}.name` ? "profile.name" : key;
   if (!isWritable(k)) return null;
   // Names need TLV 0x20: a v1.8 profile becomes v1.9 when it gets one (withNames).
@@ -384,7 +399,7 @@ export class Drafts {
     // Copies no button plays any more go with the next write, so they count once there is one:
     // a writable draft, a library macro to update, or layers to number again (drafts the
     // controller can't take yet don't write anything).
-    const writes = [...this.map.keys()].some((k) => editKey(k, this.S)) || of() > this.map.size;
+    const writes = profileDrafts(this.S, this) || of() > this.map.size;
     const gone = (!tab || tab === "macros") && writes ? rows.filter((r) => r.kind === "remove").length : 0;
     return of(tab) + gone;
   }
@@ -392,7 +407,7 @@ export class Drafts {
   writable() {
     const out = {};
     for (const [k, v] of this.map) {
-      if (!editKey(k, this.S) || FEEDBACK_KEY.test(k)) continue;
+      if (!editKey(k, this.S) || FEEDBACK_KEY.test(k) || LED_KEY.test(k)) continue;
       for (const [ek, ev] of expand(k, v, this.S)) out[ek] = ev;
     }
     return out;
@@ -400,6 +415,12 @@ export class Drafts {
   // Writable trigger feedback drafts: [{ key, side, on }], sent with 0x53 after the profile.
   motorCmds() {
     return [...this.map].filter(([k]) => FEEDBACK_KEY.test(k) && editKey(k, this.S)).map(([key, on]) => ({ key, side: key.split(".")[1], on }));
+  }
+  // The lighting to write to RAM 0x04 (lighting.js), or null without a writable lighting draft.
+  lightWrite() {
+    const keys = this.pendingKeys("led.").filter((k) => LED_KEY.test(k) && editKey(k, this.S));
+    if (!keys.length) return null;
+    return { keys, light: composeLighting(this.S.light.cfg, (k) => this.get(k)) };
   }
   items() {
     return [...this.map].map(([key, v]) => {

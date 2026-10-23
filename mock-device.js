@@ -4,6 +4,12 @@
 
 import { crc32 } from "./protocol.js";
 import { applyEdits } from "./mapping-edit.js";
+import { encodeLighting } from "./lighting.js";
+
+// The official site's default lighting (streaming, brightness 25, speed byte 51), as RAM 0x04 holds it.
+export const LIGHT_DEFAULT = Uint8Array.from([0x16, 0x00, 0x26, 0xab, 0x4c, 0x47, 0x48, 0x54, 0x02, 0x00, 0x04, 0x00, 0x00, 0x00, 0x35, 0x01, 0x04, 0x19, 0x33, 0x00, 0x50, 0x00]);
+// What a slot that was never given lighting reads back.
+export const LIGHT_EMPTY = Uint8Array.from([0x52, 0x47, 0x42, 0x44, 0, 0, 0, 0]);
 
 const sum = (b, f, t) => {
   let s = 0;
@@ -31,11 +37,18 @@ export async function createMockDevice() {
     applyEdits(sample, { "stick.left.deadzone": 0, "stick.right.deadzone": 0 }),
   ];
   let active = 1;
+  // RAM 0x04 follows the active slot like 0x05: one lighting per slot.
+  const lights = [
+    encodeLighting({ mode: "solid", bright: 80, speed: null, colors: ["#E0303A"], vibration: false }),
+    LIGHT_DEFAULT.slice(),
+    encodeLighting({ mode: "breathing", bright: 60, speed: 30, colors: ["#2F7BEA", "#7A4BE0"], vibration: false }),
+    LIGHT_EMPTY.slice(),
+  ];
   // RAM 0x06: motor output, byte 1 left mode, 2–11 its params, 12 right mode, 13–22 its params.
   // The demo starts with an X-Haptics scene (mode 1) on the right trigger, to show the warning.
-  const ram = { 1: new Uint8Array(82), 4: new Uint8Array(64), 6: new Uint8Array(64) };
+  const ram = { 1: new Uint8Array(82), 6: new Uint8Array(64) };
   ram[6][12] = 1;
-  const buf = (id) => (id === 5 ? slots[active] : ram[id]);
+  const buf = (id) => (id === 5 ? slots[active] : id === 4 ? lights[active] : ram[id]);
   let pending = null;
   // Live input for Sticks and Triggers: with dinput on, stream 0xEF frames (left stick circles,
   // LT and RT ramp in turn);
@@ -132,6 +145,7 @@ export async function createMockDevice() {
         const c = crc32(pending.buf);
         if (c === pending.crc) {
           if (pending.ram === 5) slots[active] = pending.buf;
+          else if (pending.ram === 4) lights[active] = pending.buf;
           else ram[pending.ram] = pending.buf;
         }
         r = reply(0xa4, [], [2, 0, pending.ram, active, ...le16(pending.buf.length), ...le32(c)]);
