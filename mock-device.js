@@ -25,7 +25,7 @@ export async function createMockDevice() {
   const sample = new Uint8Array(await (await fetch("./samples/mapping_slot2.bin")).arrayBuffer());
   // Four slots that differ a little, so their CRCs differ like on a real controller.
   const slots = [
-    applyEdits(sample, { "stick.left.deadzone": 8, "stick.right.deadzone": 8, "gyro.mode": "right_joystick" }),
+    applyEdits(sample, { "stick.left.deadzone": 6, "stick.right.deadzone": 6, "gyro.mode": "right_joystick" }),
     sample.slice(),
     applyEdits(sample, { "trigger.left.start": 30, "trigger.right.start": 30 }),
     applyEdits(sample, { "stick.left.deadzone": 0, "stick.right.deadzone": 0 }),
