@@ -482,14 +482,13 @@ function changedList(S, D) {
   const foot = free > 0
     ? `<button class="link" data-act="layer-new">+ เพิ่ม layer</button><span class="meta">เพิ่มได้อีก ${free} layer${gone ? ` · ที่ลบไว้จะว่างหลังเขียนลงจอย` : ""}</span>`
     : `<span class="meta">ครบ ${LAYER_MAX} layer แล้ว${gone ? ` · ที่ลบไว้จะว่างหลังเขียนลงจอย` : ""}</span>`;
-  const sw = layerSwitches(S, D, (s) => s.to !== s.layer && !D.has(layerKey(s.layer, "delete")));
-  const trapped = list.filter((l) => l.id && sw.some((s) => s.to === l.id && s.type === "layer_toggle") && !sw.some((s) => s.layer === l.id));
-  const warn = trapped.map((l) => `<p class="notice" style="margin:12px 0 0;color:var(--ink)">${ICON.warn}<span>ปุ่มที่สลับเข้า ${LAYER_NAME(l.id)} จะค้างอยู่ที่นั่น ตั้งปุ่มใน ${LAYER_NAME(l.id)} ให้สลับกลับ ${LAYER_NAME(0)} ด้วย ไม่งั้นจะกลับไม่ได้</span></p>`).join("");
+  // No "stuck in a layer" warning: a toggle can only start in Base, and the app gives the same press
+  // in the layer it goes to a switch back to Base (lockedTarget).
   return `<section style="margin-top:24px">
     <div class="rule-head top"><h2>ปุ่มที่แก้ใน slot นี้</h2><span class="meta"><span class="marker-key">เหลือง</span> = ไม่ใช่ค่าเดิม · สีน้ำเงิน = ยังไม่ได้เขียนลงจอย · ทึบ = กำลังแก้ · สีดำ = อยู่บนจอยแล้ว</span></div>
     ${rows}
     <div class="lg-foot">${foot}</div>
-    ${warn}
+
   </section>`;
 }
 
