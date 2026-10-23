@@ -214,7 +214,7 @@ export function profiles(S, D) {
     .join("");
   const renamePending = D.pendingKeys("slot.").length;
   return `${head("Profiles", "4 slot บนตัวจอย แก้ที่ slot ตรงๆ · คลังเก็บสำเนาไว้ใส่ slot ไหนก็ได้ ใส่แล้วไม่สร้างของซ้ำ")}
-  <div class="split wide-right" style="grid-template-columns:minmax(0,640px) minmax(0,1fr)">
+  <div class="split wide-right l640" style="grid-template-columns:minmax(0,640px) minmax(0,1fr)">
     <div>${frontFigure(S, D, { screen: `แสดงชื่อ slot ที่ใช้อยู่: ${slotName(S, D, active)}`, screenSub: "เขียนชื่อลงจอได้ไหม ยังไม่ยืนยัน" })}</div>
     <div>
       <div class="rule-head" style="display:grid;grid-template-columns:112px 1fr auto"><span class="label">Slot</span><span class="label">ชื่อและสิ่งที่ตั้งไว้</span><span class="label">จัดการ</span></div>
@@ -1209,7 +1209,7 @@ export function lighting(S, D) {
   ).join("");
   const timeout = D.get("screen.timeout");
   return `${head("Lighting & screen", "ทั้งเครื่อง · ใช้กับทุก slot")}
-  <div class="split wide-right" style="grid-template-columns:minmax(0,740px) minmax(0,1fr)">
+  <div class="split wide-right l740" style="grid-template-columns:minmax(0,740px) minmax(0,1fr)">
     <div>${frontFigure(S, D, {
       screen: `ชื่อ slot และแบต`, screenSub: "รูปแบบจริงยังไม่ยืนยัน",
       led: showColor ? { color: showColor, bright } : null, ledLabel: pend ? "ไฟ RGB · แก้แล้ว" : "ไฟ RGB", ledValue, ledPending: pend,

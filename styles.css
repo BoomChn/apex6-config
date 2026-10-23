@@ -392,7 +392,7 @@ select.field { appearance: none; padding-right: 36px; background: #fff url("data
 
 /* Dialog */
 dialog.sheet {
-  width: 820px; max-width: calc(100vw / var(--z, 1) - 80px); max-height: calc(100vh / var(--z, 1) - 80px);
+  width: 820px; max-width: calc(100vw - 80px); max-height: calc(100vh - 80px);
   padding: 44px 48px 40px; border: 0; border-radius: 10px; background: #fff; color: var(--ink);
   box-shadow: 0 24px 64px rgba(17, 17, 17, 0.22), 0 2px 8px rgba(17, 17, 17, 0.12);
 }
@@ -436,7 +436,7 @@ dialog.sheet[open] { animation: rise .22s cubic-bezier(.16, 1, .3, 1); }
 .kv .v { text-align: right; font-weight: 600; }
 
 /* Connect page */
-.connect { display: grid; grid-template-columns: minmax(0, 1fr) 460px; gap: 40px; align-items: center; min-height: calc(100vh / var(--z, 1) - 160px); }
+.connect { display: grid; grid-template-columns: minmax(0, 1fr) 460px; gap: 40px; align-items: center; min-height: calc(100vh - 160px); }
 .connect h1 { font-size: 44px; line-height: 50px; }
 .connect ol { margin: 28px 0 32px; padding: 0; list-style: none; display: grid; gap: 0; }
 .connect li { display: grid; grid-template-columns: 40px 1fr; gap: 8px; padding: 14px 0; border-bottom: 1px solid var(--hairline); font-size: 16px; line-height: 22px; }
@@ -460,12 +460,15 @@ dialog.sheet[open] { animation: rise .22s cubic-bezier(.16, 1, .3, 1); }
    centred in the space left of the settings, and the settings panel keeps to the right edge.
    Pages without a settings panel stay one 1440px column, centred. Below 1700px nothing changes. */
 @media (min-width: 1700px) {
-  :root { --editor: 540px; --panel: 760px; --left: 900px; --gap: 80px; }
+  :root { --panel: 760px; --left: 780px; --gap: 80px; }
+  /* Photo widths as on a 1440px window (inline on Profiles and Lighting), so nothing grows. */
+  main:has(> .l640) { --left: 640px; }
+  main:has(> .l740) { --left: 740px; }
   main { max-width: none; }
   main > * { max-width: 1440px; margin-inline: auto; }
   main > .split { max-width: none; }
-  .split { gap: var(--gap); }
-  .split > :first-child { width: 100%; max-width: 1180px; justify-self: center; }
+  /* 860px: the photo column of a 1440px window, so the photo keeps its size. */
+  .split > :first-child { width: 100%; max-width: 860px; justify-self: center; }
   .split.wide-right { grid-template-columns: minmax(0, 1fr) var(--panel) !important; }
   .split.wide-right > :first-child { max-width: var(--left); }
   /* The head above a photo + panel page lines up with the centred photo. */
@@ -474,13 +477,6 @@ dialog.sheet[open] { animation: rise .22s cubic-bezier(.16, 1, .3, 1); }
     margin-left: max(0px, calc((100% - var(--panel) - var(--gap) - var(--left)) / 2));
   }
 }
-
-/* Very wide screens (4K at 100% scaling): grow the whole UI so text stays readable. Chromium's
-   standard zoom keeps pointer and layout coordinates in step, so drags on curves still line up.
-   vh/vw are not zoomed, so anything sized by them divides by --z. */
-@media (min-width: 2200px) { html { zoom: 1.25; --z: 1.25; } }
-@media (min-width: 2800px) { html { zoom: 1.5; --z: 1.5; } }
-@media (min-width: 3400px) { html { zoom: 1.75; --z: 1.75; } }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
