@@ -882,3 +882,29 @@ console.log("slot names ok");
   assert.deepEqual(s.slotCrc16, [0x2510, 0x5761, 0x2510, 0x5181], "slots 1 and 3 hold the default profile");
 }
 console.log("slot switch ok");
+
+// Paper v3 review (2026-10-23): the write count matches the review rows. Macro copies no button
+// plays leave with the next write, so they count, but only once there is a write to make.
+{
+  const { Drafts } = await import("./model.js");
+  const S = { current: { cfg: wcfg, slot: 1 }, plan: { rows: [{ kind: "remove", layer: 0, id: 0 }, { kind: "remove", layer: 0, id: 1 }], moves: [] } };
+  const D = new Drafts(S);
+  assert.equal(D.count(), 0, "nothing edited: the copies stay until a write");
+  assert.equal(D.count("macros"), 0);
+  D.map.set("led.mode", "solid");
+  assert.equal(D.count(), 1, "a draft the controller can't take writes nothing, so nothing is removed");
+  assert.equal(D.count("macros"), 0);
+  D.map.delete("led.mode");
+  D.map.set("stick.left.deadzone", 10);
+  assert.equal(D.count(), 3, "one edit + two copies removed by its write");
+  assert.equal(D.count("macros"), 2, "the Macros tab shows the two");
+  assert.equal(D.count("sticks"), 1);
+}
+console.log("write count ok");
+
+// The Apex 6 Pro has no C/Z and no M5/M6 to press (PRODUCT.md): a new macro step can't offer them.
+{
+  const { MACRO_PAD } = await import("./model.js");
+  for (const b of ["C", "Z", "M5", "M6"]) assert.ok(!MACRO_PAD.includes(b), `macro pad offers ${b}`);
+}
+console.log("macro pad ok");

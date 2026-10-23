@@ -5,13 +5,13 @@ colors:
   ground: "#FFFFFF"
   ink: "#111111"
   ink-secondary: "#5C5C5C"
-  ink-tertiary: "#8A8A8A"
+  ink-tertiary: "#767676"
   hairline: "#E2E2E2"
-  keycap-border: "#CFCFCF"
+  keycap-border: "#949494"
   cobalt: "#2140D9"
   cobalt-tint: "#EDF0FC"
   cobalt-tint-faint: "#F5F7FE"
-  ok: "#1F8A4C"
+  ok: "#1A7A43"
   error: "#C0262D"
   warn: "#9A4A06"
   disabled-fill: "#E6E6E6"
@@ -140,6 +140,15 @@ components:
     textColor: "{colors.log-text}"
     typography: "{typography.mono}"
     rounded: "{rounded.none}"
+  tag-untested:
+    backgroundColor: "{colors.ground}"
+    textColor: "{colors.warn}"
+    borderColor: "{colors.warn}"
+    fontSize: "12px"
+    fontWeight: 700
+    lineHeight: "18px"
+    rounded: "{rounded.control}"
+    padding: "1px 8px"
 ---
 
 # Design System: Apex 6 Pro Config
@@ -245,7 +254,7 @@ Small, firm corners (6px `control`) appear only on things you press or type into
 - **Text links:** underlined ink text for low-weight actions ("ยกเลิกการแก้", "คืนค่าเดิม", "กลับไปแก้").
 
 ### Top bar
-Device name, a green USB dot with battery and firmware in mono, then four slot tabs with large numerals. The active slot is a solid ink block with white text and a status line ("ใช้อยู่บนจอย · กำลังแก้"). Sync status sits right: cobalt when edits are pending ("แก้ 5 จุด ยังไม่ได้เขียนลงจอย"), green when synced.
+Device name, a green USB dot with battery and firmware in mono (grey dot in demo mode and when not connected), then four slot tabs with large numerals. The active slot is a solid ink block with white text and a status line ("ใช้อยู่บนจอย · กำลังแก้"). Sync status sits right: cobalt when edits are pending ("แก้ 5 จุด ยังไม่ได้เขียนลงจอย"), green when synced.
 
 ### Navigation (section tabs)
 An underline tab row. The active tab is bold with a 3px ink underline. Pending counts follow the label as cobalt mono badges. Gyro shows its current value inline (cobalt when pending, grey "ปิด" when off). A small "ทั้งเครื่อง" label and a divider separate device-wide sections from per-slot ones.
@@ -256,7 +265,7 @@ An underline tab row. The active tab is bold with a 3px ink underline. Pending c
 
 ### Photo stage and callouts (signature)
 A real Apex 6 Pro press photo, front or back, on white, never a drawing. Callouts are 1px ink leader lines ending in a 3.5px ink dot on the physical control, with a label pair in the margin: 13px bold name over the value. The selected or pending callout switches to a 2px cobalt line with a ring at the control and cobalt label text.
-- Gap: no live LED preview on the photo.
+- Lighting shows the pending LED colour as a glow on the photo; the device's real output is not confirmed.
 - Gap: no side-view raster exists.
 
 ### Insets
@@ -295,6 +304,8 @@ Each state opens on a 3px rule.
 - **Do** open every section with a 3px ink rule and separate rows with hairlines.
 - **Do** set every controller value, unit, hex code, firmware string, timestamp and CRC in JetBrains Mono 600.
 - **Do** label unconfirmed protocol facts "ยังไม่ยืนยัน" in place, next to the value they qualify.
+- **Do** mark a writable field that is not in `HW_TESTED` with the `tag-untested` pill ("ยังไม่ทดสอบ" or "ยังไม่ทดสอบกับจอยจริง"), one per row, never one tag over a whole list.
+- **Do** label a value the app cannot read yet "ยังอ่านไม่ได้" next to its control, rather than showing nothing selected.
 - **Do** show only back buttons M1 to M4. Seen from the back, the left of the image is the right hand.
 - **Do** keep English control names (LB, RT, M1) in the Thai UI.
 

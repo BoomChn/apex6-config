@@ -5,7 +5,7 @@ import { BACK, FRONT, ALL, stageSvg, inset, TRIG_MARK, PHOTO, LED_PATH } from ".
 import {
   esc, pct, same, btnName, PRESS, GYRO_MODE, LED_MODE, LAYER_NAME, PRESET, TPRESET, GPRESET, AXIS, MACRO_MODE, TIMEOUT,
   labelTarget, baseTarget, isIdentity, evalCurve, macroSteps, macroUses, macroList, openMacro,
-  layerList, nextLayerId, layerSwitches, layerKey, meta, gripPart, lraGrip,
+  layerList, nextLayerId, layerSwitches, layerKey, meta, gripPart, lraGrip, MACRO_PAD, NOT_ON_PAD,
 } from "./model.js";
 import { BUTTONS, decodeMapping } from "./mapping.js";
 import { isWritable, HW_TESTED, NAME_MAX, nameBytes, MACRO_MAX, gyroPct, GYRO_MIDS_MAX, VIB_LEVELS, gripEndY, motorMode, FEEDBACK_MODE } from "./mapping-edit.js";
@@ -27,12 +27,12 @@ export const TABS = [
 
 const ICON = {
   chev: `<svg class="chev" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 3l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>`,
-  pencil: `<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M10.5 2.5l3 3L5 14H2v-3z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>`,
-  dots: `<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="3" cy="8" r="1.4"/><circle cx="8" cy="8" r="1.4"/><circle cx="13" cy="8" r="1.4"/></svg>`,
+  pencil: `<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M10.5 2.5l3 3L5 14H2v-3z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>`,
+  dots: `<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><g fill="currentColor"><circle cx="3" cy="8" r="1.4"/><circle cx="8" cy="8" r="1.4"/><circle cx="13" cy="8" r="1.4"/></g></svg>`,
   file: `<svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path d="M4 1.5h7l3 3v12H4z M7 7h5 M7 10h5 M7 13h3" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>`,
   warn: `<svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path d="M9 2l7.5 13h-15z M9 7v4 M9 12.6v1" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>`,
-  check: `<svg width="30" height="30" viewBox="0 0 30 30" aria-hidden="true"><circle cx="15" cy="15" r="15" fill="#1F8A4C"/><path d="M8.5 15.5l4.2 4.2 8.8-9" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
-  checkSm: `<svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true"><circle cx="11" cy="11" r="11" fill="#1F8A4C"/><path d="M6.5 11.3l3 3 6-6.3" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  check: `<svg width="30" height="30" viewBox="0 0 30 30" aria-hidden="true"><circle cx="15" cy="15" r="15" fill="#1A7A43"/><path d="M8.5 15.5l4.2 4.2 8.8-9" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  checkSm: `<svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true"><circle cx="11" cy="11" r="11" fill="#1A7A43"/><path d="M6.5 11.3l3 3 6-6.3" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
   bang: `<svg width="30" height="30" viewBox="0 0 30 30" aria-hidden="true"><circle cx="15" cy="15" r="15" fill="#C0262D"/><path d="M15 8v9" stroke="#fff" stroke-width="3" stroke-linecap="round"/><circle cx="15" cy="21.5" r="1.8" fill="#fff"/></svg>`,
   play: `<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 1l9 5-9 5z" fill="currentColor"/></svg>`,
   x: `<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.6"/></svg>`,
@@ -52,14 +52,11 @@ export function topbar(S, D) {
   const line = !connected
     ? `<span class="dot off"></span>ยังไม่ได้เชื่อมต่อ`
     : S.demo
-      ? `<span class="dot"></span>ตัวอย่าง · ไม่ได้ต่อจอยจริง`
+      ? `<span class="dot off"></span>ตัวอย่าง · ไม่ได้ต่อจอยจริง`
       : `<span class="dot"></span>${info ? `แบต ระดับ <span class="num">${info.batteryLevel}</span>${info.chargingStatus ? " · ชาร์จ" : ""} · FW <span class="num">${fw(info.fw.main)}</span>` : "เชื่อมต่อแล้ว"}`;
   const device = `<div class="device"><div class="device-name">Apex 6 Pro</div><div class="device-line">${line}</div></div>`;
-  if (!connected) {
-    return `${device}<div class="slots"></div><div class="sync">${
-      S.hid ? `<button class="btn primary" data-act="connect">เชื่อมต่อจอย</button>` : ""
-    }</div>`;
-  }
+  // The connect page has its own button, so the bar keeps none.
+  if (!connected) return `${device}<div class="slots"></div><div class="sync"></div>`;
   const slots = [0, 1, 2, 3]
     .map((i) => {
       const on = S.slots?.activeSlot === i;
@@ -73,12 +70,24 @@ export function topbar(S, D) {
     .join("");
   const n = D.count();
   const when = S.readAt ? S.readAt.toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" }) : "—";
-  const sync = n
+  // Drafts only (nothing the controller takes yet): say so, and the write button can't be pressed.
+  // The draft line itself opens the review, which says what can be written today.
+  const draftsOnly = n > 0 && !canWrite(S, D);
+  const sync = draftsOnly
+    ? `<div class="sync-text"><b><button class="link" style="font:inherit;color:var(--warn)" data-act="review" title="ดูว่าอะไรเขียนลงจอยได้ตอนนี้">ร่าง ${n} จุด · ยังเขียนลงจอยไม่ได้</button></b><span>อ่านจากจอยล่าสุด ${when}</span></div>
+       <button class="link" data-act="discard">ยกเลิกการแก้</button>`
+    : n
     ? `<div class="sync-text"><b class="pending">แก้ ${n} จุด ยังไม่ได้เขียนลงจอย</b><span>อ่านจากจอยล่าสุด ${when}</span></div>
        <button class="link" data-act="discard">ยกเลิกการแก้</button>`
     : `<div class="sync-text"><b class="ok">ตรงกับจอย ไม่มีอะไรค้างเขียน</b><span>อ่านจากจอยล่าสุด ${when}</span></div>`;
   return `${device}<div class="slots" role="group" aria-label="Slot บนตัวจอย">${slots}</div>
-    <div class="sync">${sync}<button class="btn primary" data-act="review" ${n ? "" : "disabled"}>เขียนลงจอย <span class="count">${n}</span></button></div>`;
+    <div class="sync">${sync}<button class="btn primary" data-act="review" ${n && !draftsOnly ? "" : "disabled"}>เขียนลงจอย${draftsOnly ? "" : ` <span class="count">${n}</span>`}</button></div>`;
+}
+
+// Whether a write would send anything: a writable draft, a library macro to update, or layers to number again.
+function canWrite(S, D) {
+  const plan = S.plan ?? { rows: [] };
+  return D.items().some((i) => i.writable) || plan.rows.some((r) => r.kind === "update" || r.kind === "rename") || !!plan.moves?.length;
 }
 
 export function tabs(S, D) {
@@ -315,7 +324,7 @@ function frontFigure(S, D, { screen, screenSub, led = null, ledLabel = "ไฟ R
       <div style="position:absolute;left:${((1000 - 80) / 1440) * 100 - 1.4}%;top:0" class="${ledPending ? "pending" : ""}">
         <div style="font-size:13px;font-weight:700;line-height:16px">${esc(ledLabel)}</div>
         <div style="font-size:15px;font-weight:${ledPending ? 700 : 600};line-height:20px">${esc(ledValue)}</div>
-        ${ledPending ? "" : `<button class="link" style="font-size:13px" data-act="tab" data-tab="lighting">ตั้งค่าใน Lighting &amp; screen</button>`}
+        ${ledPending || S.tab === "lighting" ? "" : `<button class="link" style="font-size:13px" data-act="tab" data-tab="lighting">ตั้งค่าใน Lighting &amp; screen</button>`}
       </div>
     </div>
   </div>`;
@@ -447,7 +456,7 @@ function changedList(S, D) {
     })
     .join("");
   return `<section style="margin-top:8px">
-    <div class="rule-head top"><h2>ปุ่มที่แก้ใน slot นี้</h2><span class="meta">สีน้ำเงิน = ยังไม่ได้เขียนลงจอย · สีดำ = อยู่บนจอยแล้ว</span></div>
+    <div class="rule-head top"><h2>ปุ่มที่แก้ใน slot นี้</h2><span class="meta">สีน้ำเงิน = ยังไม่ได้เขียนลงจอย · ทึบ = กำลังแก้ · สีดำ = อยู่บนจอยแล้ว</span></div>
     <div style="display:flex;flex-wrap:wrap;gap:16px 0;padding-top:16px">${list || `<p class="empty-note">ทุกปุ่มเป็นค่าเดิม</p>`}</div>
   </section>`;
 }
@@ -554,7 +563,7 @@ function buttonEditor(S, D) {
       <span class="keytag${pend ? " fill" : " ink"}" style="height:52px;min-width:52px;font-size:20px;border-radius:8px">${esc(btnName(src))}</span>
       <div class="t"><h2>${esc(BTN_TITLE[src] ?? btnName(src))}</h2>
         <div class="status${pend ? " pending" : ""}">${pend ? `แก้แล้ว · ค่าบนจอย: ${esc(labelTarget(base, cfg))}` : `ค่าบนจอย: ${esc(labelTarget(base, cfg))}`}</div></div>
-      <span style="display:grid;justify-items:end;gap:6px;white-space:nowrap">
+      <span style="display:grid;justify-items:end;gap:12px;white-space:nowrap">
         ${pend ? `<button class="link" data-act="revert-btn" title="ยกเลิกที่แก้ กลับไปเป็นค่าที่อยู่บนจอยตอนนี้">คืนค่าบนจอย</button>` : ""}
         ${isFactory ? "" : `<button class="link" data-act="factory-btn" title="กดปกติส่ง ${esc(btnName(src))} เอง ไม่มีกดค้างหรือดับเบิลคลิก">ตั้งเป็นค่าเริ่มต้น</button>`}
       </span>
@@ -575,7 +584,7 @@ function timing(S, D) {
     return `<div class="ruled" style="flex:1"><label for="f-${key}">${label}</label><input id="f-${key}" class="${D.has(key) ? "pending" : ""}" type="number" inputmode="numeric" min="50" max="${key.endsWith("long") ? 2000 : 1000}" step="10" value="${v}" data-key="${key}" data-num><span class="unit">ms</span></div>`;
   };
   return `<section style="margin-top:40px">
-    <div class="rule-head top"><h2>เวลาตัดสินการกด</h2><span class="meta">ใช้กับทุกปุ่มใน slot ${S.slots.activeSlot + 1} ${untested("runtime.long")}</span></div>
+    <div class="rule-head top"><h2>เวลาตัดสินการกด</h2><span class="meta" style="display:flex;align-items:center;gap:12px">ใช้กับทุกปุ่มใน slot ${S.slots.activeSlot + 1}${isWritable("runtime.long") && !HW_TESTED.has("runtime.long") ? UNTESTED_SM : ""}</span></div>
     <div style="display:flex;gap:24px;margin-top:14px">${ruled("runtime.long", "กดค้าง")}${ruled("runtime.double", "ดับเบิลคลิก")}</div>
   </section>`;
 }
@@ -669,7 +678,7 @@ export function sticks(S, D) {
 
 // v: what the controller sends out (after its own curve), x/y in -1..1, y positive down.
 // Like joy.cpl: the square is the full range, so a stick that reaches 100% touches its edge.
-export function liveStick(v, idle = "ขยับ stick บนจอยเพื่อดูค่า") {
+export function liveStick(v, idle = "ยังไม่ได้รับค่าจากจอย<br>ทดสอบ stick ด้วย joy.cpl ไปก่อน") {
   const R = 100;
   const frame = `<rect x="-100" y="-100" width="200" height="200" fill="none" stroke="#111"/><path d="M-100 0H100M0 -100V100" stroke="#E2E2E2"/>`;
   if (!v) {
@@ -687,7 +696,7 @@ export function liveStick(v, idle = "ขยับ stick บนจอยเพื
 
 // Buttons held now, from the controller's key events. Names are what the controller reports.
 export function liveKeys(keys) {
-  if (!keys) return "";
+  if (!keys) return `<span class="muted">ยังไม่ได้รับค่าจากจอย · ทดสอบปุ่มด้วย joy.cpl ไปก่อน</span>`;
   return keys.length
     ? keys.map((k) => `<span class="keytag" style="height:36px;padding:0 12px">${esc(k)}</span>`).join("")
     : `<span class="muted">กดปุ่มบนจอยเพื่อดูชื่อปุ่ม</span>`;
@@ -734,7 +743,7 @@ export function triggers(S, D) {
 // gamepad reports (the output), or null when nothing reports the trigger.
 export function liveTrigger(v) {
   const bar = (h, color) => `<div style="width:40px;height:200px;border:1px solid #111;position:relative"><div style="position:absolute;left:0;right:0;bottom:0;height:${h * 100}%;background:${color}"></div></div>`;
-  if (v === null) return `${bar(0)}<div class="readout muted" style="font-size:16px">เบราว์เซอร์ยังไม่เห็นจอย<br>ทดสอบไกด้วย joy.cpl ไปก่อน</div>`;
+  if (v === null) return `${bar(0)}<div class="readout muted" style="font-size:16px">ยังไม่ได้รับค่าจากจอย<br>ทดสอบไกด้วย joy.cpl ไปก่อน</div>`;
   if (typeof v === "object") {
     const pc = (x) => Math.round(x * 100);
     if (v.press < 0.01) return `${bar(0)}<div class="readout muted" style="font-size:16px">ไม่ได้กด</div>`;
@@ -834,7 +843,7 @@ export function macros(S, D) {
     <div style="margin-top:24px"><span class="label" style="display:block;margin-bottom:8px">เล่นแบบ</span>${modes}</div>
     ${tool}
     <div class="timeline">
-      <div class="tl-scale"><div></div><div>${ticks.map((t) => `<span style="left:${(t / scaleMax) * 100}%">${t}${t === scaleMax ? " ms" : ""}</span>`).join("")}</div></div>
+      <div class="tl-scale"><div></div><div>${ticks.map((t) => `<span${t === scaleMax ? ` class="end"` : ""} style="left:${(t / scaleMax) * 100}%">${t}${t === scaleMax ? " ms" : ""}</span>`).join("")}</div></div>
       ${rows || `<p class="empty-note">ยังไม่มีขั้น · กดปุ่มด้านบนเพื่อเพิ่ม</p>`}
     </div>
     ${st ? `<div style="display:grid;grid-template-columns:300px 200px 200px;gap:24px;align-items:end;margin-top:28px">
@@ -853,8 +862,6 @@ export function macros(S, D) {
   return `${head("Macros", sub)}<div style="display:grid;grid-template-columns:440px minmax(0,1fr);gap:56px">${left}${right}</div>`;
 }
 
-// Buttons a new macro can press: the face, shoulder, trigger and stick buttons (not M1–M6).
-const MACRO_PAD = ["A", "B", "X", "Y", "D-pad ↑", "D-pad ↓", "D-pad ←", "D-pad →", "LB", "RB", "LT (active)", "RT (active)", "Back", "Start", "LS", "RS", "C", "Z"];
 
 function macroBars(m) {
   const open = new Map();
@@ -1021,9 +1028,12 @@ export function gyro(S, D) {
 function gyroSettings(S, D, g, modes, sel) {
   const mode = D.get("gyro.mode");
   const off = mode === "disable";
-  const group = (n, title, en, note, body, { dim = false, tag = "" } = {}) => `<section style="margin-top:${n === 1 ? 0 : 40}px${dim ? ";opacity:.55" : ""}">
-      <div class="rule-head"><h2>${n}. ${title} <span class="meta" style="font-weight:400">${en}</span></h2>${tag}</div>
-      <p class="muted" style="margin:8px 0 16px;line-height:22px">${note}</p>${body}</section>`;
+  // With the gyro off, sections that only matter once it is on fold to one line (full contrast,
+  // no fading); one with a pending edit stays open so the edit is never hidden.
+  const group = (n, title, en, note, body, { fold = false, tag = "" } = {}) => `<section style="margin-top:${n === 1 ? 0 : 40}px">
+      <div class="rule-head"><h2>${n}. ${title} <span class="meta" style="font-weight:400">${en}</span></h2>${fold ? "" : tag}</div>
+      ${fold ? `<p class="muted" style="margin:8px 0 0;line-height:22px">เลือกหน้าที่ของ gyro ในข้อ 1 ก่อน จึงจะตั้งส่วนนี้ได้</p>` : `<p class="muted" style="margin:8px 0 16px;line-height:22px">${note}</p>${body}`}</section>`;
+  const foldIf = (...keys) => off && !keys.some((k) => D.has(k));
   const hint = (t) => `<p class="meta" style="margin:6px 0 0;line-height:20px">${t}</p>`;
   const sub = (t, en, tag = "") => `<div class="slider-head" style="margin-top:24px"><b>${t} <span class="meta" style="font-weight:400">${en}</span></b>${tag}</div>`;
 
@@ -1033,7 +1043,7 @@ function gyroSettings(S, D, g, modes, sel) {
   const how = acts[0]?.activation ?? "hold";
   const btnSel = (i) => {
     const cur = acts[i]?.button ?? "";
-    const opts = BUTTONS.filter((b) => b === cur || !acts.some((a) => a.button === b));
+    const opts = BUTTONS.filter((b) => b === cur || (!NOT_ON_PAD.includes(b) && !acts.some((a) => a.button === b)));
     return `<select class="field${pa ? " pending" : ""}" data-gyro-btn="${i}" style="height:44px;width:100%" aria-label="${i ? "ปุ่มรอง" : "ปุ่มหลัก"}">
       ${i ? `<option value="" ${cur ? "" : "selected"}>ไม่ตั้ง</option>` : ""}${opts.map((b) => `<option value="${esc(b)}" ${b === cur ? "selected" : ""}>${esc(btnName(b))}</option>`).join("")}</select>`;
   };
@@ -1056,7 +1066,7 @@ function gyroSettings(S, D, g, modes, sel) {
       <label><span class="slider-head"><b>เล็งบน–ล่างด้วย</b></span><span style="display:block;margin-top:8px">${sel("gyro.axisY", AXIS)}</span></label>
       <div><b>กลับทิศ <span class="meta" style="font-weight:400">Direction Inversion</span></b>
         <div class="checks" style="margin-top:10px">${check("gyro.invertX", "กลับซ้าย–ขวา", D)}${check("gyro.invertY", "กลับบน–ล่าง", D)}</div></div></div>`,
-    { dim: off, tag: untested("gyro.axisX") });
+    { fold: foldIf("gyro.axisX", "gyro.axisY", "gyro.invertX", "gyro.invertY"), tag: untested("gyro.axisX") });
 
   // 3. The response curve, as on the official Advanced page.
   const c = D.get("gyro.curve");
@@ -1085,7 +1095,7 @@ function gyroSettings(S, D, g, modes, sel) {
     ${mids || hint("ไม่มีจุดกลาง · เส้นตรงจากจุดเริ่มถึงจุดสุด")}
     <div style="display:flex;gap:20px;margin-top:12px">${c.mid_points.length < GYRO_MIDS_MAX ? `<button class="link" data-act="gyro-mid-add">+ เพิ่มจุด</button>` : ""}<button class="link" data-act="gyro-curve-reset">รีเซ็ตเป็นเส้นตรง</button></div>
     ${hint("ลากจุดในกราฟได้ · กดบนเส้นเพื่อเพิ่มจุดกลาง · x, y เป็นค่า 0–255 แบบเดียวกับในเว็บ Flydigi")}`,
-    { dim: off, tag: untested("gyro.curve") });
+    { fold: foldIf("gyro.curve"), tag: untested("gyro.curve") });
 
   // 4. Mouse mode only.
   const g4 = mode === "mouse" || g.mode === "mouse"
@@ -1160,7 +1170,8 @@ const IMU_NAME = ["หมุนแบบพวงมาลัย", "ก้ม–
 // v: { imu: six i16 from 0xEF bytes 17..28, tail: bytes 29/30, move: how much each moves now,
 // peak: largest |value| seen } or null before the first frame.
 export function liveImu(v) {
-  if (!v) return `<p class="muted" style="margin:0">ยังไม่ได้รับค่าจากจอย</p>`;
+  // The aim above already says nothing has arrived.
+  if (!v) return "";
   const top = v.move.indexOf(Math.max(...v.move));
   const rows = v.imu.map((x, i) => {
     const on = i === top && v.move[i] > 30;
@@ -1182,15 +1193,19 @@ const SWATCHES = ["#FF5A1F", "#E0303A", "#F2C230", "#38B26B", "#2F7BEA", "#7A4BE
 export function lighting(S, D) {
   const mode = D.get("led.mode");
   const color = D.get("led.color");
-  const bright = D.get("led.bright") ?? 70;
+  // The photo glows at 70% while the brightness is unknown; the callout states only what is set.
+  const brightSet = D.get("led.bright");
+  const bright = brightSet ?? 70;
   const pend = D.pendingKeys("led.").length > 0;
   const showColor = mode && mode !== "off" ? color : null;
-  const ledValue = !pend ? "ค่าบนจอยยังอ่านไม่ได้" : mode === "off" ? "ปิดไฟ" : `${LED_MODE[mode] ?? "—"}${color ? ` ${color.toUpperCase()}` : ""} · ${bright}%`;
+  const ledValue = !pend ? "ค่าบนจอยยังอ่านไม่ได้" : mode === "off" ? "ปิดไฟ" : `${LED_MODE[mode] ?? "—"}${color ? ` ${color.toUpperCase()}` : ""}${brightSet != null ? ` · ${brightSet}%` : ""}`;
+  // Mode and screen timeout can't be read yet: say so next to them, rather than nothing selected.
+  const unread = (v) => (v == null ? `<span class="meta" style="margin-left:auto">ยังอ่านไม่ได้</span>` : "");
   const modes = Object.entries(LED_MODE)
     .map(([id, l]) => `<button class="utab${mode === id ? " on pending" : ""}" style="${mode === id ? "color:var(--cobalt)" : ""}" data-act="set" data-key="led.mode" data-val="${id}">${l}</button>`)
     .join("");
   const sw = SWATCHES.map(
-    (c) => `<button aria-label="สี ${c}" data-act="set" data-key="led.color" data-val="${c}" style="width:34px;height:34px;border-radius:17px;border:${color === c ? "2px solid #111" : c === "#FFFFFF" ? "1px solid #CFCFCF" : "0"};background:${c};box-shadow:${color === c ? "inset 0 0 0 3px #fff" : "none"};padding:0"></button>`,
+    (c) => `<button aria-label="สี ${c}" data-act="set" data-key="led.color" data-val="${c}" style="width:34px;height:34px;border-radius:17px;border:${color === c ? "2px solid #111" : c === "#FFFFFF" ? "1px solid #949494" : "0"};background:${c};box-shadow:${color === c ? "inset 0 0 0 3px #fff" : "none"};padding:0"></button>`,
   ).join("");
   const timeout = D.get("screen.timeout");
   return `${head("Lighting & screen", "ทั้งเครื่อง · ใช้กับทุก slot")}
@@ -1202,10 +1217,10 @@ export function lighting(S, D) {
     <div>
       <section>
         <div class="rule-head"><h2>ไฟ RGB</h2><span class="meta">แถบไฟใต้ตัวจอย</span></div>
-        <div class="utabs" style="margin-top:20px">${modes}</div>
+        <div class="utabs" style="margin-top:20px;align-items:center">${modes}${unread(mode)}</div>
         <div style="display:flex;align-items:center;gap:12px;margin-top:22px;flex-wrap:wrap">${sw}
           <label class="field" style="width:auto;display:inline-flex;align-items:center;gap:8px;height:36px;margin-left:12px;padding:0 10px">
-            <span style="width:14px;height:14px;background:${color ?? "#fff"};border:1px solid #CFCFCF"></span>
+            <span style="width:14px;height:14px;background:${color ?? "#fff"};border:1px solid #949494"></span>
             <input data-key="led.color" data-hex value="${esc((color ?? "").toUpperCase())}" placeholder="#RRGGBB" maxlength="7" style="border:0;width:84px;font:600 14px var(--mono);padding:0;outline:none" aria-label="รหัสสี"></label>
         </div>
         <div style="margin-top:24px">${slider("led.bright", "ความสว่าง", D, { min: 0, max: 100, fmt: (v) => (v == null ? "ยังอ่านไม่ได้" : `${v}%`) })}</div>
@@ -1220,7 +1235,7 @@ export function lighting(S, D) {
           </div>
           ${slider("screen.bright", "ความสว่างจอ", D, { min: 0, max: 100, fmt: (v) => (v == null ? "ยังอ่านไม่ได้" : `${v}%`) })}
         </div>
-        <div style="margin-top:20px"><b style="display:block;margin-bottom:10px">ปิดจออัตโนมัติหลัง</b>
+        <div style="margin-top:20px"><div style="display:flex;align-items:baseline;margin-bottom:10px"><b>ปิดจออัตโนมัติหลัง</b>${unread(timeout)}</div>
           <div class="seg">${Object.entries(TIMEOUT).map(([v, l]) => `<button class="${String(timeout) === v ? "on" : ""}" data-act="set" data-key="screen.timeout" data-val="${v}" data-numval>${l}</button>`).join("")}</div></div>
       </section>
     </div>
@@ -1311,6 +1326,8 @@ export function logHtml(lines) {
 
 export const fmtWhen = (t) => {
   const d = new Date(t);
+  // A missing or broken time must not read as "NaN/NaN": it sits on the restore link.
+  if (t == null || Number.isNaN(d.getTime())) return "เวลาไม่ทราบ";
   const p = (n) => String(n).padStart(2, "0");
   return `${p(d.getDate())}/${p(d.getMonth() + 1)} ${p(d.getHours())}:${p(d.getMinutes())}`;
 };
@@ -1318,17 +1335,19 @@ export const fmtWhen = (t) => {
 // ---------------- 09 Review & 10 write states ----------------
 
 // Shown when nothing pending can be written. Keep in step with FIELDS in mapping-edit.js.
+// keys: the edit keys behind a row; it is tagged untested unless all of them are in HW_TESTED.
 const WRITABLE_NOW = [
-  { label: "Stick", what: "deadzone · ระยะสูงสุด · กลับแกน X/Y · ขอบกลม" },
-  { label: "Trigger", what: "จุดเริ่ม · จุดสุด" },
-  { label: "Gyro", what: "โหมด · กลับแกน X/Y" },
-  { label: "มอเตอร์สั่น", what: "เปิด/ปิด · แรงสูงสุด" },
-  { label: "เวลาตัดสินการกด", what: "กดค้าง · ดับเบิลคลิก" },
-  { label: "ชื่อ profile", what: "เฉพาะ slot ที่ใช้อยู่" },
-  { label: "Macro", what: "จากคลัง ใส่ลงทุก layer ที่ปุ่มเลือกใช้ · ไม่เกิน 8 ตัวต่อ layer" },
-  { label: "ปุ่ม", what: "ปุ่มจอย · เมาส์ · Turbo · Macro · สลับ layer · ปิดปุ่ม · ทุก layer" },
-  { label: "เพิ่ม / ลบ layer", what: "ไม่เกิน 4 layer ต่อ slot" },
+  { label: "Stick", what: "deadzone · ระยะสูงสุด · กลับแกน X/Y · ขอบกลม", keys: ["left", "right"].flatMap((s) => ["max", "deadzone", "invertX", "invertY", "round"].map((f) => `stick.${s}.${f}`)) },
+  { label: "Trigger", what: "จุดเริ่ม · จุดสุด", keys: ["left", "right"].flatMap((s) => [`trigger.${s}.start`, `trigger.${s}.end`]) },
+  { label: "Gyro", what: "โหมด · กลับแกน X/Y", keys: ["gyro.mode", "gyro.invertX", "gyro.invertY"] },
+  { label: "มอเตอร์สั่น", what: "เปิด/ปิด · แรงสูงสุด", keys: ["motor.left.enabled", "motor.left.max"] },
+  { label: "เวลาตัดสินการกด", what: "กดค้าง · ดับเบิลคลิก", keys: ["runtime.long", "runtime.double"] },
+  { label: "ชื่อ profile", what: "เฉพาะ slot ที่ใช้อยู่", keys: ["profile.name"] },
+  { label: "Macro", what: "จากคลัง ใส่ลงทุก layer ที่ปุ่มเลือกใช้ · ไม่เกิน 8 ตัวต่อ layer", keys: ["macro"] },
+  { label: "ปุ่ม", what: "ปุ่มจอย · เมาส์ · Turbo · Macro · สลับ layer · ปิดปุ่ม · ทุก layer", keys: ["map"] },
+  { label: "เพิ่ม / ลบ layer", what: "ไม่เกิน 4 layer ต่อ slot", keys: ["layer"] },
 ];
+const UNTESTED_SM = `<span class="tag untested" title="เขียนได้แล้ว แต่ยังไม่เคยลองกับจอยจริง">ยังไม่ทดสอบ</span>`;
 
 export function review(S, D) {
   const items = D.items();
@@ -1339,6 +1358,8 @@ export function review(S, D) {
   // comes with a button that was changed.
   const moves = plan.moves ?? [];
   const nW = slotItems.length + plan.rows.filter((r) => r.kind === "update" || r.kind === "rename").length + moves.length;
+  // Copies no button plays are removed by this write: count them, so the title matches the rows.
+  const nAll = nW && nW + plan.rows.filter((r) => r.kind === "remove").length;
   const errors = plan.errors;
   const row = (i) => `<div class="diff-row${i.writable ? "" : " unsup"}"><b>${esc(i.label)}${untested(i.editKey) ? `<br>${untested(i.editKey)}` : ""}</b><span class="old">${esc(i.baseText ?? (i.base === undefined ? "ไม่ทราบ" : i.fmt(i.base)))}</span><span>→</span>
     <span class="new">${i.key === "led.color" ? `<span class="swatch-dot" style="background:${esc(i.value)}"></span>` : ""}${esc(i.fmt(i.value))}${i.writable && i.key.endsWith(".name") && fit(i.value) !== i.value ? `<br><span class="meta">บนจอยจะเป็น “${esc(fit(i.value))}” · ชื่อเต็มเก็บในแอป</span>` : ""}</span></div>`;
@@ -1360,11 +1381,11 @@ export function review(S, D) {
   // Every pending edit is draft-only: say which ones, and what can be written today.
   const stuck = [...new Set(unsup.map((i) => i.label.split(" · ")[0]))].join(", ");
   const sub = errors.length ? esc(errors.join(" · ")) : nW ? "ตรวจก่อนเขียน · อย่าถอดสายระหว่างเขียน" : `${esc(stuck)} ยังเขียนลงจอยไม่ได้ เลยเก็บเป็นร่างไว้ในหน้านี้ · ค่าบนจอยยังเหมือนเดิม`;
-  return `<h2 class="d-title" id="sheet-title">${nW ? `เขียน ${nW} การเปลี่ยนแปลงลงจอย` : "ยังไม่มีอะไรที่เขียนลงจอยได้"}</h2>
+  return `<h2 class="d-title" id="sheet-title">${nW ? `เขียน ${nAll} การเปลี่ยนแปลงลงจอย` : "ยังไม่มีอะไรที่เขียนลงจอยได้"}</h2>
     <p class="d-sub">${sub}</p>
     ${nW ? `<div class="d-group"><div class="rule-head"><h2>Slot ${slot + 1}${D.get(`slot.${slot}.name`) ? ` · ${esc(D.get(`slot.${slot}.name`))}` : ""}</h2><span class="meta">ค่าบนจอย → ค่าใหม่</span></div>${slotItems.map(row).join("")}${plan.rows.map(macroRow).join("")}${moves.map((m) => diff(`เลข layer · ${LAYER_NAME(m.from)}`, LAYER_NAME(m.from), `${LAYER_NAME(m.to)} · จอยหา layer จากลำดับ เลขต้องต่อกัน`)).join("")}</div>` : ""}
     ${unsup.length ? `<div class="d-group"><div class="rule-head"><h2>ยังเขียนลงจอยไม่ได้</h2><span class="meta">เก็บเป็นร่างในหน้านี้ ไม่ส่งลงจอย</span></div>${unsup.map(row).join("")}</div>` : ""}
-    ${nW ? "" : `<div class="d-group"><div class="rule-head thin"><h2>ที่เขียนลงจอยได้ตอนนี้</h2>${UNTESTED}</div>${WRITABLE_NOW.map((g) => `<div class="can-row"><b>${g.label}</b><span>${g.what}</span></div>`).join("")}</div>`}
+    ${nW ? "" : `<div class="d-group"><div class="rule-head thin"><h2>ที่เขียนลงจอยได้ตอนนี้</h2></div>${WRITABLE_NOW.map((g) => `<div class="can-row"><span class="can-l"><b>${g.label}</b>${g.keys.every((k) => HW_TESTED.has(k)) ? "" : UNTESTED_SM}</span><span>${g.what}</span></div>`).join("")}</div>`}
     ${nW ? `<p class="notice" style="margin-top:24px;font-size:15px;color:var(--ink)">${ICON.file}<span><b>สำรองค่าบนจอยเป็นไฟล์อัตโนมัติก่อนเขียนทุกครั้ง</b> <span class="muted">· กู้คืนได้ที่ Device &amp; backup</span></span></p>` : ""}
     ${nW && linked.length ? `<p class="notice" style="margin-top:12px;font-size:15px;color:var(--ink)">${ICON.file}<span><b>อัปเดต profile ${linked.map((p) => `“${esc(p.name)}”`).join(", ")} ในคลังด้วย</b> <span class="muted">· slot นี้มาจาก profile นั้น ค่าที่แก้จึงติดไปกับ profile</span></span></p>` : ""}
     <div class="d-actions"><button class="link" style="font-size:17px" data-act="close-sheet">กลับไปแก้</button>
@@ -1388,7 +1409,7 @@ export function done(W) {
   return `<div class="state"><h2 id="sheet-title">${ICON.check}${esc(W.doneTitle)}</h2>
     <p class="meta" style="font-size:14px;margin:6px 0 0 44px">อ่านกลับมาเทียบทุกไบต์แล้วตรงกัน</p>
     <div style="margin-top:20px">
-      <div class="kv"><span class="k">Slot ${W.slot + 1}${W.name ? ` · ${esc(W.name)}` : ""}</span><span class="v mono">crc16 ${W.crc}</span></div>
+      <div class="kv"><span class="k">Slot ${W.slot + 1}${W.name && W.name !== `Slot ${W.slot + 1}` ? ` · ${esc(W.name)}` : ""}</span><span class="v mono">crc16 ${W.crc}</span></div>
       ${W.profiles?.length ? `<div class="kv"><span class="k">อัปเดต profile ในคลัง</span><span class="v">${W.profiles.map((n) => `“${esc(n)}”`).join(", ")}</span></div>` : ""}
       ${W.backupAt ? `<div class="kv"><span class="k">ไฟล์สำรอง</span><span class="v">${fmtWhen(W.backupAt)} · กู้คืนได้</span></div>` : ""}
       ${W.commitStatus ? `<div class="kv"><span class="k">จอยตอบตอนยืนยัน</span><span class="v mono">status ${W.commitStatus}</span></div><p class="notice" style="margin:12px 0 0;color:var(--ink)">${ICON.warn}<span>จอยเก็บข้อมูลครบแล้ว แต่ไม่ได้ตอบว่าสำเร็จ (status ไม่ใช่ 0) อาจยังไม่ได้นำไปใช้ ลองกดปุ่มจริงเพื่อเช็ก</span></p>` : ""}

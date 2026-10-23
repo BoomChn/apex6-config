@@ -477,7 +477,9 @@ sheet.addEventListener("close", () => {
 
 function openReview() {
   showSheet(V.review(S, D));
-  sheet.querySelector(".btn.primary:not(:disabled)")?.focus();
+  // Focus the write button, but open at the title: a long list would otherwise scroll it away.
+  sheet.querySelector(".btn.primary:not(:disabled)")?.focus({ preventScroll: true });
+  sheet.scrollTop = 0;
 }
 
 // Every write: re-read and confirm nothing changed since display, back up, write, read back and compare.

@@ -3,13 +3,13 @@
   --ground: #ffffff;
   --ink: #111111;
   --ink-2: #5c5c5c;
-  --ink-3: #8a8a8a;
+  --ink-3: #767676;
   --hairline: #e2e2e2;
-  --keycap: #cfcfcf;
+  --keycap: #949494;
   --cobalt: #2140d9;
   --cobalt-tint: #edf0fc;
   --cobalt-faint: #f5f7fe;
-  --ok: #1f8a4c;
+  --ok: #1a7a43;
   --error: #c0262d;
   --warn: #9a4a06;
   --disabled: #e6e6e6;
@@ -324,7 +324,7 @@ select.field { appearance: none; padding-right: 36px; background: #fff url("data
 .empty-note { padding: 20px 0; color: var(--ink-2); font-size: 14px; }
 .tag { font-size: 12px; font-weight: 600; color: var(--ink-2); }
 .tag.unsup { color: var(--warn); }
-.tag.untested { display: inline-block; padding: 1px 6px; border: 1px solid currentColor; border-radius: 4px; color: var(--warn); font-size: 11px; font-weight: 700; line-height: 15px; white-space: nowrap; vertical-align: 1px; cursor: help; }
+.tag.untested { display: inline-block; padding: 1px 8px; border: 1px solid currentColor; border-radius: 6px; background: var(--ground); color: var(--warn); font-size: 12px; font-weight: 700; line-height: 18px; white-space: nowrap; vertical-align: 1px; cursor: help; }
 .slider-head .tag.untested { margin-left: 8px; }
 .notice { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; line-height: 18px; color: var(--ink-2); }
 .notice svg { flex-shrink: 0; margin-top: 1px; }
@@ -337,12 +337,12 @@ select.field { appearance: none; padding-right: 36px; background: #fff url("data
 .slot-name .faint { font-weight: 600; }
 .slot-sum { margin-top: 4px; font-size: 15px; color: var(--ink-2); }
 .slot-acts { display: flex; align-items: center; gap: 10px; }
-.icon-btn { display: inline-grid; place-content: center; width: 28px; height: 28px; border: 0; background: none; border-radius: 6px; }
+.icon-btn { display: inline-grid; place-content: center; width: 32px; height: 32px; color: var(--ink); border: 0; background: none; border-radius: 6px; }
 .icon-btn:hover { background: #f1f1f1; }
 /* Slot row ⋯ menu. Flat like the rest (DESIGN.md: no shadows): an ink rule around it. */
 .menu-wrap { position: relative; display: inline-flex; }
 .icon-btn[aria-expanded="true"] { background: #f1f1f1; }
-.menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 20; display: flex; flex-direction: column; width: 280px; padding: 6px 0; background: var(--ground); border: 1px solid var(--ink); }
+.menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 20; display: flex; flex-direction: column; width: 300px; padding: 6px 0; background: var(--ground); border: 1px solid var(--ink); }
 .menu [role="menuitem"] { display: flex; flex-direction: column; gap: 2px; padding: 10px 16px; border: 0; background: none; text-align: left; font: inherit; color: var(--ink); cursor: pointer; }
 .menu [role="menuitem"] b { font-size: 15px; line-height: 20px; font-weight: 600; }
 .menu [role="menuitem"] span { font-size: 13px; line-height: 18px; color: var(--ink-2); font-weight: 500; }
@@ -355,7 +355,8 @@ select.field { appearance: none; padding-right: 36px; background: #fff url("data
 .timeline { margin-top: 8px; }
 .tl-scale { display: grid; grid-template-columns: 110px 1fr; font: 600 13px/18px var(--mono); color: var(--ink-2); padding-bottom: 8px; border-bottom: 1px solid var(--ink-2); }
 .tl-scale div { position: relative; height: 18px; }
-.tl-scale span { position: absolute; transform: translateX(-2px); }
+.tl-scale span { position: absolute; transform: translateX(-2px); white-space: nowrap; }
+.tl-scale span.end { transform: translateX(-100%); }
 .tl-row { display: grid; grid-template-columns: 110px 1fr; align-items: center; height: 72px; border-bottom: 1px solid var(--hairline); }
 .tl-row b { font-size: 16px; }
 .tl-row.sel { background: var(--cobalt-faint); }
@@ -374,7 +375,7 @@ select.field { appearance: none; padding-right: 36px; background: #fff url("data
 .vib-row > div:nth-child(3) { padding-top: 2px; }
 .vib-desc { margin: 8px 0 0; font-size: 15px; line-height: 22px; color: var(--ink-2); max-width: 560px; }
 .vib-ticks { display: flex; justify-content: space-between; margin-top: 4px; font: 12px var(--mono); color: var(--ink-2); }
-.vib-row.off .vib-ticks { opacity: 0.5; }
+.vib-row.off .vib-ticks { color: var(--disabled-text); }
 .vib-head { display: grid; grid-template-columns: 136px minmax(0, 1fr) 60px minmax(0, 360px); gap: 24px; align-items: end; padding-bottom: 12px; border-bottom: 3px solid var(--ink); font-size: 13px; font-weight: 700; color: var(--ink-2); }
 
 /* Packet log */
@@ -408,7 +409,8 @@ dialog.sheet[open] { animation: rise .22s cubic-bezier(.16, 1, .3, 1); }
 .rule-head.thin { align-items: center; border-bottom-width: 1px; padding-bottom: 10px; }
 /* Same columns as .diff-row so the labels line up with the draft rows above */
 .can-row { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) 32px minmax(0, 1.2fr); gap: 0 12px; align-items: center; min-height: 48px; border-bottom: 1px solid var(--hairline); font-size: 15px; }
-.can-row span { grid-column: 2 / -1; color: var(--ink-2); }
+.can-row > span { grid-column: 2 / -1; color: var(--ink-2); }
+.can-row .can-l { grid-column: 1; display: grid; grid-template-columns: 140px auto; align-items: center; justify-items: start; color: inherit; }
 .d-group { margin-top: 28px; }
 .d-group:first-of-type { margin-top: 0; }
 .d-actions { display: flex; justify-content: flex-end; align-items: center; gap: 28px; margin-top: 32px; }
