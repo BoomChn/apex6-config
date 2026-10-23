@@ -101,48 +101,13 @@ export function layerSwitches(S, D, match = () => true) {
   return out;
 }
 
-// Owner's rule (2026-10-23): a button switches layers only from Base, and once it does, its cells in
-// every other layer belong to the app. Hardware (PROTOCOL.md "Layers"): the button that holds a layer
-// also plays its own map in that layer, so with nothing set there it would send itself. The app turns
-// it off there, and in the layer a toggle goes to, the same press switches back to Base.
-// checkProfile (mapping-edit.js) refuses a profile that breaks this.
+// Owner's rule (2026-10-24): a layer switch is set only in Base. The button's cells in the other layers
+// stay free (no lock since 2026-10-24). Hardware (PROTOCOL.md "Layers"): the button that holds a layer
+// also plays its own map in that layer, so the page says so next to the matrix.
 const isSwitch = (t) => t?.type === "layer_hold" || t?.type === "layer_toggle";
 export function baseSwitches(S, D, src) {
   const live = new Set(layerList(S, D).filter((l) => !l.deleted).map((l) => l.id));
   return PRESS.map((p) => ({ press: p.id, t: D.get(`map.0.${src}.${p.id}`) })).filter(({ t }) => isSwitch(t) && t.layer !== 0 && live.has(t.layer));
-}
-export function lockedTarget(sws, layer, press) {
-  if (sws.some((s) => s.t.type === "layer_toggle" && s.t.layer === layer && s.press === press)) return { type: "layer_toggle", layer: 0 };
-  return press === "simple" ? { type: "none" } : undefined;
-}
-// Keeps the drafts in line with that rule, so the write review lists what the app sets. Run before
-// every render: a button that stops switching gets back what the controller holds in the other
-// layers, and a switch the official app left outside Base goes back to the button's default.
-export function lockSwitches(S, D) {
-  const cfg = S.current?.cfg;
-  if (!cfg) return;
-  // Buttons this slot's drafts lock, so a release only undoes what the lock set.
-  D.locked ??= new Map();
-  if (!D.locked.has(S.current.slot)) D.locked.set(S.current.slot, new Set());
-  const locked = D.locked.get(S.current.slot);
-  const others = layerList(S, D).filter((l) => !l.deleted && l.id !== 0).map((l) => l.id);
-  const srcs = new Set(locked);
-  for (const l of cfg.layers) for (const m of l.mappings) srcs.add(m.source);
-  for (const k of D.pendingKeys("map.")) srcs.add(k.split(".").slice(2, -1).join("."));
-  for (const src of srcs) {
-    const sws = baseSwitches(S, D, src);
-    if (sws.length) {
-      for (const l of others) for (const p of PRESS) D.set(`map.${l}.${src}.${p.id}`, lockedTarget(sws, l, p.id));
-      locked.add(src);
-      continue;
-    }
-    if (locked.delete(src)) for (const l of others) for (const p of PRESS) D.map.delete(`map.${l}.${src}.${p.id}`);
-    for (const l of others)
-      for (const p of PRESS) {
-        const k = `map.${l}.${src}.${p.id}`;
-        if (isSwitch(D.get(k))) D.set(k, p.id === "simple" ? { type: "btn_gamepad", button: src } : undefined);
-      }
-  }
 }
 
 // Name of a copy on the controller that is not linked to the library (see macros.js).

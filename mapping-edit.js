@@ -304,38 +304,19 @@ export function applyEdits(wrapped, edits) {
   out[2] = c & 0xff;
   out[3] = c >> 8;
   checkProfile(out);
-  if (Object.keys(edits).some((k) => MAP_KEY.test(k))) checkSwitchLocks(out);
+  checkBaseSwitches(edits);
   return out;
 }
 
 // Rules the controller's firmware holds a profile to, as found on hardware (PROTOCOL.md). Every
 // write passes through here, so a bug in an edit stops the write instead of reaching the controller.
 // Add a rule here whenever the hardware teaches us one.
-// Layer switches start only in Base (owner's rule, 2026-10-23), and a button that switches is off in
-// every other layer but for the switch back of a toggle (model.js lockSwitches drafts this). Hardware:
-// the button that holds a layer also plays its own map there, and with no entry that is the button
-// itself, so it would reach the game. Checked on writes from the Buttons editor (edits with map keys);
-// a whole profile (restore, library, import) is written as it is, whatever the official app made.
-export function checkSwitchLocks(wrapped) {
-  const { cfg } = unwrapMapping(wrapped);
-  const where = (l) => (l.layer_id ? `layer ${l.layer_id}` : "Base layer");
-  const fail = (msg) => {
-    throw new Error(`ไม่เขียนลงจอย: ${msg}`);
-  };
-  const isSw = (t) => t.type === "layer_hold" || t.type === "layer_toggle";
-  const cls = { simple: "simple", timing_single: "simple", timing_long: "long", timing_double: "double" };
-  const base = cfg.layers[0];
-  const isBack = (l, src, a) => a.target.type === "layer_toggle" && a.target.layer === 0 &&
-    !!base.mappings.find((m) => m.source === src)?.activators.some((b) => b.target.type === "layer_toggle" && b.target.layer === l.layer_id && cls[b.type] === cls[a.type]);
-  for (const l of cfg.layers.slice(1))
-    for (const m of l.mappings)
-      for (const a of m.activators) if (isSw(a.target) && !isBack(l, m.source, a)) fail(`ปุ่ม ${m.source} ใน ${where(l)} สลับ layer ได้เฉพาะใน Base layer`);
-  for (const bm of base.mappings) {
-    if (!bm.activators.some((a) => isSw(a.target))) continue;
-    for (const l of cfg.layers.slice(1)) {
-      const m = l.mappings.find((x) => x.source === bm.source);
-      if (!m || m.activators.some((a) => !isBack(l, bm.source, a))) fail(`ปุ่ม ${bm.source} ใช้สลับ layer แต่ใน ${where(l)} ยังส่งค่าอื่นอยู่ จอยจะส่งค่านั้นตอนกดปุ่มนี้`);
-    }
+// A layer switch is set only in Base (owner's rule, 2026-10-24). Checked on the edits themselves, so
+// a switch the official app left in another layer is written as it is, like a whole profile.
+export function checkBaseSwitches(edits) {
+  for (const [k, t] of Object.entries(edits)) {
+    const m = MAP_KEY.exec(k);
+    if (m && Number(m[1]) !== 0 && (t?.type === "layer_hold" || t?.type === "layer_toggle")) throw new Error(`ไม่เขียนลงจอย: ปุ่ม ${m[2]} ใน layer ${m[1]} เปลี่ยน layer ได้เฉพาะใน Base layer`);
   }
 }
 

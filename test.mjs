@@ -490,18 +490,11 @@ console.log("macro create/delete ok");
     "map.2.A.simple": { type: "btn_gamepad", button: "B" },
     "map.0.M3.simple": { type: "layer_hold", layer: 2 },
     "map.0.M4.double": { type: "layer_toggle", layer: 1 },
-    // What the app sets for a button that switches layers (model.js lockSwitches).
-    "map.1.M3.simple": { type: "none" },
-    "map.2.M3.simple": { type: "none" },
-    "map.1.M4.simple": { type: "none" },
-    "map.1.M4.double": { type: "layer_toggle", layer: 0 },
-    "map.2.M4.simple": { type: "none" },
   });
   const c1 = cfgOf(l1);
   assert.deepEqual(c1.layers.map((l) => l.layer_id), [0, 1, 2]);
   assert.equal(l1[4 + c1.offsets.layerCountAt], 3, "layer_count follows");
-  assert.deepEqual(maps(l1, 2), [["A", "simple:btn_gamepad:B"], ["M3"], ["M4"]]);
-  assert.deepEqual(maps(l1, 1), [["M3"], ["M4", "timing_double:layer_toggle:0"]], "off, and the toggle's way back");
+  assert.deepEqual(maps(l1, 2), [["A", "simple:btn_gamepad:B"]]);
   assert.deepEqual(maps(l1, 0), [["M3", "simple:layer_hold:2"], ["M4", "timing_single:btn_gamepad:M4", "timing_double:layer_toggle:1"]]);
   assert.equal(JSON.stringify({ ...c1, layers: c1.layers.slice(0, 2).map((l) => ({ ...l, mappings: undefined })) }), rest(base), "the rest of the profile did not move");
   // Adding then deleting a layer gives the original bytes back.
@@ -539,7 +532,7 @@ console.log("macro create/delete ok");
 }
 {
   // The Buttons page's view of it: layer drafts, switches, the review rows, the write, prune.
-  const { Drafts, layerList, nextLayerId, layerSwitches, layerKey, labelTarget, lockSwitches } = await import("./model.js");
+  const { Drafts, layerList, nextLayerId, layerSwitches, layerKey, labelTarget } = await import("./model.js");
   const S3 = { current: { cfg: unwrapMapping(sample).cfg, slot: 1, wrapped: sample } };
   const D3 = new Drafts(S3);
   assert.equal(nextLayerId(S3, D3), 2);
@@ -551,9 +544,7 @@ console.log("macro create/delete ok");
   D3.set("map.2.A.simple", { type: "btn_gamepad", button: "B" });
   assert.equal(labelTarget(D3.get("map.0.M1.simple")), "Layer 2 ขณะกด");
   assert.deepEqual(layerSwitches(S3, D3).map((s) => [s.layer, s.source, s.type, s.to]), [[0, "M1", "layer_hold", 2]]);
-  lockSwitches(S3, D3); // as every render does: M1 switches, so the app turns it off in Layer 2
-  assert.deepEqual(D3.get("map.2.M1.simple"), { type: "none" });
-  assert.deepEqual(D3.items().map((i) => [i.writable, i.label]), [[true, "เพิ่ม Layer 2"], [true, "ลบ Shift layer"], [true, "ปุ่ม M1 (Base layer) · กดปกติ"], [true, "ปุ่ม A (Layer 2) · กดปกติ"], [true, "ปุ่ม M1 (Layer 2) · กดปกติ"]]);
+  assert.deepEqual(D3.items().map((i) => [i.writable, i.label]), [[true, "เพิ่ม Layer 2"], [true, "ลบ Shift layer"], [true, "ปุ่ม M1 (Base layer) · กดปกติ"], [true, "ปุ่ม A (Layer 2) · กดปกติ"]]);
   const out = applyEdits(sample, D3.writable());
   // Layers 0 and 2 are numbered again as 0 and 1 (the firmware finds layers by position).
   assert.deepEqual(unwrapMapping(out).cfg.layers.map((l) => l.layer_id), [0, 1]);
@@ -568,7 +559,7 @@ console.log("macro create/delete ok");
   const cfgOf = (b) => unwrapMapping(b).cfg;
   const hold = (b, L, src) => cfgOf(b).layers.find((l) => l.layer_id === L).mappings.find((m) => m.source === src).activators[0].target.layer;
   const mk = { mode: "press_once", actions: [{ action: "press", target: { type: "btn_gamepad", button: "A" }, at_ms: 0 }, { action: "release", target: { type: "btn_gamepad", button: "A" }, at_ms: 50 }] };
-  const three = applyEdits(sample, { "layer.2.new": true, "map.0.M1.simple": { type: "layer_hold", layer: 2 }, "map.2.B.simple": { type: "btn_gamepad", button: "X" }, "map.1.M1.simple": { type: "none" }, "map.2.M1.simple": { type: "none" }, "macro.2.0.set": mk, "macro.2.0.name": "Peek" });
+  const three = applyEdits(sample, { "layer.2.new": true, "map.0.M1.simple": { type: "layer_hold", layer: 2 }, "map.2.B.simple": { type: "btn_gamepad", button: "X" }, "macro.2.0.set": mk, "macro.2.0.name": "Peek" });
   assert.deepEqual(cfgOf(three).layers.map((l) => l.layer_id), [0, 1, 2]);
   // Deleting layer 1 leaves 0, 2: layer 2 becomes layer 1, and so do the hold to it and its macro name.
   const gap = applyEdits(three, { "layer.1.delete": true });
@@ -820,7 +811,7 @@ console.log("live ok");
   assert.deepEqual(strip(cfgOf(n8)), strip(cfgOf(DEFAULT_PROFILE)), "only the version and the name change");
 
   // A slot the official app left with layers out of order is stored, and written, in order.
-  const three = applyEdits(sample, { "layer.2.new": true, "map.0.M1.simple": { type: "layer_hold", layer: 2 }, "map.1.M1.simple": { type: "none" }, "map.2.M1.simple": { type: "none" } });
+  const three = applyEdits(sample, { "layer.2.new": true, "map.0.M1.simple": { type: "layer_hold", layer: 2 } });
   const gap = three.slice();
   gap[4 + cfgOf(three).offsets.layers[2].from] = 3;
   const c = crc(gap.subarray(4));
@@ -1175,9 +1166,9 @@ console.log("hw tested ok");
 }
 console.log("layer delete ok");
 
-// Layer switches only from Base (owner, 2026-10-23). Hardware: a button that holds a layer also plays
-// its own map there (B hold → Shift with Shift's B = K typed k while held), so once B switches layers its
-// cells in the other layers are locked to what the app writes: off, or switch back for a toggle.
+// A layer switch is set only in Base (owner, 2026-10-24); the button stays editable in the other layers.
+// Hardware: a button that holds a layer also plays its own map there (B hold → Shift with Shift's B = K
+// typed k while held), so the page says what goes out there.
 {
   const V = await import("./views.js");
   const { Drafts } = await import("./model.js");
@@ -1191,16 +1182,18 @@ console.log("layer delete ok");
   const S = { current: { cfg, slot: 0 }, ui: { layer: 0, sel: "B", press: "simple", dpad: "D-pad ↑", layerMenu: null }, lib: { list: () => [], get: () => null }, plan: null, slots: { activeSlot: 0 } };
   const D = new Drafts(S);
   let page = V.buttons(S, D);
-  assert.match(page, /class="mx-c lock" disabled aria-label="Shift layer · กดปกติ: ปิดปุ่ม/, "held layer: B off there");
-  assert.doesNotMatch(page, /aria-label="Shift layer · กดค้าง:/, "an unused press row stays hidden for a locked button too");
-  assert.match(page, /class="lock-note"[\s\S]*ใน Shift layer แอปปิด B ไว้/);
+  assert.doesNotMatch(page, /mx-c lock|disabled aria-label="Shift layer/, "no locked cells");
+  assert.match(page, /data-act="cell" data-layer="1" data-press="simple"/, "B is editable in Shift");
+  assert.match(page, /class="switch-note"[\s\S]*ระหว่างกด B ค้างไว้ จอยส่ง B ตามช่อง Shift layer เข้าเกมด้วย/);
+  D.set("map.1.B.simple", { type: "btn_keyboard", key: 14, modifier: 0 });
+  assert.match(V.buttons(S, D), /จอยส่ง K ตามช่อง Shift layer/, "names what is set there");
+  D.set("map.1.B.simple", { type: "none" });
+  assert.doesNotMatch(V.buttons(S, D), /switch-note/, "off there: nothing to say");
   D.set("map.0.B.simple", { type: "layer_toggle", layer: 1 });
-  page = V.buttons(S, D);
-  assert.match(page, /aria-label="Shift layer · กดปกติ: สลับกลับ Base layer/, "toggle: the same press switches back");
-  assert.match(page, /ใน Shift layer กด B อีกครั้งเพื่อกลับ Base layer/);
+  D.map.delete("map.1.B.simple");
+  assert.match(V.buttons(S, D), /ใน Shift layer ตอนกด B จอยส่ง B ตามช่อง Shift layer/);
   D.set("map.0.B.simple", { type: "btn_gamepad", button: "B" });
-  page = V.buttons(S, D);
-  assert.doesNotMatch(page, /mx-c lock|lock-note/, "a plain button is editable in every layer");
+  assert.doesNotMatch(V.buttons(S, D), /switch-note/, "a plain button has no note");
   S.ui.layer = 1;
   assert.match(V.buttons(S, D), /<button class="utab" disabled title="เปลี่ยน layer ตั้งได้ใน Base layer เท่านั้น">เปลี่ยน layer<\/button>/, "no layer switch outside Base");
 }
@@ -1243,41 +1236,14 @@ console.log("layer switch from Base only ok");
 }
 console.log("press rows ok");
 
-// The write side of "layer switches only from Base": lockSwitches drafts the locked cells, and
-// checkSwitchLocks stops an editor write that misses one (hardware: a held button plays its own map
-// in that layer, and with no entry there it sends itself).
+// The write side of "layer switches only from Base": an editor write that sets one outside Base stops.
 {
-  const { checkSwitchLocks } = await import("./mapping-edit.js");
-  const { Drafts, lockSwitches } = await import("./model.js");
+  const { checkBaseSwitches } = await import("./mapping-edit.js");
   const hold = { "map.0.B.simple": { type: "layer_hold", layer: 1 } };
-  assert.throws(() => applyEdits(sample, hold), /ปุ่ม B ใช้สลับ layer แต่ใน layer 1 ยังส่งค่าอื่นอยู่/, "no entry in Shift = B goes out");
-  assert.throws(() => applyEdits(sample, { ...hold, "map.1.B.simple": { type: "btn_keyboard", key: 14, modifier: 0 } }), /ยังส่งค่าอื่นอยู่/, "K in Shift goes out");
-  const ok = applyEdits(sample, { ...hold, "map.1.B.simple": { type: "none" } });
-  assert.throws(() => applyEdits(sample, { "map.1.A.simple": { type: "layer_toggle", layer: 0 } }), /ปุ่ม A ใน layer 1 สลับ layer ได้เฉพาะใน Base layer/);
-  const tog = { "map.0.B.long": { type: "layer_toggle", layer: 1 }, "map.1.B.simple": { type: "none" } };
-  applyEdits(sample, { ...tog, "map.1.B.long": { type: "layer_toggle", layer: 0 } });
-  assert.throws(() => applyEdits(sample, { ...tog, "map.1.B.double": { type: "layer_toggle", layer: 0 } }), /สลับ layer ได้เฉพาะใน Base layer/, "the way back is the same press");
-  // A whole profile (restore, library) is written as it is.
-  const bare = applyEdits(ok, { "map.1.B.simple": { type: "btn_gamepad", button: "B" }, "map.0.B.simple": { type: "btn_gamepad", button: "B" } });
-  assert.doesNotThrow(() => checkSwitchLocks(bare));
-
-  // lockSwitches on the drafts.
-  const S = { current: { cfg: unwrapMapping(sample).cfg, slot: 1, wrapped: sample } };
-  const D = new Drafts(S);
-  D.set("map.1.B.simple", { type: "btn_keyboard", key: 14, modifier: 0 });
-  D.set("map.0.B.simple", { type: "layer_toggle", layer: 1 });
-  lockSwitches(S, D);
-  assert.deepEqual(D.get("map.1.B.simple"), { type: "layer_toggle", layer: 0 }, "toggle: the same press goes back");
-  assert.doesNotThrow(() => applyEdits(sample, D.writable()));
-  D.set("map.0.B.simple", { type: "btn_gamepad", button: "X" });
-  lockSwitches(S, D);
-  assert.equal(D.has("map.1.B.simple"), false, "no longer switching: Shift gets back what the controller holds");
-  D.set("map.1.A.simple", { type: "layer_hold", layer: 0 });
-  lockSwitches(S, D);
-  assert.deepEqual(D.get("map.1.A.simple"), { type: "btn_gamepad", button: "A" }, "a switch outside Base goes back to default");
-  D.set("map.0.Y.simple", { type: "layer_hold", layer: 1 });
-  D.set("layer.1.delete", true);
-  lockSwitches(S, D);
-  assert.equal(D.has("map.1.Y.simple"), false, "a switch to a layer being deleted locks nothing");
+  assert.doesNotThrow(() => applyEdits(sample, hold), "nothing is forced in the other layers");
+  assert.doesNotThrow(() => applyEdits(sample, { ...hold, "map.1.B.simple": { type: "btn_keyboard", key: 14, modifier: 0 } }));
+  assert.throws(() => applyEdits(sample, { "map.1.A.simple": { type: "layer_toggle", layer: 0 } }), /ปุ่ม A ใน layer 1 เปลี่ยน layer ได้เฉพาะใน Base layer/);
+  assert.throws(() => applyEdits(sample, { "layer.2.new": true, "map.2.A.long": { type: "layer_hold", layer: 1 } }), /เปลี่ยน layer ได้เฉพาะใน Base layer/);
+  assert.doesNotThrow(() => checkBaseSwitches({ "map.0.A.double": { type: "layer_toggle", layer: 1 }, "map.1.A.simple": { type: "none" } }));
 }
-console.log("switch locks ok");
+console.log("base switches ok");

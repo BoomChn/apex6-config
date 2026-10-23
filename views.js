@@ -5,7 +5,7 @@ import { BACK, FRONT, ALL, stageSvg, inset, TRIG_MARK, PHOTO, LED_PATH } from ".
 import {
   esc, pct, same, btnName, nameHtml, PRESS, GYRO_MODE, LED_MODE, LAYER_NAME, PRESET, TPRESET, GPRESET, AXIS, MACRO_MODE, TIMEOUT,
   labelTarget, baseTarget, isIdentity, evalCurve, macroSteps, macroUses, macroList, openMacro,
-  layerList, layerSwitches, baseSwitches, lockedTarget, layerKey, meta, gripPart, lraGrip, MACRO_PAD, NOT_ON_PAD,
+  layerList, layerSwitches, baseSwitches, layerKey, meta, gripPart, lraGrip, MACRO_PAD, NOT_ON_PAD,
 } from "./model.js";
 import { BUTTONS, decodeMapping } from "./mapping.js";
 import { isWritable, HW_TESTED, hwTested, LAYER_MAX, NAME_MAX, nameBytes, MACRO_MAX, gyroPct, GYRO_MIDS_MAX, VIB_LEVELS, gripEndY, motorMode, FEEDBACK_MODE } from "./mapping-edit.js";
@@ -482,8 +482,7 @@ function changedList(S, D) {
   const foot = free > 0
     ? `<button class="link" data-act="layer-new">+ เพิ่ม layer</button><span class="meta">เพิ่มได้อีก ${free} layer${gone ? ` · ที่ลบไว้จะว่างหลังเขียนลงจอย` : ""}</span>`
     : `<span class="meta">ครบ ${LAYER_MAX} layer แล้ว${gone ? ` · ที่ลบไว้จะว่างหลังเขียนลงจอย` : ""}</span>`;
-  // No "stuck in a layer" warning: a toggle can only start in Base, and the app gives the same press
-  // in the layer it goes to a switch back to Base (lockedTarget).
+  // No "stuck in a layer" warning: a toggle can only start in Base, and its own button switches back.
   return `<section style="margin-top:24px">
     <div class="rule-head top"><h2>ปุ่มที่แก้ใน slot นี้</h2><span class="meta"><span class="marker-key">เหลือง</span> = ไม่ใช่ค่าเดิม · สีน้ำเงิน = ยังไม่ได้เขียนลงจอย · ทึบ = กำลังแก้ · สีดำ = อยู่บนจอยแล้ว</span></div>
     ${rows}
@@ -598,23 +597,21 @@ function layerPicker(S, D, cur) {
     ).join("")}</div>`;
 }
 
-// Owner's rule (2026-10-23): a button switches layers only from Base. Once it does, the app sets it in
-// every other layer and those cells can't be edited: the firmware plays the button's own map in the
-// layer it holds (hardware: B hold → Shift with Shift's B = K typed k all the while), so anything set
-// there would go out too. In the layer a toggle goes to, the same press switches back to Base.
-const baseSwitch = (S, D, src) => baseSwitches(S, D, src)[0] ?? null;
-const LOCK_ICON = `<svg class="mx-lock" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><rect x="2.5" y="6.2" width="9" height="6.3" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M4.6 6.2V4.4a2.4 2.4 0 0 1 4.8 0v1.8" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>`;
-function lockNote(sw, src, cols) {
+// A layer switch is set only in Base (owner, 2026-10-24); the button's cells in the other layers stay
+// editable. Hardware: the button plays its own map in the layer it switched to (B hold → Shift with
+// Shift's B = K typed k all the while), so the page says what goes out there unless it is off.
+function switchNote(S, D, src) {
+  const cfg = S.current.cfg;
   const b = nameHtml(btnName(src));
-  const names = (ls) => ls.map((l) => esc(LAYER_NAME(l.id))).join(" และ ");
-  const back = sw.t.type === "layer_toggle" ? cols.filter((l) => l.id === sw.t.layer) : [];
-  const off = cols.filter((l) => l.id !== 0 && !back.includes(l));
-  const pl = PRESS.find((p) => p.id === sw.press).label;
-  const lines = [
-    back.length ? `ใน ${names(back)} ${sw.press === "simple" ? "กด" : pl} ${b} อีกครั้งเพื่อกลับ Base layer (แอปตั้งให้)` : "",
-    off.length ? `ใน ${names(off)} แอปปิด ${b} ไว้ จึงไม่มีอะไรส่งเข้าเกมเพิ่ม` : "",
-  ].filter(Boolean);
-  return `<div class="lock-note">${LOCK_ICON}<span><b>${b} ใช้เปลี่ยน layer</b> · ${lines.join(" · ")}<br>จะให้ ${b} ทำอย่างอื่นใน layer อื่น ให้เปลี่ยนช่อง Base layer · ${pl} ก่อน</span></div>`;
+  const lines = baseSwitches(S, D, src).map(({ press, t }) => {
+    const v = shownTarget(D, t.layer, src, press);
+    // Nothing set for a long or double press there: nothing goes out.
+    if (v === undefined || v.type === "none") return "";
+    const name = esc(LAYER_NAME(t.layer));
+    const how = t.type === "layer_hold" ? `ระหว่างกด ${b} ค้างไว้` : `ใน ${name} ตอนกด ${b}`;
+    return `${how} จอยส่ง ${nameHtml(labelTarget(v, cfg))} ตามช่อง ${name} เข้าเกมด้วย ถ้าไม่ต้องการ ตั้งช่องนั้นเป็น "ปิดปุ่ม"`;
+  }).filter(Boolean);
+  return lines.length ? `<div class="switch-note"><span><b>${b} ใช้เปลี่ยน layer</b> · ${lines.join("<br>")}</span></div>` : "";
 }
 
 // Long and double press rows show only when some layer uses them, or the user just added one with
@@ -622,12 +619,9 @@ function lockNote(sw, src, cols) {
 export function pressRows(S, D) {
   const src = S.ui.sel;
   const cols = liveLayers(S, D);
-  const sw = baseSwitch(S, D, src);
   return PRESS.slice(1).map((p) => p.id).filter((id) =>
-    S.ui.press === id || S.ui.addedPress?.includes(id) ||
-    cols.some((l) => (sw && l.id !== 0 ? lockedTarget(baseSwitches(S, D, src), l.id, id) : shownTarget(D, l.id, src, id)) !== undefined));
+    S.ui.press === id || S.ui.addedPress?.includes(id) || cols.some((l) => shownTarget(D, l.id, src, id) !== undefined));
 }
-export const isLockedCell = (S, D, layer) => layer !== 0 && !!baseSwitch(S, D, S.ui.sel);
 
 function pressAdd(S, D, shown) {
   const rt = S.current.cfg.runtime;
@@ -655,21 +649,15 @@ function buttonEditor(S, D) {
   // Adding and deleting layers is on the layer rows under the photo (changedList).
   const cols = liveLayers(S, D);
   const head = cols.map((l) => `<span class="mx-h"><b>${LAYER_NAME(l.id)}</b></span>`).join("");
-  const sw = baseSwitch(S, D, src);
   const shown = pressRows(S, D);
   const cells = PRESS.filter((p) => p.id === "simple" || shown.includes(p.id)).map((p) => `<span class="mx-k">${p.label}</span>${cols.map((l) => {
     const k = mapKey(l.id, src, p.id);
-    if (sw && l.id !== 0) {
-      const t = lockedTarget(baseSwitches(S, D, src), l.id, p.id);
-      const label = t ? labelTarget(t, cfg) : "ไม่ใช้";
-      return `<button class="mx-c lock${t ? "" : " unset"}${D.has(k) ? " pending" : ""}" disabled aria-label="${esc(`${LAYER_NAME(l.id)} · ${p.label}: ${label} · แอปตั้งให้ แก้ไม่ได้`)}">${LOCK_ICON}<span>${label}</span></button>`;
-    }
     const v = shownTarget(D, l.id, src, p.id);
     const on = layer === l.id && press === p.id;
     return `<button class="mx-c${on ? " on" : ""}${D.has(k) ? " pending" : ""}${v === undefined ? " unset" : ""}" data-act="cell" data-layer="${l.id}" data-press="${p.id}" aria-label="${esc(`${LAYER_NAME(l.id)} · ${p.label}: ${labelTarget(v, cfg)}`)}">${nameHtml(labelTarget(v, cfg))}</button>`;
   }).join("")}`).join("");
   const rows = `<div class="mx" style="grid-template-columns:96px repeat(${cols.length}, minmax(0, 1fr))"><span class="mx-k"></span>${head}${cells}</div>`;
-  const leak = sw ? lockNote(sw, src, cols) : "";
+  const leak = switchNote(S, D, src);
   const k = mapKey(layer, src, press);
   const cur = shownTarget(D, layer, src, press);
   const type = ui.outType ?? typeOf(cur);
