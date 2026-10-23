@@ -1165,3 +1165,30 @@ console.log("hw tested ok");
   assert.match(page, /aria-label="Base layer · ดับเบิลคลิก: A"/, "the other presses stay");
 }
 console.log("layer delete ok");
+
+// Hold button inside its own layer (owner, 2026-10-23): B "hold → Shift layer" with Shift's B set to
+// K typed k all the while B was held. The editor says what the held button sends there.
+{
+  const V = await import("./views.js");
+  const { Drafts } = await import("./model.js");
+  const cfg = {
+    name: "", links: {}, macro_names: [], runtime: { long_press_ms: 300, double_press_ms: 400 },
+    layers: [
+      { layer_id: 0, macros: [], mappings: [{ source: "B", identity: false, activators: [{ type: "simple", target: { type: "layer_hold", layer: 1 } }] }] },
+      { layer_id: 1, macros: [], mappings: [] },
+    ],
+  };
+  const S = { current: { cfg, slot: 0 }, ui: { layer: 0, sel: "B", press: "simple", dpad: "D-pad ↑", layerMenu: null }, lib: { list: () => [], get: () => null }, plan: null, slots: { activeSlot: 0 } };
+  const D = new Drafts(S);
+  let page = V.buttons(S, D);
+  assert.match(page, /class="meta hold-leak"[^<]*กด B ค้างใน Base layer จอยจะส่ง <b[^>]*>B<\/b>/, "nothing set in Shift: B itself goes out while held");
+  D.set("map.1.B.simple", { type: "btn_keyboard", key: 14, modifier: 0 });
+  page = V.buttons(S, D);
+  assert.match(page, /hold-leak[\s\S]*จอยจะส่ง <b[^>]*>K<\/b>/, "Shift's B is what goes out");
+  D.set("map.1.B.simple", { type: "none" });
+  assert.doesNotMatch(V.buttons(S, D), /hold-leak/, "turned off in Shift: no note");
+  S.ui.sel = "A";
+  D.set("map.1.B.simple", { type: "btn_keyboard", key: 14, modifier: 0 });
+  assert.doesNotMatch(V.buttons(S, D), /hold-leak/, "only on the button that holds the layer");
+}
+console.log("hold button in its layer ok");
