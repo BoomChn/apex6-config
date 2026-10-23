@@ -236,7 +236,8 @@ export const HW_TESTED = new Set([
   "led.mode", "led.color", "led.colors", "led.bright", "led.speed",
 ]);
 // Button presses all share map.* keys, so they are confirmed by what they send, not by key.
-// Keyboard: owner 2026-10-23, M1 → K and Shift + K typed k and K in Notepad.
+// Keyboard: owner 2026-10-23, M1 → K and Shift + K typed k and K in Notepad; Shift layer RM →
+// Ctrl + Alt + Shift + F7 toggled Discord mute (three modifiers at once). F13–F24: see keys.js.
 // Gamepad button and layer hold: 2026-10-22, M1 "hold → Layer 2" + Layer 2 A → B in joy.cpl, and LM/RM remaps.
 // Macro: owner 2026-10-23, in a game, M4 "hold → Shift layer" and a button of Shift playing a macro
 // from the library (a copy the write put into that layer).
