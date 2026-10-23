@@ -1,6 +1,7 @@
 // Keyboard targets (target type 1): key = USB HID usage (keyboard page), modifier = HID bit mask
 // Ctrl 1, Shift 2, Alt 4, Win 8 (right-hand ones 16–128). A modifier alone is key 0xFF with its bits.
-// The keys offered are the ones the official site's picker offers (PROTOCOL.md "Keyboard targets").
+// The keys offered are the ones the official site's picker offers (PROTOCOL.md "Keyboard targets"),
+// plus F13–F24, which the official picker doesn't offer and which are not tried on the controller yet.
 
 export const MOD_ONLY = 0xff;
 export const MODS = [
@@ -20,6 +21,7 @@ const MODS_R = [
 // [event.code, HID usage, label], grouped as the list picker shows them.
 const ROWS = [
   ["ฟังก์ชัน", [["Escape", 41, "Esc"], ...Array.from({ length: 12 }, (_, i) => [`F${i + 1}`, 58 + i, `F${i + 1}`])]],
+  ["F13–F24", Array.from({ length: 12 }, (_, i) => [`F${i + 13}`, 104 + i, `F${i + 13}`])],
   ["ตัวเลข", [["Backquote", 53, "`"], ...Array.from({ length: 9 }, (_, i) => [`Digit${i + 1}`, 30 + i, `${i + 1}`]), ["Digit0", 39, "0"], ["Minus", 45, "-"], ["Equal", 46, "="], ["Backspace", 42, "Backspace"]]],
   ["ตัวอักษร", [
     ...[..."QWERTYUIOP"].map((c) => [`Key${c}`, 4 + c.charCodeAt(0) - 65, c]),
@@ -46,6 +48,9 @@ export const MOD_CODE = {
   ControlLeft: 1, ControlRight: 1, ShiftLeft: 2, ShiftRight: 2,
   AltLeft: 4, AltRight: 4, MetaLeft: 8, MetaRight: 8, OSLeft: 8, OSRight: 8,
 };
+
+// F13–F24 (HID 104–115): outside the official picker, not confirmed on hardware.
+export const isExtraKey = (key) => key >= 104 && key <= 115;
 
 export const keyOfCode = (code) => BY_CODE.get(code) ?? null;
 export const modsOfEvent = (e) => (e.ctrlKey ? 1 : 0) | (e.shiftKey ? 2 : 0) | (e.altKey ? 4 : 0) | (e.metaKey ? 8 : 0);
