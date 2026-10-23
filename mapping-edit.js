@@ -237,8 +237,14 @@ export const HW_TESTED = new Set([
 ]);
 // Button presses all share map.* keys, so they are confirmed by what they send, not by key.
 // Keyboard: owner 2026-10-23, M1 → K and Shift + K typed k and K in Notepad.
-export const HW_TESTED_TARGETS = new Set(["btn_keyboard"]);
-export const hwTested = (key, value) => HW_TESTED.has(key) || (MAP_KEY.test(key ?? "") && HW_TESTED_TARGETS.has(value?.type));
+// Gamepad button and layer hold: 2026-10-22, M1 "hold → Layer 2" + Layer 2 A → B in joy.cpl, and LM/RM remaps.
+// Macro: owner 2026-10-23, in a game, M4 "hold → Shift layer" and a button of Shift playing a macro
+// from the library (a copy the write put into that layer).
+export const HW_TESTED_TARGETS = new Set(["btn_keyboard", "btn_gamepad", "layer_hold", "macro"]);
+// Putting a library macro into a layer (macro.<layer>.<id>.set) is confirmed with it; removing a
+// copy and macro names are not yet.
+const HW_TESTED_MACRO = /^macro\.\d+\.\d+\.set$/;
+export const hwTested = (key, value) => HW_TESTED.has(key) || HW_TESTED_MACRO.test(key ?? "") || (MAP_KEY.test(key ?? "") && HW_TESTED_TARGETS.has(value?.type));
 
 // Returns a new wrapped buffer with the given edits applied and the CRC16 updated.
 // edits: { "stick.left.deadzone": 20, "gyro.mode": "mouse", ... }

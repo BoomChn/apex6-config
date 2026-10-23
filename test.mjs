@@ -1095,12 +1095,20 @@ console.log("custom colors ok");
 }
 console.log("keyboard ok");
 
-// Keyboard presses are confirmed on hardware (owner 2026-10-23); other kinds of press are not yet.
+// Presses confirmed on hardware: keyboard, gamepad, layer hold, macro. Mouse, turbo and layer toggle not yet.
 {
   const { hwTested } = await import("./mapping-edit.js");
   assert.equal(hwTested("map.0.M1.simple", { type: "btn_keyboard", key: 14, modifier: 2 }), true);
   assert.equal(hwTested("map.1.A.long", { type: "btn_keyboard", key: 14, modifier: 0 }), true);
   assert.equal(hwTested("map.0.M1.simple", { type: "btn_mouse", mouse: 0 }), false);
+  assert.equal(hwTested("map.0.M4.simple", { type: "layer_hold", layer: 1 }), true);
+  assert.equal(hwTested("map.0.M4.double", { type: "layer_toggle", layer: 1 }), false);
+  assert.equal(hwTested("map.1.A.simple", { type: "macro", uid: "m1" }), true);
+  assert.equal(hwTested("map.1.A.simple", { type: "btn_gamepad", button: "B" }), true);
+  assert.equal(hwTested("map.0.A.simple", { type: "turbo_gamepad", button: "A", interval_ms: 80 }), false);
+  assert.equal(hwTested("macro.1.0.set"), true, "a macro copied into a layer");
+  assert.equal(hwTested("macro.1.0.delete"), false);
+  assert.equal(hwTested("macro.1.0.name"), false);
   assert.equal(hwTested("map.0.M1.simple", undefined), false);
   assert.equal(hwTested("gyro.mode"), true);
   assert.equal(hwTested("runtime.long", { type: "btn_keyboard" }), false, "only button presses go by type");
