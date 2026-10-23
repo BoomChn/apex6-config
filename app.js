@@ -77,12 +77,31 @@ function render() {
   else if (!S.current) view.innerHTML = loadingView();
   else view.innerHTML = PAGES[S.tab](S, D);
   liveCache.clear();
+  fitStages();
   syncLive();
   if (focusSig) {
     const el = document.querySelector(focusSig);
     if (el && el !== document.activeElement) el.focus({ preventScroll: true });
   }
   document.title = S.pad ? `${V.TABS.find((t) => t.id === S.tab)?.label} · Apex 6 Pro` : "Apex 6 Pro · ตั้งค่าจอย";
+}
+
+// Callout labels carry button and macro names of any length. Widen each photo stage's view, the
+// same on both sides so the photo stays centred, until the longest label fits; on wide screens the
+// photo column grows by the same factor (--stage-grow), so the photo keeps its size there.
+function fitStages() {
+  let grow = 1;
+  for (const svg of document.querySelectorAll(".stage svg[data-view]")) {
+    const [x, y, w, h] = svg.dataset.view.split(/\s+/).map(Number);
+    let extra = 0;
+    for (const t of svg.querySelectorAll("text")) {
+      const b = t.getBBox();
+      extra = Math.max(extra, x - (b.x - 8), b.x + b.width + 8 - (x + w));
+    }
+    svg.setAttribute("viewBox", `${x - extra} ${y} ${w + 2 * extra} ${h}`);
+    grow = Math.max(grow, (w + 2 * extra) / w);
+  }
+  $("#view").style.setProperty("--stage-grow", grow.toFixed(3));
 }
 
 function sig(el) {

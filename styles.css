@@ -467,8 +467,9 @@ dialog.sheet[open] { animation: rise .22s cubic-bezier(.16, 1, .3, 1); }
   main { max-width: none; }
   main > * { max-width: 1440px; margin-inline: auto; }
   main > .split { max-width: none; }
-  /* 860px: the photo column of a 1440px window, so the photo keeps its size. */
-  .split > :first-child { width: 100%; max-width: 860px; justify-self: center; }
+  /* 860px: the photo column of a 1440px window, so the photo keeps its size. Long callout labels
+     widen the stage (fitStages in app.js) and the column grows with it. */
+  .split > :first-child { width: 100%; max-width: calc(860px * var(--stage-grow, 1)); justify-self: center; }
   .split.wide-right { grid-template-columns: minmax(0, 1fr) var(--panel) !important; }
   .split.wide-right > :first-child { max-width: var(--left); }
   /* The head above a photo + panel page lines up with the centred photo. */
