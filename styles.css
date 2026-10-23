@@ -418,6 +418,8 @@ select.field { appearance: none; padding-right: 36px; background: #fff url("data
 .menu [role="menuitem"]:hover:not(:disabled), .menu [role="menuitem"]:focus-visible { background: #f1f1f1; outline: none; }
 .menu [role="menuitem"]:disabled { cursor: default; }
 .menu [role="menuitem"]:disabled b, .menu [role="menuitem"]:disabled span { color: var(--ink-3); }
+.menu.left { left: 0; right: auto; width: 280px; }
+.press-add { display: flex; align-items: baseline; gap: 12px; padding-top: 12px; }
 .menu-why { padding: 6px 16px 8px; font-size: 13px; line-height: 18px; color: var(--ink-2); font-weight: 500; border-bottom: 1px solid var(--hairline); margin-bottom: 4px; }
 
 /* Timeline (macros) */

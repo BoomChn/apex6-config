@@ -1161,7 +1161,7 @@ console.log("hw tested ok");
   assert.match(page, /เพิ่มได้อีก 2 layer · ที่ลบไว้จะว่างหลังเขียนลงจอย/, "its id is taken until the write");
   S.ui.sel = "M4";
   page = V.buttons(S, D);
-  assert.match(page, /aria-label="Base layer · กดค้าง: ยังไม่กำหนด"/, "the long press to the gone layer is dropped");
+  assert.doesNotMatch(page, /aria-label="Base layer · กดค้าง:/, "the long press to the gone layer is dropped, so its row goes");
   assert.match(page, /aria-label="Base layer · ดับเบิลคลิก: A"/, "the other presses stay");
 }
 console.log("layer delete ok");
@@ -1183,7 +1183,7 @@ console.log("layer delete ok");
   const D = new Drafts(S);
   let page = V.buttons(S, D);
   assert.match(page, /class="mx-c lock" disabled aria-label="Shift layer · กดปกติ: ปิดปุ่ม/, "held layer: B off there");
-  assert.match(page, /class="mx-c lock unset" disabled aria-label="Shift layer · กดค้าง: ไม่ใช้/);
+  assert.doesNotMatch(page, /aria-label="Shift layer · กดค้าง:/, "an unused press row stays hidden for a locked button too");
   assert.match(page, /class="lock-note"[\s\S]*ใน Shift layer แอปปิด B ไว้/);
   D.set("map.0.B.simple", { type: "layer_toggle", layer: 1 });
   page = V.buttons(S, D);
@@ -1196,3 +1196,40 @@ console.log("layer delete ok");
   assert.match(V.buttons(S, D), /<button class="utab" disabled title="เปลี่ยน layer ตั้งได้ใน Base layer เท่านั้น">เปลี่ยน layer<\/button>/, "no layer switch outside Base");
 }
 console.log("layer switch from Base only ok");
+
+// Long and double press rows show only when used, or just added with "+ เพิ่มแบบกด" (owner, 2026-10-23).
+{
+  const V = await import("./views.js");
+  const { Drafts } = await import("./model.js");
+  const cfg = {
+    name: "", links: {}, macro_names: [], runtime: { long_press_ms: 300, double_press_ms: 400 },
+    layers: [
+      { layer_id: 0, macros: [], mappings: [{ source: "M2", identity: false, activators: [{ type: "timing_single", target: { type: "btn_gamepad", button: "M2" } }, { type: "timing_double", target: { type: "btn_gamepad", button: "A" } }] }] },
+      { layer_id: 1, macros: [], mappings: [] },
+    ],
+  };
+  const S = { current: { cfg, slot: 0 }, ui: { layer: 0, sel: "M1", press: "simple", dpad: "D-pad ↑", layerMenu: null, pressMenu: false, addedPress: [] }, lib: { list: () => [], get: () => null }, plan: null, slots: { activeSlot: 0 } };
+  const D = new Drafts(S);
+  let page = V.buttons(S, D);
+  assert.doesNotMatch(page, /data-press="long"|data-press="double"/, "an unused press has no row");
+  assert.match(page, /data-act="press-menu"[^>]*>\+ เพิ่มแบบกด<\/button>/);
+  S.ui.pressMenu = true;
+  page = V.buttons(S, D);
+  assert.match(page, /data-act="press-add" data-press="long"><b>กดค้าง<\/b><span>กดค้างไว้นานกว่า 300 ms/);
+  assert.match(page, /data-act="press-add" data-press="double"><b>ดับเบิลคลิก<\/b><span>กดสองครั้งติดกันภายใน 400 ms/);
+  S.ui.pressMenu = false;
+  S.ui.addedPress = ["long"];
+  S.ui.press = "long";
+  page = V.buttons(S, D);
+  assert.match(page, /data-layer="0" data-press="long"/, "the added row shows, empty");
+  assert.doesNotMatch(page, /data-press="double"/);
+  assert.equal(V.pressRows(S, D).join(), "long");
+  S.ui.addedPress = []; S.ui.press = "simple"; // another button or page, left unused
+  assert.equal(V.pressRows(S, D).join(), "", "an unused added row goes");
+  S.ui.sel = "M2";
+  page = V.buttons(S, D);
+  assert.match(page, /data-layer="1" data-press="double"/, "a row used in one layer shows in every layer");
+  assert.doesNotMatch(page, /data-press="long"/);
+  assert.doesNotMatch(page, /data-act="press-add" data-press="double"/);
+}
+console.log("press rows ok");

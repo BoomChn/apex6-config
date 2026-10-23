@@ -630,6 +630,29 @@ function lockNote(sw, src, cols) {
   return `<div class="lock-note">${LOCK_ICON}<span><b>${b} ใช้เปลี่ยน layer</b> · ${lines.join(" · ")}<br>จะให้ ${b} ทำอย่างอื่นใน layer อื่น ให้เปลี่ยนช่อง Base layer · ${pl} ก่อน</span></div>`;
 }
 
+// Long and double press rows show only when some layer uses them, or the user just added one with
+// "+ เพิ่มแบบกด" (owner, 2026-10-23). An added row left unused goes when the button or page changes.
+export function pressRows(S, D) {
+  const src = S.ui.sel;
+  const cols = liveLayers(S, D);
+  const sw = baseSwitch(D, src);
+  return PRESS.slice(1).map((p) => p.id).filter((id) =>
+    S.ui.press === id || S.ui.addedPress?.includes(id) ||
+    cols.some((l) => (sw && l.id !== 0 ? lockedTarget(sw, l.id, id) : shownTarget(D, l.id, src, id)) !== undefined));
+}
+export const isLockedCell = (S, D, layer) => layer !== 0 && !!baseSwitch(D, S.ui.sel);
+
+function pressAdd(S, D, shown) {
+  const rt = S.current.cfg.runtime;
+  const left = PRESS.slice(1).filter((p) => !shown.includes(p.id));
+  if (!left.length) return "";
+  const why = { long: `กดค้างไว้นานกว่า ${D.get("runtime.long") ?? rt.long_press_ms} ms`, double: `กดสองครั้งติดกันภายใน ${D.get("runtime.double") ?? rt.double_press_ms} ms` };
+  return `<div class="press-add"><span class="menu-wrap">
+      <button class="link" data-act="press-menu" aria-haspopup="menu" aria-expanded="${!!S.ui.pressMenu}">+ เพิ่มแบบกด</button>
+      ${S.ui.pressMenu ? `<span class="menu left" role="menu" aria-label="เพิ่มแบบกด">${left.map((p) => `<button role="menuitem" data-act="press-add" data-press="${p.id}"><b>${p.label}</b><span>${why[p.id]}</span></button>`).join("")}</span>` : ""}
+    </span><span class="meta">${left.map((p) => p.label).join(" · ")}</span></div>`;
+}
+
 function buttonEditor(S, D) {
   const cfg = S.current.cfg;
   const ui = S.ui;
@@ -646,7 +669,8 @@ function buttonEditor(S, D) {
   const cols = liveLayers(S, D);
   const head = cols.map((l) => `<span class="mx-h"><b>${LAYER_NAME(l.id)}</b></span>`).join("");
   const sw = baseSwitch(D, src);
-  const cells = PRESS.map((p) => `<span class="mx-k">${p.label}</span>${cols.map((l) => {
+  const shown = pressRows(S, D);
+  const cells = PRESS.filter((p) => p.id === "simple" || shown.includes(p.id)).map((p) => `<span class="mx-k">${p.label}</span>${cols.map((l) => {
     const k = mapKey(l.id, src, p.id);
     if (sw && l.id !== 0) {
       const t = lockedTarget(sw, l.id, p.id);
@@ -717,7 +741,7 @@ function buttonEditor(S, D) {
       </span>
     </div>
     ${src.startsWith("D-pad") ? `<div class="seg" style="margin-top:16px">${["D-pad ↑", "D-pad ↓", "D-pad ←", "D-pad →"].map((d) => `<button class="${src === d ? "on" : ""}" data-act="dpad" data-dir="${esc(d)}">${nameHtml(btnName(d))}</button>`).join("")}</div>` : ""}
-    <div style="padding-top:20px"><div class="label" style="padding-bottom:8px">กด ${nameHtml(btnName(src))} แบบไหน ในแต่ละ layer · คลิกช่องที่จะแก้</div>${rows}${leak}</div>
+    <div style="padding-top:20px"><div class="label" style="padding-bottom:8px">กด ${nameHtml(btnName(src))} แบบไหน ในแต่ละ layer · คลิกช่องที่จะแก้</div>${rows}${pressAdd(S, D, shown)}${leak}</div>
     <div style="padding-top:28px;display:grid;gap:14px">
       <div class="label">${LAYER_NAME(layer)} · ${pl} ส่งเป็น</div>
       <div class="utabs" style="gap:20px">${types}</div>

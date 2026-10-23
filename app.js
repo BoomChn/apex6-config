@@ -28,7 +28,7 @@ const S = {
   connectError: null,
   tab: tabFromHash(),
   // ui.macro: uid of the library macro the Macros page has open; macroQ/pickQ: list filters.
-  ui: { layer: 0, layerMode: "hold", sel: "M1", press: "simple", outType: null, dpad: "D-pad ↑", renaming: null, slotMenu: null, layerMenu: null, macro: null, step: 0, macroQ: "", pickQ: "", ledPick: 0, picker: null },
+  ui: { layer: 0, layerMode: "hold", sel: "M1", press: "simple", outType: null, dpad: "D-pad ↑", renaming: null, slotMenu: null, layerMenu: null, pressMenu: false, addedPress: [], macro: null, step: 0, macroQ: "", pickQ: "", ledPick: 0, picker: null },
   log: [],
   backups: [],
   dump: null,
@@ -831,6 +831,9 @@ function setDraft(key, v) {
 
 function selectSource(src) {
   S.ui.sel = src;
+  // A long or double press row added but left unused goes when the button changes (owner, 2026-10-23).
+  S.ui.addedPress = [];
+  S.ui.pressMenu = false;
   // Variant B: a newly picked button starts on its Base cell, never on the last layer used.
   S.ui.layer = 0;
   S.ui.press = "simple";
@@ -943,6 +946,11 @@ const ACTIONS = {
   reload: () => loadAll(),
   tab: (el) => {
     S.tab = el.dataset.tab;
+    // Leaving the page drops an added press row that is still unused.
+    S.ui.addedPress = [];
+    const p = S.ui.press;
+    S.ui.press = "simple";
+    if (S.ui.sel && V.pressRows(S, D).includes(p)) S.ui.press = p;
     history.replaceState(null, "", `#${S.tab}`);
     render();
     window.scrollTo(0, 0);
@@ -992,6 +1000,22 @@ const ACTIONS = {
     S.ui.layer = id;
     render();
     toast(`เพิ่ม ${LAYER_NAME(id)} แล้ว · ยังไม่ได้เขียนลงจอย`);
+  },
+  "press-menu": () => {
+    S.ui.pressMenu = !S.ui.pressMenu;
+    render();
+    if (S.ui.pressMenu) document.querySelector(".menu [role=menuitem]:not(:disabled)")?.focus();
+  },
+  // Adds a long or double press row and opens its cell in the layer being edited (Base when that
+  // layer's cells are locked to a layer switch).
+  "press-add": (el) => {
+    const p = el.dataset.press;
+    S.ui.pressMenu = false;
+    S.ui.addedPress = [...new Set([...S.ui.addedPress, p])];
+    S.ui.press = p;
+    if (V.isLockedCell(S, D, S.ui.layer)) S.ui.layer = 0;
+    S.ui.outType = null;
+    render();
   },
   "layer-menu": (el) => {
     const id = Number(el.dataset.layer);
@@ -1380,6 +1404,11 @@ document.addEventListener("click", (e) => {
     closed = true;
     render();
   }
+  if (S.ui.pressMenu && !e.target.closest(".menu-wrap")) {
+    S.ui.pressMenu = false;
+    closed = true;
+    render();
+  }
   if (S.ui.layerMenu != null && !e.target.closest(".menu-wrap")) {
     S.ui.layerMenu = null;
     closed = true;
@@ -1406,6 +1435,8 @@ const isEmptyClick = (t) =>
 
 function unpick() {
   S.ui.sel = null;
+  S.ui.addedPress = [];
+  S.ui.pressMenu = false;
   S.ui.outType = null;
   render();
 }
@@ -1433,6 +1464,12 @@ document.addEventListener("keydown", (e) => {
     S.ui.slotMenu = null;
     render();
     document.querySelector(`[data-act="slot-menu"][data-slot="${i}"]`)?.focus();
+    return;
+  }
+  if (e.key === "Escape" && S.ui.pressMenu) {
+    S.ui.pressMenu = false;
+    render();
+    document.querySelector('[data-act="press-menu"]')?.focus();
     return;
   }
   if (e.key === "Escape" && S.ui.layerMenu != null) {
