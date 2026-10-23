@@ -599,6 +599,24 @@ function layerPicker(S, D, cur) {
     ).join("")}</div>`;
 }
 
+// Hardware, owner 2026-10-23: B "hold → Shift layer" (normal press) with Shift's B set to K: holding
+// B typed k the whole time, and A gave Shift's J. So a button that holds a layer also plays its own
+// normal press of that layer while held; with nothing set there, that is the button itself.
+function holdLeakNote(S, D, src, cols) {
+  const cfg = S.current.cfg;
+  const live = new Set(cols.map((l) => l.id));
+  return cols
+    .map((l) => ({ from: l.id, t: shownTarget(D, l.id, src, "simple") }))
+    .filter(({ t }) => t?.type === "layer_hold" && live.has(t.layer))
+    .map(({ from, t }) => {
+      const there = shownTarget(D, t.layer, src, "simple");
+      if (there?.type === "none" || there?.type === "layer_hold" || there?.type === "layer_toggle") return "";
+      const what = there === undefined || isIdentity(there, src) ? btnName(src) : labelTarget(there, cfg);
+      return `<p class="meta hold-leak" style="margin:10px 0 0;line-height:20px">กด ${nameHtml(btnName(src))} ค้างใน ${esc(LAYER_NAME(from))} จอยจะส่ง <b style="color:var(--ink)">${nameHtml(what)}</b> ไปด้วยตลอดที่ค้าง (ช่อง ${esc(LAYER_NAME(t.layer))} · กดปกติ) · ถ้าไม่อยากให้ส่งอะไร ตั้งช่องนั้นเป็น "ปิดปุ่มนี้"</p>`;
+    })
+    .join("");
+}
+
 function buttonEditor(S, D) {
   const cfg = S.current.cfg;
   const ui = S.ui;
@@ -621,6 +639,7 @@ function buttonEditor(S, D) {
     return `<button class="mx-c${on ? " on" : ""}${D.has(k) ? " pending" : ""}${v === undefined ? " unset" : ""}" data-act="cell" data-layer="${l.id}" data-press="${p.id}" aria-label="${esc(`${LAYER_NAME(l.id)} · ${p.label}: ${labelTarget(v, cfg)}`)}">${nameHtml(labelTarget(v, cfg))}</button>`;
   }).join("")}`).join("");
   const rows = `<div class="mx" style="grid-template-columns:96px repeat(${cols.length}, minmax(0, 1fr))"><span class="mx-k"></span>${head}${cells}</div>`;
+  const leak = holdLeakNote(S, D, src, cols);
   const k = mapKey(layer, src, press);
   const cur = shownTarget(D, layer, src, press);
   const type = ui.outType ?? typeOf(cur);
@@ -677,7 +696,7 @@ function buttonEditor(S, D) {
       </span>
     </div>
     ${src.startsWith("D-pad") ? `<div class="seg" style="margin-top:16px">${["D-pad ↑", "D-pad ↓", "D-pad ←", "D-pad →"].map((d) => `<button class="${src === d ? "on" : ""}" data-act="dpad" data-dir="${esc(d)}">${nameHtml(btnName(d))}</button>`).join("")}</div>` : ""}
-    <div style="padding-top:20px"><div class="label" style="padding-bottom:8px">กด ${nameHtml(btnName(src))} แบบไหน ในแต่ละ layer · คลิกช่องที่จะแก้</div>${rows}</div>
+    <div style="padding-top:20px"><div class="label" style="padding-bottom:8px">กด ${nameHtml(btnName(src))} แบบไหน ในแต่ละ layer · คลิกช่องที่จะแก้</div>${rows}${leak}</div>
     <div style="padding-top:28px;display:grid;gap:14px">
       <div class="label">${LAYER_NAME(layer)} · ${pl} ส่งเป็น</div>
       <div class="utabs" style="gap:20px">${types}</div>
