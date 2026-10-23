@@ -180,3 +180,70 @@ export function lightValue(base, key) {
   }
   return undefined;
 }
+
+// ---------------- Colors the page offers ----------------
+
+// The row of ready colors on the Lighting page.
+export const PRESETS = ["#FF5A1F", "#E0303A", "#F2C230", "#FFD700", "#38B26B", "#2F7BEA", "#7A4BE0", "#FFFFFF"];
+// Colors made with "สร้างสีเอง", kept by the app for every slot. At most this many, so the row
+// beside the ready ones stays within two lines.
+export const CUSTOM_MAX = 6;
+export const normHex = (h) => {
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(h ?? "").trim());
+  return m ? `#${m[1].toUpperCase()}` : null;
+};
+
+const CUSTOM_KEY = "apex6.customColors";
+export class CustomColors {
+  constructor(storage = globalThis.localStorage) {
+    this.st = storage;
+    try {
+      const raw = JSON.parse(storage?.getItem(CUSTOM_KEY) ?? "[]");
+      this.all = Array.isArray(raw) ? [...new Set(raw.map(normHex).filter(Boolean))].slice(0, CUSTOM_MAX) : [];
+    } catch {
+      this.all = [];
+    }
+  }
+  list() {
+    return [...this.all];
+  }
+  save() {
+    try {
+      this.st?.setItem(CUSTOM_KEY, JSON.stringify(this.all));
+    } catch {}
+  }
+  // "added", "known" (already a ready or kept color: nothing to add), or "full".
+  add(hex) {
+    const c = normHex(hex);
+    if (!c) throw new Error(`สี "${hex}" ไม่ใช่ #RRGGBB`);
+    if (PRESETS.includes(c) || this.all.includes(c)) return "known";
+    if (this.all.length >= CUSTOM_MAX) return "full";
+    this.all.push(c);
+    this.save();
+    return "added";
+  }
+  remove(hex) {
+    const c = normHex(hex);
+    const had = this.all.includes(c);
+    this.all = this.all.filter((x) => x !== c);
+    if (had) this.save();
+    return had;
+  }
+}
+
+// #RRGGBB ↔ hue 0–360, saturation and value 0–1, for the color picker.
+export function hexToHsv(hex) {
+  const n = parseInt(normHex(hex).slice(1), 16);
+  const [r, g, b] = [n >> 16, (n >> 8) & 255, n & 255].map((v) => v / 255);
+  const max = Math.max(r, g, b), d = max - Math.min(r, g, b);
+  let h = 0;
+  if (d) h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return { h: (h * 60 + 360) % 360, s: max ? d / max : 0, v: max };
+}
+export function hsvToHex({ h, s, v }) {
+  const f = (n) => {
+    const k = (n + h / 60) % 6;
+    return Math.round((v - v * s * Math.max(0, Math.min(k, 4 - k, 1))) * 255);
+  };
+  return `#${[f(5), f(3), f(1)].map((x) => x.toString(16).padStart(2, "0")).join("").toUpperCase()}`;
+}

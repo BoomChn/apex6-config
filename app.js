@@ -6,7 +6,7 @@ import { Names, SlotSeen, fit } from "./names.js";
 import { Library } from "./macros.js";
 import { Profiles, toWrite, named, slotsOf } from "./profiles.js";
 import { DEFAULT_PROFILE } from "./defaults.js";
-import { decodeLighting, encodeLighting, LIGHT_COLORS_MAX } from "./lighting.js";
+import { decodeLighting, encodeLighting, LIGHT_COLORS_MAX, CustomColors, CUSTOM_MAX, hexToHsv, hsvToHex, normHex, GOLD } from "./lighting.js";
 import * as V from "./views.js";
 
 const $ = (s) => document.querySelector(s);
@@ -27,7 +27,7 @@ const S = {
   connectError: null,
   tab: tabFromHash(),
   // ui.macro: uid of the library macro the Macros page has open; macroQ/pickQ: list filters.
-  ui: { layer: 0, layerMode: "hold", sel: "M1", press: "simple", outType: null, dpad: "D-pad ↑", renaming: null, slotMenu: null, macro: null, step: 0, macroQ: "", pickQ: "", ledPick: 0 },
+  ui: { layer: 0, layerMode: "hold", sel: "M1", press: "simple", outType: null, dpad: "D-pad ↑", renaming: null, slotMenu: null, macro: null, step: 0, macroQ: "", pickQ: "", ledPick: 0, picker: null },
   log: [],
   backups: [],
   dump: null,
@@ -37,6 +37,7 @@ const S = {
   seen: new SlotSeen(), // each slot's name when last read, see names.js
   lib: new Library(), // the macro library, see macros.js
   profiles: new Profiles(), // the profile library, see profiles.js
+  colors: new CustomColors(), // colors made with "สร้างสีเอง" on Lighting, see lighting.js
   plan: null, // what the next write does to the slot's macros, see macroPlan
 };
 const D = new Drafts(S);
@@ -755,6 +756,72 @@ function setLedColor(hex) {
   setDraft("led.colors", list);
 }
 
+// The color the swatch row has picked: solid's, or the selected one of a color set.
+function ledColorNow() {
+  const mode = D.get("led.mode");
+  if (mode === "solid") return D.get("led.color");
+  if (mode !== "breathing" && mode !== "gradient") return null;
+  const list = D.get("led.colors");
+  return list[Math.min(S.ui.ledPick, list.length - 1)];
+}
+
+// ---------------- "สร้างสีเอง" ----------------
+
+function closePicker() {
+  S.ui.picker = null;
+  render();
+  document.querySelector('[data-act="color-new"]')?.focus();
+}
+
+// Use the picked color, and keep it in the row unless it is there already or the row is full.
+function applyPicked() {
+  const hex = hsvToHex(S.ui.picker);
+  const kept = S.colors.add(hex);
+  setLedColor(hex);
+  S.ui.picker = null;
+  render();
+  if (kept === "full") toast(`ใช้สี ${hex} แล้ว แต่ไม่ได้เก็บไว้ในแถว เก็บได้ ${CUSTOM_MAX} สี ลบสีเก่าก่อน (กดค้างที่สี)`, true);
+}
+
+function deleteCustom(hex) {
+  if (!confirm(`ลบสี ${hex} ออกจากสีที่สร้างเอง?
+
+ไฟที่ตั้งเป็นสีนี้ไว้แล้วไม่เปลี่ยน`)) return;
+  S.colors.remove(hex);
+  render();
+  toast(`ลบสี ${hex} แล้ว`);
+}
+
+// Moves the picker's handles, preview and code in place, so a drag keeps its pointer.
+function drawPicker({ keepHex = false } = {}) {
+  const P = S.ui.picker, box = document.querySelector("[data-picker]");
+  if (!P || !box) return;
+  const hex = hsvToHex(P), hue = `hsl(${Math.round(P.h)}, 100%, 50%)`;
+  box.querySelector("[data-sv]").style.background = `linear-gradient(to top,#000,rgba(0,0,0,0)),linear-gradient(to right,#fff,${hue})`;
+  Object.assign(box.querySelector("[data-sv-dot]").style, { left: `${P.s * 100}%`, top: `${(1 - P.v) * 100}%` });
+  Object.assign(box.querySelector("[data-hue-dot]").style, { left: `${(P.h / 360) * 100}%`, background: hue });
+  box.querySelector("[data-picker-prev]").style.background = hex;
+  if (!keepHex) box.querySelector("[data-picker-hex]").value = hex.slice(1);
+}
+
+let pickDrag = null; // "sv" | "hue" while a picker handle is dragged
+function pickAt(e) {
+  const box = document.querySelector(pickDrag === "sv" ? "[data-sv]" : "[data-hue]");
+  if (!box || !S.ui.picker) return;
+  const r = box.getBoundingClientRect();
+  const x = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+  if (pickDrag === "hue") S.ui.picker.h = Math.min(359.9, x * 360);
+  else Object.assign(S.ui.picker, { s: x, v: 1 - Math.max(0, Math.min(1, (e.clientY - r.top) / r.height)) });
+  drawPicker();
+}
+
+// Long press on a made color deletes it (also right click, or Delete on the focused swatch).
+const pressed = { timer: null, fired: false };
+function cancelPress() {
+  clearTimeout(pressed.timer);
+  pressed.timer = null;
+}
+
 function setDraft(key, v) {
   if (CLAMP[key]) v = CLAMP[key](v);
   D.set(key, v);
@@ -933,9 +1000,22 @@ const ACTIONS = {
     render();
   },
   "led-color": (el) => {
+    // The click that ends a long press (which deletes a made color) doesn't pick it too.
+    if (pressed.fired) {
+      pressed.fired = false;
+      return;
+    }
+    S.ui.picker = null;
     setLedColor(el.dataset.val);
     render();
   },
+  "color-new": () => {
+    S.ui.picker = S.ui.picker ? null : hexToHsv(ledColorNow() ?? GOLD);
+    render();
+    document.querySelector("[data-picker-hex]")?.focus();
+  },
+  "picker-cancel": () => closePicker(),
+  "picker-apply": () => applyPicked(),
   "led-pick": (el) => {
     S.ui.ledPick = Number(el.dataset.i);
     render();
@@ -1211,6 +1291,11 @@ function hexdump(b) {
 }
 
 document.addEventListener("click", (e) => {
+  // A click outside the color picker closes it (the + button toggles it itself).
+  if (S.ui.picker && !e.target.closest("[data-picker]") && !e.target.closest('[data-act="color-new"]')) {
+    S.ui.picker = null;
+    if (!e.target.closest("[data-act]")) return render();
+  }
   if (S.ui.slotMenu != null && !e.target.closest(".menu-wrap")) {
     S.ui.slotMenu = null;
     render();
@@ -1229,6 +1314,18 @@ document.addEventListener("click", (e) => {
 });
 
 document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && S.ui.picker) return closePicker();
+  if (e.key === "Enter" && e.target.matches?.("[data-picker-hex]")) {
+    e.preventDefault();
+    if (normHex(e.target.value)) applyPicked();
+    else toast("รหัสสีต้องเป็นตัวเลขฐาน 16 หกตัว เช่น 00B8A9", true);
+    return;
+  }
+  const own = e.target.closest?.("[data-custom]");
+  if (own && (e.key === "Delete" || e.key === "Backspace")) {
+    e.preventDefault();
+    return deleteCustom(own.dataset.custom);
+  }
   if (e.key === "Escape" && S.ui.slotMenu != null) {
     const i = S.ui.slotMenu;
     S.ui.slotMenu = null;
@@ -1255,6 +1352,14 @@ document.addEventListener("keydown", (e) => {
 });
 document.addEventListener("input", (e) => {
   const el = e.target;
+  if (el.matches?.("[data-picker-hex]")) {
+    const hex = normHex(el.value);
+    if (hex && S.ui.picker) {
+      S.ui.picker = hexToHsv(hex);
+      drawPicker({ keepHex: true });
+    }
+    return;
+  }
   if (el.dataset.act === "turbo-iv") {
     const key = `map.${S.ui.layer}.${S.ui.sel}.${S.ui.press}`;
     const cur = D.get(key);
@@ -1349,8 +1454,7 @@ document.addEventListener("change", (e) => {
     } else setDraft(key, v);
   } else if ("hex" in el.dataset) {
     const m = el.value.trim().match(/^#?([0-9a-f]{6})$/i);
-    if (m && key === "led.color") setLedColor(`#${m[1].toUpperCase()}`);
-    else if (m) setDraft(key, `#${m[1].toUpperCase()}`);
+    if (m) setDraft(key, `#${m[1].toUpperCase()}`);
     else if (el.value.trim()) toast("รหัสสีต้องเป็น #RRGGBB", true);
   } else if (el.type === "range") {
     // already applied on input
@@ -1459,6 +1563,47 @@ function redrawGyroChart(box) {
   box.innerHTML = V.gyroChart(D.get("gyro.curve"), D.has("gyro.curve"));
   renderChrome();
 }
+
+document.addEventListener("pointerdown", (e) => {
+  pressed.fired = false;
+  const area = e.target.closest?.("[data-sv], [data-hue]");
+  if (area && e.button === 0) {
+    e.preventDefault();
+    pickDrag = "sv" in area.dataset ? "sv" : "hue";
+    try {
+      area.setPointerCapture(e.pointerId);
+    } catch {}
+    pickAt(e);
+    return;
+  }
+  const own = e.target.closest?.("[data-custom]");
+  if (own && e.button === 0) {
+    cancelPress();
+    pressed.timer = setTimeout(() => {
+      pressed.timer = null;
+      pressed.fired = true;
+      deleteCustom(own.dataset.custom);
+    }, 600);
+  }
+});
+document.addEventListener("pointermove", (e) => {
+  if (pickDrag) pickAt(e);
+  // Sliding off the swatch is not a long press.
+  if (pressed.timer && !e.target.closest?.("[data-custom]")) cancelPress();
+});
+for (const type of ["pointerup", "pointercancel"]) document.addEventListener(type, () => {
+  cancelPress();
+  pickDrag = null;
+});
+document.addEventListener("contextmenu", (e) => {
+  const own = e.target.closest?.("[data-custom]");
+  if (!own) return;
+  e.preventDefault();
+  // A touch long press fires this too, after the timer already asked.
+  if (pressed.fired) return;
+  cancelPress();
+  deleteCustom(own.dataset.custom);
+});
 
 document.addEventListener("pointerdown", (e) => {
   const box = e.target.closest?.("[data-gyro-chart]");
