@@ -235,6 +235,10 @@ export const HW_TESTED = new Set([
   // bytes. Vibration sync not tried yet.
   "led.mode", "led.color", "led.colors", "led.bright", "led.speed",
 ]);
+// Button presses all share map.* keys, so they are confirmed by what they send, not by key.
+// Keyboard: owner 2026-10-23, M1 → K and Shift + K typed k and K in Notepad.
+export const HW_TESTED_TARGETS = new Set(["btn_keyboard"]);
+export const hwTested = (key, value) => HW_TESTED.has(key) || (MAP_KEY.test(key ?? "") && HW_TESTED_TARGETS.has(value?.type));
 
 // Returns a new wrapped buffer with the given edits applied and the CRC16 updated.
 // edits: { "stick.left.deadzone": 20, "gyro.mode": "mouse", ... }

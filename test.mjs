@@ -1094,3 +1094,15 @@ console.log("custom colors ok");
   assert.throws(() => checkProfile(poke(0xe8, 0)), /ไม่ใช่คีย์บอร์ด/);
 }
 console.log("keyboard ok");
+
+// Keyboard presses are confirmed on hardware (owner 2026-10-23); other kinds of press are not yet.
+{
+  const { hwTested } = await import("./mapping-edit.js");
+  assert.equal(hwTested("map.0.M1.simple", { type: "btn_keyboard", key: 14, modifier: 2 }), true);
+  assert.equal(hwTested("map.1.A.long", { type: "btn_keyboard", key: 14, modifier: 0 }), true);
+  assert.equal(hwTested("map.0.M1.simple", { type: "btn_mouse", mouse: 0 }), false);
+  assert.equal(hwTested("map.0.M1.simple", undefined), false);
+  assert.equal(hwTested("gyro.mode"), true);
+  assert.equal(hwTested("runtime.long", { type: "btn_keyboard" }), false, "only button presses go by type");
+}
+console.log("hw tested ok");

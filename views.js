@@ -8,7 +8,7 @@ import {
   layerList, nextLayerId, layerSwitches, layerKey, meta, gripPart, lraGrip, MACRO_PAD, NOT_ON_PAD,
 } from "./model.js";
 import { BUTTONS, decodeMapping } from "./mapping.js";
-import { isWritable, HW_TESTED, NAME_MAX, nameBytes, MACRO_MAX, gyroPct, GYRO_MIDS_MAX, VIB_LEVELS, gripEndY, motorMode, FEEDBACK_MODE } from "./mapping-edit.js";
+import { isWritable, HW_TESTED, hwTested, NAME_MAX, nameBytes, MACRO_MAX, gyroPct, GYRO_MIDS_MAX, VIB_LEVELS, gripEndY, motorMode, FEEDBACK_MODE } from "./mapping-edit.js";
 import { fit, APP_NAME_MAX } from "./names.js";
 import { slotsOf, crcOf } from "./profiles.js";
 import { DEFAULT_PROFILE } from "./defaults.js";
@@ -43,7 +43,7 @@ const ICON = {
 const UNSUP = `<span class="tag unsup">ยังเขียนลงจอยไม่ได้ · เก็บเป็นร่างในหน้านี้</span>`;
 // Writable, but only tried against the mock so far.
 const UNTESTED = `<span class="tag untested" title="เขียนได้แล้ว แต่ยังไม่เคยลองกับจอยจริง ทุกครั้งที่เขียนจะสำรองไฟล์ให้ก่อน">ยังไม่ทดสอบกับจอยจริง</span>`;
-const untested = (key) => ((isWritable(key) || LED_KEY.test(key ?? "")) && !HW_TESTED.has(key) ? UNTESTED : "");
+const untested = (key, value) => ((isWritable(key) || LED_KEY.test(key ?? "")) && !hwTested(key, value) ? UNTESTED : "");
 const pendCls = (on) => (on ? " pending" : "");
 
 // ---------------- Top bar & tabs ----------------
@@ -609,7 +609,7 @@ function buttonEditor(S, D) {
       <div class="label">${LAYER_NAME(layer)} · ${pl} ส่งเป็น</div>
       <div class="utabs" style="gap:20px">${types}</div>
       ${body}
-      ${pend ? `<p style="margin:0">${untested(k) || UNSUP}</p>` : ""}
+      ${pend && (untested(k, cur) || !isWritable(k)) ? `<p style="margin:0">${untested(k, cur) || UNSUP}</p>` : ""}
     </div>`;
 }
 
@@ -1454,7 +1454,7 @@ export function review(S, D) {
   // Copies no button plays are removed by this write: count them, so the title matches the rows.
   const nAll = nW && nW + plan.rows.filter((r) => r.kind === "remove").length;
   const errors = plan.errors;
-  const row = (i) => `<div class="diff-row${i.writable ? "" : " unsup"}"><b>${nameHtml(i.label)}${untested(i.editKey) ? `<br>${untested(i.editKey)}` : ""}</b><span class="old">${nameHtml(i.baseText ?? (i.base === undefined ? "ไม่ทราบ" : i.fmt(i.base)))}</span><span>→</span>
+  const row = (i) => `<div class="diff-row${i.writable ? "" : " unsup"}"><b>${nameHtml(i.label)}${untested(i.editKey, i.value) ? `<br>${untested(i.editKey, i.value)}` : ""}</b><span class="old">${nameHtml(i.baseText ?? (i.base === undefined ? "ไม่ทราบ" : i.fmt(i.base)))}</span><span>→</span>
     <span class="new">${i.key === "led.color" ? `<span class="swatch-dot" style="background:${esc(i.value)}"></span>` : ""}${nameHtml(i.fmt(i.value))}${i.writable && i.key.endsWith(".name") && fit(i.value) !== i.value ? `<br><span class="meta">บนจอยจะเป็น “${esc(fit(i.value))}” · ชื่อเต็มเก็บในแอป</span>` : ""}</span></div>`;
   const slot = S.slots.activeSlot;
   const linked = S.current ? S.profiles.holding(S.current.wrapped) : [];
