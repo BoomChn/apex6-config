@@ -19,5 +19,9 @@ been half applied. So every change that can reach the controller goes through th
 3. **Try the flow in the demo** (`?demo`, mock controller) through the real UI: make the edit,
    open the write review, write, and check what the app shows after the read-back.
 4. **Tell the owner what was not tried on the real controller**, and give click-by-click steps to
-   try it (joy.cpl for buttons). Fields confirmed on hardware go into `HW_TESTED`, nothing else.
+   try it. joy.cpl's Test tab is blank on the owner's PC even when the pad works, so use a game
+   (or Notepad for keyboard keys). Presses confirmed on hardware go into `HW_TESTED` /
+   `HW_TESTED_TARGETS`, nothing else.
 5. Don't ask the owner for data on something PROTOCOL.md already answers.
+6. **Ship it without asking (owner's standing rule, 2026-10-23):** work on a branch, and once the
+   tests pass, merge into main and push. If the tests fail, don't merge; tell the owner what broke.
