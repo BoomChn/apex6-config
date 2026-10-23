@@ -5,10 +5,10 @@ import { BACK, FRONT, ALL, stageSvg, inset, TRIG_MARK, PHOTO, LED_PATH } from ".
 import {
   esc, pct, same, btnName, nameHtml, PRESS, GYRO_MODE, LED_MODE, LAYER_NAME, PRESET, TPRESET, GPRESET, AXIS, MACRO_MODE, TIMEOUT,
   labelTarget, baseTarget, isIdentity, evalCurve, macroSteps, macroUses, macroList, openMacro,
-  layerList, nextLayerId, layerSwitches, layerKey, meta, gripPart, lraGrip, MACRO_PAD, NOT_ON_PAD,
+  layerList, layerSwitches, layerKey, meta, gripPart, lraGrip, MACRO_PAD, NOT_ON_PAD,
 } from "./model.js";
 import { BUTTONS, decodeMapping } from "./mapping.js";
-import { isWritable, HW_TESTED, hwTested, NAME_MAX, nameBytes, MACRO_MAX, gyroPct, GYRO_MIDS_MAX, VIB_LEVELS, gripEndY, motorMode, FEEDBACK_MODE } from "./mapping-edit.js";
+import { isWritable, HW_TESTED, hwTested, LAYER_MAX, NAME_MAX, nameBytes, MACRO_MAX, gyroPct, GYRO_MIDS_MAX, VIB_LEVELS, gripEndY, motorMode, FEEDBACK_MODE } from "./mapping-edit.js";
 import { fit, APP_NAME_MAX } from "./names.js";
 import { slotsOf, crcOf } from "./profiles.js";
 import { DEFAULT_PROFILE } from "./defaults.js";
@@ -355,11 +355,26 @@ function mapKey(layer, src, press) {
   return `map.${layer}.${src}.${press}`;
 }
 
+// A layer drafted for deletion is gone from this page. A press that switches to it shows what the
+// write leaves (mapping-edit dropActivators): nothing, or the button's default if nothing else is set.
+const toGone = (D, t) => (t?.type === "layer_hold" || t?.type === "layer_toggle") && D.has(layerKey(t.layer, "delete"));
+function shownTarget(D, layer, src, press) {
+  const t = D.get(mapKey(layer, src, press));
+  if (!toGone(D, t)) return t;
+  if (press !== "simple") return undefined;
+  const kept = PRESS.slice(1).some((p) => {
+    const o = D.get(mapKey(layer, src, p.id));
+    return o !== undefined && !toGone(D, o);
+  });
+  return kept ? undefined : { type: "btn_gamepad", button: src };
+}
+const liveLayers = (S, D) => layerList(S, D).filter((l) => !l.deleted);
+
 function buttonState(S, D, layer, src) {
   const cfg = S.current.cfg;
   const pend = PRESS.some((p) => D.has(mapKey(layer, src, p.id)));
-  const simple = D.get(mapKey(layer, src, "simple"));
-  const extra = PRESS.slice(1).some((p) => D.get(mapKey(layer, src, p.id)) !== undefined);
+  const simple = shownTarget(D, layer, src, "simple");
+  const extra = PRESS.slice(1).some((p) => shownTarget(D, layer, src, p.id) !== undefined);
   const changed = !isIdentity(simple, src) || extra;
   let value = changed ? labelTarget(simple, cfg) : "ค่าเดิม";
   if (changed && isIdentity(simple, src) && extra) value = "กดค้าง/ดับเบิลตั้งไว้";
@@ -388,10 +403,8 @@ export function buttons(S, D) {
     // mapped: not the default in some layer, on the controller or still a draft. Marked yellow.
     items[id] = { name, value: st.value, extra, mapped: st.changed, anyMapped: st.changed || others.some(([, s]) => s.changed), state: pend ? "pend" : st.changed || others.length ? "set" : "", sel: ui.sel === src || (id === "DPAD" && ui.sel?.startsWith("D-pad")) };
   }
-  const list = layerList(S, D);
   return `<div class="split">
     <div>
-      ${layerLine(S, D, list)}
       ${stageSvg(def, items, { kind: "front" })}
       ${changedList(S, D)}
     </div>
@@ -399,26 +412,10 @@ export function buttons(S, D) {
   </div>`;
 }
 
-// Variant B has no layer mode: one line lists the layers and how each is reached, plus add.
-function layerLine(S, D, list) {
-  const parts = list.map((l) => {
-    const ways = layerWays(S, D, l.id);
-    const how = l.id === 0 ? "รูปจอยแสดง layer นี้" : ways.length ? nameHtml(ways.join(", ")) : "ยังไม่มีปุ่มพาไป";
-    return `<span${l.deleted ? ' style="text-decoration:line-through"' : ""}><b>${LAYER_NAME(l.id)}</b> <span class="muted">${how}${l.isNew ? " · เพิ่มใหม่" : ""}</span></span>`;
-  }).join(`<span class="muted"> · </span>`);
-  const add = nextLayerId(S, D) !== null
-    ? `<button class="link" style="font-size:13px;white-space:nowrap" data-act="layer-new">+ เพิ่ม layer</button>`
-    : `<span class="meta" style="white-space:nowrap">ครบ ${list.length} layer แล้ว</span>`;
-  const sw = layerSwitches(S, D, (s) => s.to !== s.layer);
-  const trapped = list.filter((l) => !l.deleted && l.id && sw.some((s) => s.to === l.id && s.type === "layer_toggle") && !sw.some((s) => s.layer === l.id));
-  const warn = trapped.map((l) => `<p class="notice" style="margin:4px 0 8px;color:var(--ink)">${ICON.warn}<span>ปุ่มที่สลับเข้า ${LAYER_NAME(l.id)} จะค้างอยู่ที่นั่น ตั้งปุ่มใน ${LAYER_NAME(l.id)} ให้สลับกลับ ${LAYER_NAME(0)} ด้วย ไม่งั้นจะกลับไม่ได้</span></p>`).join("");
-  return `<div class="meta" style="display:flex;gap:16px;justify-content:space-between;align-items:baseline;line-height:20px;margin-bottom:8px"><span>${parts}</span>${add}</div>${warn}`;
-}
-
 // The buttons that take the controller into a layer, drafts included: "กด M3 ค้างไว้",
-// "ดับเบิลคลิก M2 เพื่อสลับ".
+// "ดับเบิลคลิก M2 เพื่อสลับ". Presses in a layer drafted for deletion don't count.
 function layerWays(S, D, to) {
-  return layerSwitches(S, D, (s) => s.to === to && s.layer !== to).map((s) => {
+  return layerSwitches(S, D, (s) => s.to === to && s.layer !== to && !D.has(layerKey(s.layer, "delete"))).map((s) => {
     const where = s.layer !== 0 ? ` ใน ${LAYER_NAME(s.layer)}` : "";
     const how = s.press === "simple" ? "กด" : PRESS.find((p) => p.id === s.press).label;
     const end = s.type === "layer_toggle" ? " เพื่อสลับ" : s.press === "simple" ? " ค้างไว้" : "";
@@ -435,24 +432,78 @@ function changedList(S, D) {
     const layer = Number(p[1]), src = p.slice(2, -1).join(".");
     set.set(`${layer}|${src}`, { layer, src });
   }
-  // One row per layer, Base included, so every edit says which layer it is in.
-  const groups = new Map();
+  // One row per layer, Base included and empty layers too, so every edit says which layer it is in.
+  // Everything done to a layer lives on its row: how it is reached, its buttons, its ⋯ menu.
+  const list = liveLayers(S, D);
+  const groups = new Map(list.map((l) => [l.id, []]));
   for (const { layer, src } of set.values()) {
+    if (!groups.has(layer)) continue;
     const st = buttonState(S, D, layer, src);
-    if (!groups.has(layer)) groups.set(layer, []);
+    // On the controller but back to its default once the write drops a switch to a deleted layer.
+    if (!st.changed && !st.pend) continue;
     groups.get(layer).push(`<button class="list-row" style="border:0;background:none;padding:0;text-align:left;width:220px;gap:12px" data-act="pick-src" data-src="${esc(src)}" data-layer="${layer}">
         <span class="keytag${st.pend ? " pending" : ""}${st.pend && S.ui.sel === src && S.ui.layer === layer ? " fill" : ""}">${nameHtml(btnName(src))}</span>
         <span style="font-weight:700" class="${st.pend ? "pending" : ""}">${nameHtml(st.value)}</span>
       </button>`);
   }
-  const rows = [...groups.keys()]
-    .sort((a, b) => a - b)
-    .map((id) => `<div class="layer-group"><span class="lg-name"><span class="${id === S.ui.layer ? "chip" : ""}">${LAYER_NAME(id)}</span></span><div class="lg-items">${groups.get(id).join("")}</div></div>`)
+  const rows = list
+    .map((l) => {
+      const ways = layerWays(S, D, l.id);
+      const how = l.id === 0 ? "รูปจอยแสดง layer นี้" : ways.length ? nameHtml(ways.join(", ")) : "ยังไม่มีปุ่มพาไป";
+      const items = groups.get(l.id).join("") || `<span class="lg-none">ทุกปุ่มเป็นค่าเดิม</span>`;
+      return `<div class="layer-group"><span class="lg-name"><span class="${l.id === S.ui.layer ? "chip" : "lg-plain"}">${LAYER_NAME(l.id)}</span><span class="lg-how">${how}${l.isNew ? " · เพิ่มใหม่" : ""}</span></span>
+        <div class="lg-items">${items}</div><span class="lg-act">${l.id === 0 ? "" : layerMenu(S, l)}</span></div>`;
+    })
     .join("");
+  // A layer drafted for deletion keeps its id until the write, so it still takes a place here.
+  const all = layerList(S, D);
+  const free = LAYER_MAX - all.length;
+  const gone = all.length - list.length;
+  const foot = free > 0
+    ? `<button class="link" data-act="layer-new">+ เพิ่ม layer</button><span class="meta">เพิ่มได้อีก ${free} layer${gone ? ` · ที่ลบไว้จะว่างหลังเขียนลงจอย` : ""}</span>`
+    : `<span class="meta">ครบ ${LAYER_MAX} layer แล้ว${gone ? ` · ที่ลบไว้จะว่างหลังเขียนลงจอย` : ""}</span>`;
+  const sw = layerSwitches(S, D, (s) => s.to !== s.layer && !D.has(layerKey(s.layer, "delete")));
+  const trapped = list.filter((l) => l.id && sw.some((s) => s.to === l.id && s.type === "layer_toggle") && !sw.some((s) => s.layer === l.id));
+  const warn = trapped.map((l) => `<p class="notice" style="margin:12px 0 0;color:var(--ink)">${ICON.warn}<span>ปุ่มที่สลับเข้า ${LAYER_NAME(l.id)} จะค้างอยู่ที่นั่น ตั้งปุ่มใน ${LAYER_NAME(l.id)} ให้สลับกลับ ${LAYER_NAME(0)} ด้วย ไม่งั้นจะกลับไม่ได้</span></p>`).join("");
   return `<section style="margin-top:24px">
     <div class="rule-head top"><h2>ปุ่มที่แก้ใน slot นี้</h2><span class="meta"><span class="marker-key">เหลือง</span> = ไม่ใช่ค่าเดิม · สีน้ำเงิน = ยังไม่ได้เขียนลงจอย · ทึบ = กำลังแก้ · สีดำ = อยู่บนจอยแล้ว</span></div>
-    ${rows || `<p class="empty-note">ทุกปุ่มเป็นค่าเดิม</p>`}
+    ${rows}
+    <div class="lg-foot">${foot}</div>
+    ${warn}
   </section>`;
+}
+
+// The ⋯ menu on a layer row. Base has none: it can't be deleted.
+function layerMenu(S, l) {
+  const open = S.ui.layerMenu === l.id;
+  const name = LAYER_NAME(l.id);
+  return `<span class="menu-wrap">
+    <button class="icon-btn" data-act="layer-menu" data-layer="${l.id}" aria-haspopup="menu" aria-expanded="${open}" aria-label="จัดการ ${name}">${ICON.dots}</button>
+    ${open ? `<span class="menu" role="menu" aria-label="จัดการ ${name}">
+      <button role="menuitem" class="danger" data-act="layer-ask-delete" data-layer="${l.id}" ${S.writing ? "disabled" : ""}><b>ลบ ${name}</b><span>ปุ่มที่ตั้งไว้ใน layer นี้จะหายไปด้วย</span></button>
+    </span>` : ""}
+  </span>`;
+}
+
+// Asks before a layer goes: what is set in it is lost, and presses that switch to it go back.
+export function layerDelete(S, D, id) {
+  const cfg = S.current.cfg;
+  const name = LAYER_NAME(id);
+  const srcs = new Set();
+  for (const m of cfg.layers.find((l) => l.layer_id === id)?.mappings ?? []) if (!m.identity) srcs.add(m.source);
+  for (const k of D.pendingKeys(`map.${id}.`)) srcs.add(k.split(".").slice(2, -1).join("."));
+  const lost = [...srcs].map((src) => [src, buttonState(S, D, id, src)]).filter(([, st]) => st.changed);
+  const ways = layerWays(S, D, id);
+  const row = ([src, st]) => `<div class="list-row" style="gap:12px;min-height:56px"><span class="keytag${st.pend ? " pending" : ""}">${nameHtml(btnName(src))}</span><span style="font-weight:700" class="${st.pend ? "pending" : ""}">${nameHtml(st.value)}</span></div>`;
+  return `<div class="state fail"><h2 id="sheet-title">ลบ ${name}?</h2>
+    <p class="meta" style="font-size:14px;margin:6px 0 0">ยังไม่ลบบนจอย จนกว่าจะกดเขียนลงจอย</p>
+    <div style="margin-top:28px">
+      <p class="meta" style="font-weight:700;margin:0 0 8px">${lost.length ? `ปุ่มที่ตั้งไว้ใน ${name} จะหายไป · ${lost.length} ปุ่ม` : `${name} ยังไม่มีปุ่มที่ตั้งไว้`}</p>
+      ${lost.length ? `<div style="border-top:1px solid var(--hairline)">${lost.map(row).join("")}</div>` : ""}
+      <p class="meta" style="margin:14px 0 0;line-height:20px">${ways.length ? `ปุ่มที่พาเข้า ${name} จะกลับเป็นค่าเดิม: ${nameHtml(ways.join(", "))}` : `ไม่มีปุ่มไหนพาเข้า ${name} จึงไม่มีปุ่มอื่นเปลี่ยน`}</p>
+    </div>
+    <div class="d-actions"><button class="link" style="font-size:17px" data-act="close-sheet">ยกเลิก</button>
+      <button class="btn danger" data-act="layer-delete" data-layer="${id}">ลบ ${name}</button></div></div>`;
 }
 
 const OUT_KEYS = ["A", "B", "X", "Y", "LB", "RB", "LT (active)", "RT (active)", "LS", "RS", "Back", "Start", "D-pad ↑", "D-pad ↓", "D-pad ←", "D-pad →", "M1", "M2", "M3", "M4", "M5", "M6"];
@@ -536,26 +587,22 @@ function buttonEditor(S, D) {
   const press = ui.press;
   const pend = PRESS.some((p) => D.has(mapKey(layer, src, p.id)));
   // Factory default: a normal press sends the button itself, with no long or double press.
-  const isFactory = isIdentity(D.get(mapKey(layer, src, "simple")), src) && PRESS.slice(1).every((p) => D.get(mapKey(layer, src, p.id)) === undefined);
+  const isFactory = isIdentity(shownTarget(D, layer, src, "simple"), src) && PRESS.slice(1).every((p) => shownTarget(D, layer, src, p.id) === undefined);
   const base = baseTarget(cfg, layer, src, "simple");
   // Variant B: every layer side by side. A cell is one layer × one kind of press, and the cell you
   // click is what the controls below edit, so the layer is chosen on every edit.
-  const cols = layerList(S, D);
-  const head = cols.map((l) => {
-    const act = l.id === 0 ? ""
-      : l.deleted ? `<button class="link" data-act="layer-undelete" data-layer="${l.id}">ยกเลิกการลบ</button>`
-      : `<button class="link muted" data-act="layer-delete" data-layer="${l.id}">${l.isNew ? "เอาออก" : "ลบ"}</button>`;
-    return `<span class="mx-h${l.deleted ? " gone" : ""}"><b>${LAYER_NAME(l.id)}</b>${act}</span>`;
-  }).join("");
+  // Adding and deleting layers is on the layer rows under the photo (changedList).
+  const cols = liveLayers(S, D);
+  const head = cols.map((l) => `<span class="mx-h"><b>${LAYER_NAME(l.id)}</b></span>`).join("");
   const cells = PRESS.map((p) => `<span class="mx-k">${p.label}</span>${cols.map((l) => {
     const k = mapKey(l.id, src, p.id);
-    const v = D.get(k);
+    const v = shownTarget(D, l.id, src, p.id);
     const on = layer === l.id && press === p.id;
-    return `<button class="mx-c${on ? " on" : ""}${D.has(k) ? " pending" : ""}${v === undefined ? " unset" : ""}" data-act="cell" data-layer="${l.id}" data-press="${p.id}" ${l.deleted ? "disabled" : ""} aria-label="${esc(`${LAYER_NAME(l.id)} · ${p.label}: ${labelTarget(v, cfg)}`)}">${nameHtml(labelTarget(v, cfg))}</button>`;
+    return `<button class="mx-c${on ? " on" : ""}${D.has(k) ? " pending" : ""}${v === undefined ? " unset" : ""}" data-act="cell" data-layer="${l.id}" data-press="${p.id}" aria-label="${esc(`${LAYER_NAME(l.id)} · ${p.label}: ${labelTarget(v, cfg)}`)}">${nameHtml(labelTarget(v, cfg))}</button>`;
   }).join("")}`).join("");
   const rows = `<div class="mx" style="grid-template-columns:96px repeat(${cols.length}, minmax(0, 1fr))"><span class="mx-k"></span>${head}${cells}</div>`;
   const k = mapKey(layer, src, press);
-  const cur = D.get(k);
+  const cur = shownTarget(D, layer, src, press);
   const type = ui.outType ?? typeOf(cur);
   const pl = PRESS.find((p) => p.id === press).label;
   const types = [...OUT_TYPES, ...(press !== "simple" ? [{ id: "unset", label: "ไม่ใช้" }] : [])]

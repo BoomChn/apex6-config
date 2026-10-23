@@ -1124,3 +1124,44 @@ console.log("keyboard ok");
   assert.equal(hwTested("runtime.long", { type: "btn_keyboard" }), false, "only button presses go by type");
 }
 console.log("hw tested ok");
+
+// Deleting a layer (owner, 2026-10-23): asked first, then the layer is gone from the page, with what
+// was set in it, and a press that switched to it shows what the write leaves (dropActivators).
+{
+  const V = await import("./views.js");
+  const { Drafts, layerKey } = await import("./model.js");
+  const hold1 = { type: "layer_hold", layer: 1 };
+  const cfg = {
+    name: "", links: {}, macro_names: [], runtime: { long_press_ms: 300, double_press_ms: 400 },
+    layers: [
+      { layer_id: 0, macros: [], mappings: [
+        { source: "M3", identity: false, activators: [{ type: "simple", target: hold1 }] },
+        { source: "M4", identity: false, activators: [{ type: "timing_single", target: { type: "btn_gamepad", button: "M4" } }, { type: "timing_long", target: hold1 }, { type: "timing_double", target: { type: "btn_gamepad", button: "A" } }] },
+      ] },
+      { layer_id: 1, macros: [], mappings: [{ source: "RB", identity: false, activators: [{ type: "simple", target: { type: "btn_gamepad", button: "LB" } }] }] },
+    ],
+  };
+  const S = { current: { cfg, slot: 0 }, ui: { layer: 0, sel: "M3", press: "simple", dpad: "D-pad ↑", layerMenu: null }, lib: { list: () => [], get: () => null }, plan: null, slots: { activeSlot: 0 } };
+  const D = new Drafts(S);
+  const ask = V.layerDelete(S, D, 1);
+  assert.match(ask, /ลบ Shift layer\?/);
+  assert.match(ask, /จะหายไป · 1 ปุ่ม/);
+  assert.match(ask, /กด M3 ค้างไว้/, "the confirm names the presses that switch to it");
+  let page = V.buttons(S, D);
+  assert.match(page, /data-act="layer-menu" data-layer="1"/, "a ⋯ menu on the Shift row");
+  assert.doesNotMatch(page, /data-act="layer-menu" data-layer="0"/, "Base can't be deleted");
+  assert.match(page, /เพิ่มได้อีก 2 layer/);
+  D.set(layerKey(1, "delete"), true);
+  page = V.buttons(S, D);
+  assert.doesNotMatch(page, /<b>Shift layer<\/b>|data-layer="1"/, "a deleted layer is gone from the page");
+  assert.match(page, /aria-label="Base layer · กดปกติ: M3"/, "presses that switched to it show what the write leaves");
+  assert.match(page, /ค่าบนจอย: กดค้างเข้า Shift layer/, "the controller still holds it until the write");
+  assert.doesNotMatch(page, /data-act="pick-src" data-src="M3"/, "M3 ends up default, so it leaves the changed list");
+  assert.match(page, /data-act="pick-src" data-src="M4"/, "M4 keeps its double press");
+  assert.match(page, /เพิ่มได้อีก 2 layer · ที่ลบไว้จะว่างหลังเขียนลงจอย/, "its id is taken until the write");
+  S.ui.sel = "M4";
+  page = V.buttons(S, D);
+  assert.match(page, /aria-label="Base layer · กดค้าง: ยังไม่กำหนด"/, "the long press to the gone layer is dropped");
+  assert.match(page, /aria-label="Base layer · ดับเบิลคลิก: A"/, "the other presses stay");
+}
+console.log("layer delete ok");
