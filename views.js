@@ -1248,7 +1248,7 @@ export function lighting(S, D) {
         ${note}${picker}
         ${lit ? `<div style="margin-top:24px">${slider("led.bright", "ความสว่าง", D, { min: 0, max: 100, fmt: (v) => `${v}%`, tag: false })}</div>` : ""}
         ${lit && hasSpeed(mode) && mode !== "default" ? `<div style="margin-top:20px">${slider("led.speed", "ความเร็ว", D, { min: SPEED_MIN, max: SPEED_MAX, fmt: (v) => `ระดับ ${v}`, tag: false })}</div>` : ""}
-        ${lit ? `<div style="margin-top:20px">${check("led.vibration", "ไฟกระพริบตามแรงสั่นของจอย", D)}</div>` : ""}
+        ${lit ? `<div style="margin-top:20px;display:flex;align-items:center;gap:12px">${check("led.vibration", "ไฟกระพริบตามแรงสั่นของจอย", D)}${untested("led.vibration")}</div>` : ""}
         ${ok ? `<p class="meta" style="margin-top:16px">กดเขียนลงจอยแล้วไฟจะเปลี่ยนทันที · ภาพจอยด้านซ้ายเป็นแค่ตัวอย่างสี</p>` : ""}
       </section>
       <section style="margin-top:40px">
