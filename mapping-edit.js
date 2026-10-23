@@ -229,6 +229,10 @@ export const HW_TESTED = new Set([
   "trigger.left.start", "trigger.right.start", "trigger.left.end", "trigger.right.end",
   // Right stick + "hold LT" confirmed in joy.cpl; the other modes write the same byte.
   "gyro.mode",
+  // Lighting (RAM 0x04), owner 2026-10-23: solid red at 100%, breathing with 2 colors at speed 2
+  // and 9, off, and each slot keeping its own light across a switch. The other modes write the same
+  // bytes. Vibration sync not tried yet.
+  "led.mode", "led.color", "led.colors", "led.bright", "led.speed",
 ]);
 
 // Returns a new wrapped buffer with the given edits applied and the CRC16 updated.
