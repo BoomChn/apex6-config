@@ -9,6 +9,7 @@
   --cobalt: #2140d9;
   --cobalt-tint: #edf0fc;
   --cobalt-faint: #f5f7fe;
+  --marker: #ffe14a;
   --ok: #1a7a43;
   --error: #c0262d;
   --warn: #9a4a06;
@@ -295,6 +296,13 @@ select.field { appearance: none; padding-right: 36px; background: #fff url("data
 .co:focus { outline: none; }
 .co:focus-visible .ring { stroke: var(--cobalt); stroke-width: 2; }
 .co.nomap .val { fill: var(--ink-3); }
+/* Mapped (not the default in some layer): a highlighter mark, like a pen on a printed manual.
+   Yellow says "changed"; blue still says "not written yet", so the two read together. */
+.co .mark { fill: var(--marker); fill-opacity: 0.8; stroke: var(--ink); stroke-width: 1; }
+.co .mk-bg { fill: var(--marker); }
+.co.mapped .val { fill: var(--ink); font-weight: 700; }
+.co.mapped.pend .val, .co.mapped.sel .val { fill: var(--cobalt); }
+.marker-key { padding: 0 4px; border-radius: 2px; background: var(--marker); color: var(--ink); }
 /* Shoulder and back buttons on the front photo: dashed line, hollow point. */
 .co.behind .line { stroke-dasharray: 4 3; }
 .co.behind .pt { fill: #fff; stroke: var(--ink); stroke-width: 1.5; }

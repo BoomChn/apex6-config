@@ -94,6 +94,14 @@ function fitStages() {
   for (const svg of document.querySelectorAll(".stage svg[data-view]")) {
     const [x, y, w, h] = svg.dataset.view.split(/\s+/).map(Number);
     let extra = 0;
+    // A highlighter stroke behind each label of a mapped button; SVG text has no background.
+    for (const t of svg.querySelectorAll("text.mk")) {
+      const b = t.getBBox();
+      const r = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      r.setAttribute("class", "mk-bg");
+      for (const [k, v] of Object.entries({ x: b.x - 4, y: b.y - 1, width: b.width + 8, height: b.height + 2, rx: 2 })) r.setAttribute(k, v.toFixed(1));
+      t.before(r);
+    }
     for (const t of svg.querySelectorAll("text")) {
       const b = t.getBBox();
       extra = Math.max(extra, x - (b.x - 8), b.x + b.width + 8 - (x + w));
