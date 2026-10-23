@@ -38,7 +38,11 @@ const ICON = {
   bang: `<svg width="30" height="30" viewBox="0 0 30 30" aria-hidden="true"><circle cx="15" cy="15" r="15" fill="#C0262D"/><path d="M15 8v9" stroke="#fff" stroke-width="3" stroke-linecap="round"/><circle cx="15" cy="21.5" r="1.8" fill="#fff"/></svg>`,
   play: `<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 1l9 5-9 5z" fill="currentColor"/></svg>`,
   x: `<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.6"/></svg>`,
+  out: `<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M4 2h6v6M10 2L2 10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
 };
+
+// The screen image can only be uploaded from the official site (PROTOCOL.md "On-controller screen image").
+const SCREEN_URL = "https://space_station.flydigi.com/controller/screen";
 
 const UNSUP = `<span class="tag unsup">ยังเขียนลงจอยไม่ได้ · เก็บเป็นร่างในหน้านี้</span>`;
 // Writable, but only tried against the mock so far.
@@ -216,7 +220,7 @@ export function profiles(S, D) {
   const renamePending = D.pendingKeys("slot.").length;
   return `${head("Profiles", "4 slot บนตัวจอย แก้ที่ slot ตรงๆ · คลังเก็บสำเนาไว้ใส่ slot ไหนก็ได้ ใส่แล้วไม่สร้างของซ้ำ")}
   <div class="split wide-right l640" style="grid-template-columns:minmax(0,640px) minmax(0,1fr)">
-    <div>${frontFigure(S, D, { screen: `แสดงชื่อ slot ที่ใช้อยู่: ${slotName(S, D, active)}`, screenSub: "เขียนชื่อลงจอได้ไหม ยังไม่ยืนยัน", ...ledCallout(S, D) })}</div>
+    <div>${frontFigure(S, D, ledCallout(S, D))}</div>
     <div>
       <div class="rule-head" style="display:grid;grid-template-columns:112px 1fr auto"><span class="label">Slot</span><span class="label">ชื่อและสิ่งที่ตั้งไว้</span><span class="label">จัดการ</span></div>
       ${rows}
@@ -295,7 +299,9 @@ function slotSummary(cfg) {
 }
 
 // Front photo with the on-controller screen and LED callouts (Profiles, Lighting).
-function frontFigure(S, D, { screen, screenSub, led = null, ledLabel = "ไฟ RGB", ledValue = "ค่าบนจอยยังอ่านไม่ได้", ledPending = false }) {
+// The screen sits in the silver plate under the logo (photo coordinates).
+const SCREEN_X = 796;
+function frontFigure(S, D, { led = null, ledLabel = "ไฟ RGB", ledValue = "ค่าบนจอยยังอ่านไม่ได้", ledPending = false }) {
   const color = led?.color;
   const bright = (led?.bright ?? 70) / 100;
   const glow = color
@@ -309,18 +315,18 @@ function frontFigure(S, D, { screen, screenSub, led = null, ledLabel = "ไฟ R
       <defs><filter id="ledglow" x="-20%" y="-60%" width="140%" height="220%"><feGaussianBlur stdDeviation="13"/></filter></defs>
       <image href="${PHOTO.front}" x="0" y="0" width="1600" height="1280"/>
       ${glow}
-      <path d="M320 640 V1300" stroke="#111" stroke-width="2" fill="none"/>
-      <circle cx="320" cy="640" r="7" fill="#111"/>
-      <circle cx="320" cy="1320" r="20" fill="#111"/><text x="320" y="1329" text-anchor="middle" fill="#fff" style="font:700 22px var(--mono)">1</text>
+      <path d="M${SCREEN_X} 350 V1300" stroke="#111" stroke-width="2" fill="none"/>
+      <circle cx="${SCREEN_X}" cy="350" r="7" fill="#111"/>
+      <circle cx="${SCREEN_X}" cy="1320" r="20" fill="#111"/><text x="${SCREEN_X}" y="1329" text-anchor="middle" fill="#fff" style="font:700 22px var(--mono)">1</text>
       <path d="M1000 786 V1300" stroke="${cob}" stroke-width="2" fill="none"/>
       <circle cx="1000" cy="786" r="7" fill="${cob}"/>
       <circle cx="1000" cy="1320" r="20" fill="${cob}"/><text x="1000" y="1329" text-anchor="middle" fill="#fff" style="font:700 22px var(--mono)">2</text>
     </svg>
     <div style="position:relative;height:84px;margin-top:-36px">
-      <div style="position:absolute;left:${((320 - 80) / 1440) * 100 - 1.4}%;top:0">
+      <div style="position:absolute;right:${100 - ((SCREEN_X - 80) / 1440) * 100 - 1.4}%;top:0;text-align:right">
         <div style="font-size:13px;font-weight:700;line-height:16px">จอบนตัวจอย</div>
-        <div style="font-size:15px;font-weight:600;line-height:20px">${esc(screen)}</div>
-        <div class="meta">${esc(screenSub)}</div>
+        <div style="font-size:15px;font-weight:600;line-height:20px">ภาพ GIF ภาพเดียว ใช้ทุก slot</div>
+        ${S.tab === "lighting" ? `<div class="meta">อัปโหลดที่เว็บทางการ</div>` : `<a class="link" style="font-size:13px" href="${SCREEN_URL}" target="_blank" rel="noopener">อัปโหลด GIF ที่เว็บทางการ ↗</a>`}
       </div>
       <div style="position:absolute;left:${((1000 - 80) / 1440) * 100 - 1.4}%;top:0" class="${ledPending ? "pending" : ""}">
         <div style="font-size:13px;font-weight:700;line-height:16px">${esc(ledLabel)}</div>
@@ -1307,7 +1313,7 @@ export function lighting(S, D) {
       : "";
   return `${head("Lighting & screen", `ไฟ RGB ของ Slot ${slot + 1} · สลับ slot แล้วไฟเปลี่ยนตาม · จอตั้งทั้งเครื่อง`)}
   <div class="split wide-right l740" style="grid-template-columns:minmax(0,740px) minmax(0,1fr)">
-    <div>${frontFigure(S, D, { screen: `ชื่อ slot และแบต`, screenSub: "รูปแบบจริงยังไม่ยืนยัน", ...ledCallout(S, D) })}</div>
+    <div>${frontFigure(S, D, ledCallout(S, D))}</div>
     <div>
       <section>
         <div class="rule-head"><h2>ไฟ RGB</h2><span class="meta" style="display:flex;align-items:center;gap:12px">แถบไฟใต้ตัวจอย · Slot ${slot + 1}${ok ? untested("led.mode") : ""}</span></div>
@@ -1319,13 +1325,14 @@ export function lighting(S, D) {
         ${ok ? `<p class="meta" style="margin-top:16px">กดเขียนลงจอยแล้วไฟจะเปลี่ยนทันที · ภาพจอยด้านซ้ายเป็นแค่ตัวอย่างสี</p>` : ""}
       </section>
       <section style="margin-top:40px">
-        <div class="rule-head"><h2>จอบนตัวจอย</h2><span class="meta">ตัวอย่าง · รูปแบบจริงยังไม่ยืนยัน</span></div>
-        <div style="display:grid;grid-template-columns:200px 1fr;gap:24px;margin-top:18px;align-items:center">
-          <div style="background:#111;color:#fff;padding:14px;height:64px;display:flex;flex-direction:column;justify-content:space-between">
-            <div style="display:flex;justify-content:space-between" class="mono small"><span>SLOT ${S.slots.activeSlot + 1}</span><span>${S.info ? `L${S.info.batteryLevel}` : ""}</span></div>
-            <b style="font-size:17px;line-height:20px">${esc(slotName(S, D, S.slots.activeSlot))}</b>
-          </div>
+        <div class="rule-head"><h2>จอบนตัวจอย</h2><span class="meta">ทั้งจอยใช้ภาพเดียว ทุก slot</span></div>
+        <div style="display:grid;grid-template-columns:128px 1fr;gap:24px;margin-top:18px;align-items:center">
+          <div style="background:#111;border-radius:4px;height:64px;display:flex;align-items:center;justify-content:center;color:#9a9a9a" class="mono small">160 × 80</div>
           ${slider("screen.bright", "ความสว่างจอ", D, { min: 0, max: 100, fmt: (v) => (v == null ? "ยังอ่านไม่ได้" : `${v}%`) })}
+        </div>
+        <div style="display:flex;align-items:center;gap:16px;margin-top:20px;flex-wrap:wrap">
+          <a class="btn" href="${SCREEN_URL}" target="_blank" rel="noopener" style="gap:8px;text-decoration:none">อัปโหลด GIF ที่เว็บทางการ ${ICON.out}</a>
+          <div class="meta">GIF, PNG, JPG · ตัดให้พอดีจอ 160×80 ที่นั่น<br>อัปโหลดแล้วค่าที่ตั้งในแอปนี้ไม่เปลี่ยน</div>
         </div>
         <div style="margin-top:20px"><div style="display:flex;align-items:baseline;margin-bottom:10px"><b>ปิดจออัตโนมัติหลัง</b>${unread(timeout)}</div>
           <div class="seg">${Object.entries(TIMEOUT).map(([v, l]) => `<button class="${String(timeout) === v ? "on" : ""}" data-act="set" data-key="screen.timeout" data-val="${v}" data-numval>${l}</button>`).join("")}</div></div>
