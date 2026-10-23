@@ -1,5 +1,7 @@
 // Renders a decoded mapping config (see mapping.js) as readable HTML.
 
+import { keyLabel } from "./keys.js";
+
 const pct = (v) => `${Math.round((v / 255) * 100)}%`;
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
@@ -66,7 +68,7 @@ function gyro(g) {
 export function targetLabel(t) {
   switch (t.type) {
     case "btn_gamepad": return t.button;
-    case "btn_keyboard": return `คีย์บอร์ด 0x${t.key.toString(16)}${t.modifier ? ` +mod 0x${t.modifier.toString(16)}` : ""}`;
+    case "btn_keyboard": return keyLabel(t.key, t.modifier);
     case "btn_mouse": return ["คลิกซ้าย", "คลิกขวา", "คลิกกลาง", "ปุ่มเมาส์ 4", "ปุ่มเมาส์ 5"][t.mouse] ?? `เมาส์ ${t.mouse}`;
     case "btn_consumer": return `มีเดีย 0x${t.consumer.toString(16)}`;
     case "turbo_gamepad": return `Turbo ${t.button} ทุก ${t.interval_ms}ms`;

@@ -1049,3 +1049,48 @@ console.log("lighting ok");
   assert.equal(normHex("#GGGGGG"), null);
 }
 console.log("custom colors ok");
+
+// Keyboard targets (PROTOCOL.md "Keyboard targets"): HID usage + modifier bits, a modifier alone is
+// key 0xFF. The capture box turns key events into these; checkProfile refuses what isn't a key.
+{
+  const { applyEdits, checkProfile, crc16: crc } = await import("./mapping-edit.js");
+  const { KEY_GROUPS, MOD_ONLY, keyOfCode, keyCaps, keyLabel, keyProblem, modsOfEvent, MOD_CODE } = await import("./keys.js");
+  const keys = KEY_GROUPS.flatMap((g) => g.keys);
+  assert.equal(new Set(keys.map((k) => k.key)).size, keys.length, "one entry per HID usage");
+  assert.equal(new Set(keys.map((k) => k.code)).size, keys.length, "one entry per event.code");
+  for (const k of keys) assert.equal(keyProblem(k.key, 0), null, k.label);
+  // Values from the official site's table.
+  assert.deepEqual(["KeyA", "KeyM", "KeyZ", "Digit1", "Digit0", "Enter", "Escape", "F1", "F12", "Space", "ArrowRight", "ArrowUp", "Numpad9"].map((c) => keyOfCode(c).key), [4, 16, 29, 30, 39, 40, 41, 58, 69, 44, 79, 82, 97]);
+  assert.equal(keyOfCode("PrintScreen"), null, "not in the official picker");
+  assert.equal(keyOfCode("ShiftLeft"), null, "modifiers are bits, not keys");
+  assert.equal(MOD_CODE.ShiftRight, 2, "right-hand modifiers are written as the left bit");
+  assert.equal(modsOfEvent({ ctrlKey: true, shiftKey: true }), 3);
+  assert.equal(keyLabel(16, 3), "Ctrl + Shift + M");
+  assert.deepEqual(keyCaps(MOD_ONLY, 4), ["Alt"]);
+  assert.deepEqual(keyCaps(0x46, 16), ["R Ctrl", "คีย์ 0x46"], "keys from elsewhere still show");
+
+  const at = (w) => decodeMapping(w).layers[0].mappings.find((m) => m.source === "M1").activators.find((a) => a.type === "simple").target;
+  const w = applyEdits(sample, { "map.0.M1.simple": { type: "btn_keyboard", key: 16, modifier: 3 } });
+  assert.deepEqual(at(w), { type: "btn_keyboard", key: 16, modifier: 3 });
+  checkProfile(w);
+  const alone = applyEdits(sample, { "map.0.M1.simple": { type: "btn_keyboard", key: MOD_ONLY, modifier: 2 } });
+  assert.deepEqual(at(alone), { type: "btn_keyboard", key: 0xff, modifier: 2 });
+  checkProfile(alone);
+  // Find the key byte by comparing two keys, then poke it (and the modifier) to what the firmware can't use.
+  const w2 = applyEdits(sample, { "map.0.M1.simple": { type: "btn_keyboard", key: 17, modifier: 3 } });
+  const ki = w.findIndex((x, i) => i > 3 && x !== w2[i]);
+  const poke = (key, mod) => {
+    const b = w.slice();
+    b[ki] = key;
+    b[ki + 1] = mod;
+    const c = crc(b.subarray(4));
+    b[2] = c & 255; b[3] = c >> 8;
+    return b;
+  };
+  checkProfile(poke(0xe7, 0));
+  assert.throws(() => checkProfile(poke(0xff, 0)), /ไม่เขียนลงจอย: ปุ่ม M1 ใน Base layer: คีย์ 0xFF ต้องมี/);
+  assert.throws(() => checkProfile(poke(0, 1)), /ไม่ใช่คีย์บอร์ด/);
+  assert.throws(() => checkProfile(poke(3, 0)), /ไม่ใช่คีย์บอร์ด/);
+  assert.throws(() => checkProfile(poke(0xe8, 0)), /ไม่ใช่คีย์บอร์ด/);
+}
+console.log("keyboard ok");
