@@ -91,7 +91,7 @@ export function stageSvg(def, items, { kind = "back", label = "" } = {}) {
       const lx = def.labelX[c.side], kx = def.keyX[c.side];
       const anchor = left ? "end" : "start";
       const text = def.inline
-        ? `<text x="${lx}" y="${c.y + 4.5}" text-anchor="${anchor}"><tspan class="name">${esc(it.name)}</tspan><tspan class="val" dx="6">${esc(it.value)}</tspan></text>`
+        ? `<text x="${lx}" y="${c.y + 4.5}" text-anchor="${anchor}"><tspan class="name">${esc(it.name)}</tspan><tspan class="val" dx="6">${esc(it.value)}</tspan>${it.extra ? `<tspan class="extra" dx="6">· ${esc(it.extra)}</tspan>` : ""}</text>`
         : `<text class="name" x="${lx}" y="${c.y - 6}" text-anchor="${anchor}">${esc(it.name)}</text>
            <text class="val" x="${lx}" y="${c.y + 13}" text-anchor="${anchor}">${esc(it.value)}</text>`;
       const hitX = left ? 0 : kx - 12, hitW = left ? kx + 12 : 900 - (kx - 12);
