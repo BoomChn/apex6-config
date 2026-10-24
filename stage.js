@@ -82,7 +82,8 @@ export const ALL = {
 };
 
 // items: { [id]: { name, value, state: "default"|"set"|"pend"|"nomap", sel, mapped, anyMapped, extra } }
-export function stageSvg(def, items, { kind = "back", label = "" } = {}) {
+// room: label space kept on each side on a wide screen, in viewBox units (fitStages in app.js).
+export function stageSvg(def, items, { kind = "back", label = "", room = 0 } = {}) {
   let n = 0;
   // A callout with lines under it (other layers) pushes the callouts below it down, so lines never
   // run into the next label. A moved leader keeps its shape from the new height and angles into
@@ -109,7 +110,9 @@ export function stageSvg(def, items, { kind = "back", label = "" } = {}) {
       const lx = def.labelX[c.side], kx = def.keyX[c.side];
       const anchor = left ? "end" : "start";
       const text = def.inline
-        ? `<text${it.mapped ? ' class="mk"' : ""} x="${lx}" y="${c.y + 4.5}" text-anchor="${anchor}"><tspan class="name">${svgName(it.name)}</tspan><tspan class="val" dx="6">${svgName(it.value)}</tspan></text>${(it.extra ?? []).map((x, i) => `<text class="extra${x.pend ? " pend" : ""}${x.mapped ? " mk" : ""}" x="${lx}" y="${c.y + 4.5 + 15 * (i + 1)}" text-anchor="${anchor}"><tspan class="xn">${esc(x.name)}</tspan><tspan class="xv" dx="5">${svgName(x.value)}</tspan></text>`).join("")}`
+        ? `${(it.ghosts ?? []).map((g) => typeof g === "string"
+            ? `<text class="ghost" aria-hidden="true" x="${lx}" y="${c.y + 4.5}" text-anchor="${anchor}"><tspan class="name">${svgName(it.name)}</tspan><tspan class="val" dx="6">${svgName(g)}</tspan></text>`
+            : `<text class="ghost extra" aria-hidden="true" x="${lx}" y="${c.y + 19.5}" text-anchor="${anchor}"><tspan class="xn">${esc(g.name)}</tspan><tspan class="xv" dx="5">${svgName(g.value)}</tspan></text>`).join("")}<text${it.mapped ? ' class="mk"' : ""} x="${lx}" y="${c.y + 4.5}" text-anchor="${anchor}"><tspan class="name">${svgName(it.name)}</tspan><tspan class="val" dx="6">${svgName(it.value)}</tspan></text>${(it.extra ?? []).map((x, i) => `<text class="extra${x.pend ? " pend" : ""}${x.mapped ? " mk" : ""}" x="${lx}" y="${c.y + 4.5 + 15 * (i + 1)}" text-anchor="${anchor}"><tspan class="xn">${esc(x.name)}</tspan><tspan class="xv" dx="5">${svgName(x.value)}</tspan></text>`).join("")}`
         : `<text class="name" x="${lx}" y="${c.y - 6}" text-anchor="${anchor}">${svgName(it.name)}</text>
            <text class="val" x="${lx}" y="${c.y + 13}" text-anchor="${anchor}">${svgName(it.value)}</text>`;
       const hitX = left ? 0 : kx - 12, hitW = left ? kx + 12 : 900 - (kx - 12);
@@ -127,7 +130,7 @@ export function stageSvg(def, items, { kind = "back", label = "" } = {}) {
     })
     .join("");
   const { x, y, w, h } = def.img;
-  return `<div class="stage"><svg viewBox="${def.view}" data-view="${def.view}" role="group" aria-label="${esc(label || (kind === "back" ? "ภาพจอยด้านหลัง" : "ภาพจอยด้านหน้า"))}">
+  return `<div class="stage"><svg viewBox="${def.view}" data-view="${def.view}"${room ? ` data-room="${room}"` : ""} role="group" aria-label="${esc(label || (kind === "back" ? "ภาพจอยด้านหลัง" : "ภาพจอยด้านหน้า"))}">
     <image href="${kind === "back" ? PHOTO.back : PHOTO.front}" x="${x}" y="${y}" width="${w}" height="${h}" preserveAspectRatio="xMidYMid meet"/>
     ${groups}
   </svg></div>`;

@@ -205,7 +205,8 @@ button.row.sel .k { color: var(--cobalt); font-weight: 700; }
 .layer-group .lg-title .icon-btn.sm { width: 28px; height: 28px; flex-shrink: 0; color: var(--ink-3); }
 .layer-group .lg-title .icon-btn.sm:hover { color: var(--ink); }
 .layer-group .lg-how { padding-left: 8px; font-size: 12px; font-weight: 500; line-height: 16px; color: var(--ink-2); }
-.layer-group .lg-items { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 0; flex: 1; min-height: 32px; }
+/* Mapped names get room: columns of at least 260px share the row, so long macro names rarely wrap. */
+.layer-group .lg-items { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); align-items: center; gap: 12px 16px; flex: 1; min-width: 0; min-height: 32px; }
 .layer-group .lg-none { font-size: 13px; font-weight: 500; color: var(--ink-3); }
 .layer-group .lg-act { width: 32px; flex-shrink: 0; align-self: center; }
 .lg-foot { display: flex; align-items: baseline; gap: 12px; padding: 14px 0 0 8px; font-size: 13px; }
@@ -366,6 +367,9 @@ select.field { appearance: none; padding-right: 36px; background: #fff url("data
    Yellow says "changed"; blue still says "not written yet", so the two read together. */
 .co .mark { fill: var(--marker); fill-opacity: 0.8; stroke: var(--ink); stroke-width: 1; }
 .co .mk-bg { fill: var(--marker); }
+/* Labels of the other layers: measured for the stage width, never drawn. Bold, the widest case. */
+.co .ghost { visibility: hidden; pointer-events: none; }
+.co .ghost .val { font-weight: 700; }
 .co.mapped .val { fill: var(--ink); font-weight: 700; }
 .co.mapped.pend .val, .co.mapped.sel .val { fill: var(--cobalt); }
 .marker-key { padding: 0 4px; border-radius: 2px; background: var(--marker); color: var(--ink); }

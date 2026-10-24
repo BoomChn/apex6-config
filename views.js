@@ -455,11 +455,16 @@ export function buttons(S, D) {
     const extra = others.map(([l, s]) => ({ name: LAYER_NAME(l).replace(/ layer$/, ""), value: s.value, pend: s.pend, mapped: s.changed }));
     const pend = st.pend || others.some(([, s]) => s.pend);
     // mapped: not the default in some layer, on the controller or still a draft. Marked yellow.
-    items[id] = { name, value: st.value, extra, mapped: st.changed, anyMapped: st.changed || others.some(([, s]) => s.changed), state: pend ? "pend" : st.changed || others.length ? "set" : "", sel: ui.sel === src || (id === "DPAD" && ui.sel?.startsWith("D-pad")) };
+    // Every layer's label, measured but not drawn (stage.js ghosts), so the stage is as wide for one
+    // layer as for another and switching the focused layer doesn't move the page (owner, 2026-10-24).
+    // Both forms: the label itself, and the small line under Base's label when nothing is focused.
+    const states = live.map((l) => [l, buttonState(S, D, l, src)]);
+    const ghosts = [...states.map(([, s]) => s.value), ...states.filter(([l]) => l !== 0).map(([l, s]) => ({ name: LAYER_NAME(l).replace(/ layer$/, ""), value: s.value }))];
+    items[id] = { name, value: st.value, extra, ghosts, mapped: st.changed, anyMapped: st.changed || others.some(([, s]) => s.changed), state: pend ? "pend" : st.changed || others.length ? "set" : "", sel: ui.sel === src || (id === "DPAD" && ui.sel?.startsWith("D-pad")) };
   }
   return `<div class="split">
     <div>
-      ${stageSvg(def, items, { kind: "front" })}
+      ${stageSvg(def, items, { kind: "front", room: BUTTONS_ROOM })}
       ${changedList(S, D)}
     </div>
     <div class="btn-panel">${ui.sel ? buttonEditor(S, D) : overview(S, D, items)}${timing(S, D)}</div>
@@ -468,6 +473,10 @@ export function buttons(S, D) {
 
 // No button picked (a click on empty space or Esc lets go): every button of the slot in every
 // layer, numbered like the photo. A row picks its button.
+// Room for callout labels on each side of the Buttons photo on a wide screen, in photo units (the
+// photo is 900 wide): long macro and key names fit without widening the page (owner, 2026-10-24).
+const BUTTONS_ROOM = 200;
+
 function overview(S, D, items) {
   const cols = shownLayers(S, D);
   const f = focusOf(S, D);
@@ -518,7 +527,7 @@ function changedList(S, D) {
     const st = buttonState(S, D, layer, src);
     // On the controller but back to its default once the write drops a switch to a deleted layer.
     if (!st.changed && !st.pend) continue;
-    groups.get(layer).push(`<button class="list-row" style="border:0;background:none;padding:0;text-align:left;width:220px;gap:12px" data-act="pick-src" data-src="${esc(src)}" data-layer="${layer}">
+    groups.get(layer).push(`<button class="list-row" style="border:0;background:none;padding:0;text-align:left;gap:12px" data-act="pick-src" data-src="${esc(src)}" data-layer="${layer}">
         <span class="keytag${st.pend ? " pending" : ""}${st.pend && S.ui.sel === src && S.ui.layer === layer ? " fill" : ""}">${nameHtml(btnName(src))}</span>
         <span style="font-weight:700" class="${st.pend ? "pending" : ""}">${nameHtml(st.value)}</span>
       </button>`);
