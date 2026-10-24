@@ -8,7 +8,7 @@ import {
   layerList, layerSwitches, baseSwitches, layerKey, meta, gripPart, lraGrip, MACRO_PAD, NOT_ON_PAD,
 } from "./model.js";
 import { BUTTONS, decodeMapping } from "./mapping.js";
-import { isWritable, HW_TESTED, hwTested, LAYER_MAX, NAME_MAX, nameBytes, MACRO_MAX, gyroPct, GYRO_MIDS_MAX, VIB_LEVELS, gripEndY, motorMode, FEEDBACK_MODE } from "./mapping-edit.js";
+import { isWritable, HW_TESTED, hwTested, LAYER_MAX, NAME_MAX, nameBytes, MACRO_MAX, gyroPct, gyroSimple, GYRO_MIDS_MAX, VIB_LEVELS, gripEndY, motorMode, FEEDBACK_MODE } from "./mapping-edit.js";
 import { fit, APP_NAME_MAX } from "./names.js";
 import { slotsOf, crcOf } from "./profiles.js";
 import { DEFAULT_PROFILE } from "./defaults.js";
@@ -1301,18 +1301,72 @@ function gyroSettings(S, D, g, modes, sel) {
     ${acts.length > 2 ? hint(`โปรไฟล์นี้มีปุ่มเปิดเพิ่มอีก: ${esc(acts.slice(2).map((a) => btnName(a.button)).join(", "))} (คงไว้ตามเดิม)`) : ""}`,
     { tag: untested("gyro.mode") });
 
-  // 2. Which motion aims where (not on the official page; it resets these on a mode change).
-  const g2 = group(2, "เล็งด้วยท่าไหน", "Axis", `ท่าไหนพาเป้าไปซ้าย–ขวา ท่าไหนพาไปบน–ล่าง · ปกติไม่ต้องแก้${off ? " · มีผลเมื่อเปิด gyro" : ""}`,
-    `<div style="display:grid;gap:16px">
+  // 2. Which motion turns left and right, as Steam's Turn Axis: yaw (steering wheel) or roll, with
+  // pitch aiming up and down. Axes set any other way (or "ตั้งแกนเอง") get the full selects, so
+  // nothing on the controller is hidden.
+  const ax = D.get("gyro.axisX");
+  const pax = D.has("gyro.axisX");
+  const plain = D.get("gyro.axisY") === "imu_y" && (ax === "imu_x" || ax === "imu_z") && !S.ui.gyroAxes;
+  const turn = [["imu_x", "หมุนแบบพวงมาลัย", "Yaw · ค่าเริ่มของ Steam"], ["imu_z", "เอียงซ้าย–ขวา", "Roll · ถือจอยตั้งตรง"]]
+    .map(([id, l, en]) => {
+      const on = ax === id;
+      return `<button class="utab big${on ? " on" : ""}${on && pax ? " pending" : ""}" data-act="set" data-key="gyro.axisX" data-val="${id}" style="${on && pax ? "color:var(--cobalt)" : ""}">${l}<small class="${on && pax ? "pending" : ""}">${en}</small></button>`;
+    })
+    .join("");
+  const g2 = group(2, "หันซ้าย–ขวาด้วยท่าไหน", "Turn Axis", `ก้ม–เงยจอย = เล็งบน–ล่าง · เลือกท่าที่ใช้หันซ้าย–ขวา${off ? " · มีผลเมื่อเปิด gyro" : ""}`,
+    `${plain ? `<div class="utabs" style="gap:28px">${turn}</div>` : `<div style="display:grid;gap:16px">
       <label><span class="slider-head"><b>เล็งซ้าย–ขวาด้วย</b></span><span style="display:block;margin-top:8px">${sel("gyro.axisX", AXIS)}</span></label>
-      <label><span class="slider-head"><b>เล็งบน–ล่างด้วย</b></span><span style="display:block;margin-top:8px">${sel("gyro.axisY", AXIS)}</span></label>
-      <div><b>กลับทิศ <span class="meta" style="font-weight:400">Direction Inversion</span></b>
-        <div class="checks" style="margin-top:10px">${check("gyro.invertX", "กลับซ้าย–ขวา", D)}${check("gyro.invertY", "กลับบน–ล่าง", D)}</div></div></div>`,
+      <label><span class="slider-head"><b>เล็งบน–ล่างด้วย</b></span><span style="display:block;margin-top:8px">${sel("gyro.axisY", AXIS)}</span></label></div>`}
+    <div class="checks" style="margin-top:16px">${check("gyro.invertX", "กลับซ้าย–ขวา", D)}${check("gyro.invertY", "กลับบน–ล่าง", D)}</div>
+    ${plain ? `<p style="margin:12px 0 0"><button class="link" data-act="gyro-axes">ตั้งแกนเอง</button></p>` : ""}`,
     { fold: foldIf("gyro.axisX", "gyro.axisY", "gyro.invertX", "gyro.invertY"), tag: untested("gyro.axisX") });
 
-  // 3. The response curve, as on the official Advanced page.
+  // 3. The response: simple controls (Steam-like) that build the curve, or the curve itself as on
+  // the official Advanced page. Opens on the curve when it was bent in a way the simple controls can't make.
   const c = D.get("gyro.curve");
   const pc = D.has("gyro.curve");
+  const simple = gyroSimple(c, mode);
+  const adv = S.ui.gyroAdv ?? simple.accel == null;
+  const tabs = `<div class="utabs">${[[false, "แบบง่าย"], [true, "ดัดกราฟเอง"]].map(([v, l]) => `<button class="utab${adv === v ? " on" : ""}" data-act="gyro-view" data-val="${v ? 1 : 0}">${l}</button>`).join("")}</div>`;
+  const g3 = group(3, "การตอบสนอง", "Response", `เอียงจอยเร็วแค่ไหน แล้วเป้าไปเร็วแค่ไหน${off ? " · มีผลเมื่อเปิด gyro" : ""}`,
+    tabs + (adv ? gyroCurveEditor(c, pc, mode, sub, hint) : gyroSimpleEditor(c, pc, mode, simple, hint)),
+    { fold: foldIf("gyro.curve"), tag: untested("gyro.curve") });
+
+  // 4. Mouse mode only.
+  const g4 = mode === "mouse" || g.mode === "mouse"
+    ? group(4, "โหมดเมาส์", "Mouse", "ใช้เฉพาะตอน gyro ทำหน้าที่เป็นเมาส์",
+        `${slider("gyro.mouseRadius", "Deadzone เมาส์", D, { min: 0, max: 100, fmt: (v) => `${v}%`, tag: false })}
+        ${hint("Mouse Dead Zone ในเว็บ Flydigi · ปรับช่วงที่เมาส์ตอบสนอง")}`, { tag: untested("gyro.mouseRadius") })
+    : "";
+  const steam = `<section style="margin-top:40px;border-top:1px solid var(--hairline);padding-top:16px">
+    <p class="meta" style="margin:0"><b>ที่ Steam มี แต่จอยนี้ไม่มีที่เก็บค่า</b></p>
+    <p class="meta" style="margin:4px 0 0;line-height:20px">ความไวแยกแนวนอน/แนวตั้ง · Smoothing · Flick Stick · ปุ่มกดแล้ว gyro หยุด · Player/World Space</p></section>`;
+  return g1 + g2 + g3 + g4 + steam;
+}
+
+// Simple controls: each one rebuilds the whole curve (gyroFromSimple in app.js); the chart only shows it.
+function gyroSimpleEditor(c, pc, mode, v, hint) {
+  const row = (part, label, en, note, val, extra = "") => `<div class="slider" style="margin-top:20px"><div class="slider-head"><span><b>${label}</b> <span class="meta">${en}</span></span><span class="num${pc ? " pending" : ""}">${val}%</span></div>
+      <p class="meta" style="margin:2px 0 8px;line-height:20px">${note}</p>
+      <input type="range" min="0" max="100" value="${val}" data-gsimple="${part}" class="${pc ? "pending" : ""}" style="--p:${val}%" aria-label="${label}">${extra}</div>`;
+  const ends = `<div class="meta" style="display:flex;justify-content:space-between;margin-top:4px"><span>ช้า เล็งละเอียด</span><span>ไว หันตัวเร็ว</span></div>`;
+  const accel = [["ปิด", 0], ["น้อย", 1], ["กลาง", 2], ["มาก", 3]]
+    .map(([l, a]) => `<button class="${v.accel === a ? "on" : ""}" data-act="gyro-accel" data-val="${a}" style="flex:1${v.accel === a && pc ? ";background:var(--cobalt)" : ""}">${l}</button>`)
+    .join("");
+  return `${row("sens", "ความไว", "Sensitivity", "ยิ่งมาก เอียงจอยนิดเดียวเป้าก็ไปไกล", v.sens, ends)}
+    ${row("dead", "กันมือสั่น", "Deadzone", "เอียงช้ากว่านี้เป้าไม่ขยับ · กันเป้าไหลตอนถือจอยนิ่ง", v.dead)}
+    <div style="margin-top:24px"><div class="slider-head"><span><b>เร่งเมื่อหมุนเร็ว</b> <span class="meta">Acceleration</span></span></div>
+      <p class="meta" style="margin:2px 0 8px;line-height:20px">หมุนช้า = เล็งละเอียด · สะบัดเร็ว = หันได้ไกลกว่าปกติ</p>
+      <div class="seg" style="display:flex">${accel}</div>
+      ${v.accel == null ? hint("กราฟนี้ดัดเองไว้ ไม่ตรงกับระดับไหน · ปรับค่าไหนในหน้านี้ กราฟจะกลายเป็นแบบหน้านี้") : ""}</div>
+    ${mode === "mouse" ? "" : row("max", "ความเร็วสูงสุด", "Maximum Output", "สะบัดแรงแค่ไหน เป้าก็ไม่เร็วเกินนี้ · ปกติไม่ต้องแก้", v.max)}
+    <div class="slider-head" style="margin-top:28px"><b>กราฟที่จะเขียนลงจอย</b><button class="link" data-act="gyro-view" data-val="1">ดัดกราฟเอง</button></div>
+    <div class="curve-box" data-gyro-preview style="margin-top:8px">${gyroChart(c, pc, true)}</div>
+    <div class="cap">แนวนอน = เอียงจอยเร็วแค่ไหน · แนวตั้ง = เป้าไปเร็วแค่ไหน · แอปแปลงค่าข้างบนเป็นกราฟนี้ให้เอง</div>`;
+}
+
+// The curve itself, as on the official Advanced page: drag points on the chart, or use the sliders.
+function gyroCurveEditor(c, pc, mode, sub, hint) {
   const curveSlider = (part, label, en, note) => {
     const p = gyroPct(c[part]);
     return `<div class="slider" style="margin-top:20px"><div class="slider-head"><span><b>${label}</b> <span class="meta">${en}</span></span><span class="num${pc ? " pending" : ""}">${p}%</span></div>
@@ -1326,8 +1380,7 @@ function gyroSettings(S, D, g, modes, sel) {
       <label class="meta">y <input class="field${pc ? " pending" : ""}" type="number" min="0" max="255" value="${m.y}" data-mid="${i}" data-axis="y" style="width:70px;height:40px" aria-label="จุดกลาง ${i + 1} y"></label>
       <button class="link" data-act="gyro-mid-del" data-i="${i}" aria-label="ลบจุดกลาง ${i + 1}">ลบ</button></div>`)
     .join("");
-  const g3 = group(3, "Response Curve", "", `หมุนจอยเร็วแค่ไหน (แนวนอน) แล้วสติ๊กไปแค่ไหน (แนวตั้ง)${off ? " · มีผลเมื่อเปิด gyro" : ""}`,
-    `<div class="curve-box" data-gyro-chart>${gyroChart(c, pc)}</div>
+  return `<div class="curve-box" data-gyro-chart style="margin-top:16px">${gyroChart(c, pc)}</div>
     <div class="cap">แนวนอน = ความเร็วที่หมุนจอย · แนวตั้ง = ค่าที่ส่งออก${mode === "mouse" ? " (ความเร็วเมาส์)" : " (ระยะสติ๊ก)"}</div>
     ${curveSlider("start_x", "Deadzone", "Curve Dead Zone", "หมุนช้ากว่านี้ไม่นับ กันเป้าไหลตอนวางจอยนิ่ง")}
     ${curveSlider("start_y", "ชดเชย Deadzone", "Dead Zone Compensation", "พอเริ่มนับ สติ๊กกระโดดไปที่ค่านี้ทันที ใช้ข้าม deadzone ของสติ๊กในเกม")}
@@ -1336,34 +1389,26 @@ function gyroSettings(S, D, g, modes, sel) {
     ${sub("จุดกลาง", `Midpoints ${c.mid_points.length}/${GYRO_MIDS_MAX}`)}
     ${mids || hint("ไม่มีจุดกลาง · เส้นตรงจากจุดเริ่มถึงจุดสุด")}
     <div style="display:flex;gap:20px;margin-top:12px">${c.mid_points.length < GYRO_MIDS_MAX ? `<button class="link" data-act="gyro-mid-add">+ เพิ่มจุด</button>` : ""}<button class="link" data-act="gyro-curve-reset">รีเซ็ตเป็นเส้นตรง</button></div>
-    ${hint("ลากจุดในกราฟได้ · กดบนเส้นเพื่อเพิ่มจุดกลาง · x, y เป็นค่า 0–255 แบบเดียวกับในเว็บ Flydigi")}`,
-    { fold: foldIf("gyro.curve"), tag: untested("gyro.curve") });
-
-  // 4. Mouse mode only.
-  const g4 = mode === "mouse" || g.mode === "mouse"
-    ? group(4, "โหมดเมาส์", "Mouse", "ใช้เฉพาะตอน gyro ทำหน้าที่เป็นเมาส์",
-        `${slider("gyro.mouseRadius", "Deadzone เมาส์", D, { min: 0, max: 100, fmt: (v) => `${v}%`, tag: false })}
-        ${hint("Mouse Dead Zone ในเว็บ Flydigi · ปรับช่วงที่เมาส์ตอบสนอง")}`, { tag: untested("gyro.mouseRadius") })
-    : "";
-  return g1 + g2 + g3 + g4;
+    ${hint("ลากจุดในกราฟได้ · กดบนเส้นเพื่อเพิ่มจุดกลาง · x, y เป็นค่า 0–255 แบบเดียวกับในเว็บ Flydigi")}`;
 }
 
 // The gyro curve chart. Points can be dragged and a click on the line adds a mid point, as on
 // the official Advanced page (app.js handles the pointer). Inputs are 0–255 on both axes.
-export function gyroChart(c, pending) {
+// readOnly: the simple tab's preview, no handles.
+export function gyroChart(c, pending, readOnly = false) {
   const S = 300;
   const X = (x) => ((x / 255) * S).toFixed(1), Y = (y) => (S - (y / 255) * S).toFixed(1);
   const ink = pending ? "#2140D9" : "#111111";
   const pts = [["start", c.start_x, c.start_y], ...c.mid_points.map((m, i) => [`mid${i}`, m.x, m.y]), ["end", c.end_x, c.end_y]];
   const line = [[0, 0], ...pts.map(([, x, y]) => [x, y]), [255, c.end_y]].map(([x, y]) => `${X(x)},${Y(y)}`).join(" ");
-  const full = c.mid_points.length >= GYRO_MIDS_MAX;
-  return `<svg viewBox="-14 -14 ${S + 28} ${S + 28}" style="touch-action:none;cursor:${full ? "default" : "copy"}" aria-label="กราฟ Response Curve ลากจุดได้">
+  const full = readOnly || c.mid_points.length >= GYRO_MIDS_MAX;
+  return `<svg viewBox="-14 -14 ${S + 28} ${S + 28}" style="touch-action:none;cursor:${full ? "default" : "copy"}" aria-label="กราฟ Response Curve${readOnly ? "" : " ลากจุดได้"}">
     <rect x="0" y="0" width="${S}" height="${S}" fill="#fff" stroke="#E2E2E2"/>
     ${[1, 2, 3].map((i) => `<path d="M${(S / 4) * i} 0 V${S} M0 ${(S / 4) * i} H${S}" stroke="#E2E2E2"/>`).join("")}
     <path d="M0 ${S} L${S} 0" stroke="#BDBDBD" stroke-dasharray="4 4"/>
     <polyline points="${line}" fill="none" stroke="${ink}" stroke-width="2.2" stroke-linejoin="round"/>
     ${full ? "" : `<polyline points="${line}" fill="none" stroke="transparent" stroke-width="18" data-gyro-line/>`}
-    ${pts.map(([id, x, y]) => `<circle cx="${X(x)}" cy="${Y(y)}" r="9" fill="#fff" stroke="${ink}" stroke-width="2" data-pt="${id}" style="cursor:grab"><title>${id === "start" ? "จุดเริ่ม" : id === "end" ? "จุดสุด" : `จุดกลาง ${Number(id.slice(3)) + 1}`} (${x}, ${y})</title></circle>`).join("")}
+    ${pts.map(([id, x, y]) => `<circle cx="${X(x)}" cy="${Y(y)}" r="${readOnly ? 6 : 9}" fill="#fff" stroke="${ink}" stroke-width="2"${readOnly ? "" : ` data-pt="${id}" style="cursor:grab"`}><title>${id === "start" ? "จุดเริ่ม" : id === "end" ? "จุดสุด" : `จุดกลาง ${Number(id.slice(3)) + 1}`} (${x}, ${y})</title></circle>`).join("")}
   </svg>`;
 }
 

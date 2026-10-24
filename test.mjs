@@ -198,6 +198,30 @@ console.log("edits ok");
   assert.throws(() => applyEdits(sample, { "gyro.activation": [{ activation: "hold", button: "Q" }] }));
   assert.throws(() => applyEdits(sample, { "gyro.mouseRadius": 101 }));
 
+  // The simple (Steam-like) controls: every setting they can make is a curve the write accepts
+  // (points in order, bytes 0–255, at most 2 mid points) and reads back as the same settings.
+  const { gyroSimple, gyroFromSimple } = await import("./mapping-edit.js");
+  for (const mode of ["left_joystick", "right_joystick", "mouse"])
+    for (const sens of [0, 1, 37, 60, 99, 100])
+      for (const dead of [0, 3, 50, 99, 100])
+        for (const max of [0, 40, 100])
+          for (const accel of [0, 1, 2, 3])
+            for (const startY of [0, 3, 200]) {
+              const c = gyroFromSimple({ sens, dead, accel, max }, mode, startY);
+              const back = unwrapMapping(applyEdits(sample, { "gyro.mode": mode, "gyro.curve": c }));
+              checkProfile(applyEdits(sample, { "gyro.mode": mode, "gyro.curve": c }));
+              assert.deepEqual(back.cfg.gyroscope.curve, c);
+              const r = gyroSimple(c, mode);
+              // Levels sit 10% of the rise apart, so they only tell apart on a rise of 30+ bytes.
+              if (c.end_y - c.start_y >= 30 || !accel) assert.equal(r.accel, accel, `accel ${accel} reads back (${mode} ${sens} ${dead} ${max} ${startY})`);
+              else assert.notEqual(r.accel, null, "a simple curve never reads as hand-bent");
+              if (mode === "mouse") assert.equal(c.end_x, 255, "mouse keeps end_x 255 as the official app");
+              if (startY <= gyroByte(mode === "mouse" ? sens : max)) assert.equal(r.sens, mode === "mouse" || sens < 100 ? sens : 99);
+              if (sens < 60 && dead < 40) assert.equal(r.dead, dead);
+            }
+  assert.equal(gyroSimple(curve, "right_joystick").accel, null, "the owner's hand-bent curve is not a simple one");
+  assert.deepEqual(gyroSimple({ start_x: 0, start_y: 0, end_x: 145, end_y: 255, mid_points: [] }, "right_joystick"), { sens: 43, dead: 0, max: 100, accel: 0 });
+
   // checkProfile: bytes the official app doesn't know in the gyro block stop a write.
   const at = 4 + unwrapMapping(sample).cfg.offsets.gyroscope;
   const poke = (pairs) => {

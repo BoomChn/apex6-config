@@ -49,6 +49,39 @@ const GYRO_MODES = ["disable", "left_joystick", "right_joystick", "mouse"];
 export const gyroPct = (b) => Math.round(Math.max(0, Math.min(255, b)) / 2.55);
 export const gyroByte = (p) => Math.round(Math.max(0, Math.min(100, p)) * 2.55);
 
+// The Gyro page's simple (Steam-like) controls, kept in the same curve the controller stores:
+// sensitivity, dead zone (start_x), acceleration as one mid point bent under the straight line,
+// and max output. Sensitivity is the official app's: 100 − end_x% for a stick mode, end_y% for the
+// mouse (end_x stays 255 there and max output isn't shown). start_y stays as it is.
+export const GYRO_ACCEL = [null, 0.35, 0.25, 0.15]; // mid y as a share of the rise at the middle x; 0 = straight
+export function gyroFromSimple({ sens, dead, accel, max }, mode, startY = 0) {
+  const mouse = mode === "mouse";
+  const end_x = mouse ? 255 : Math.max(2, gyroByte(100 - sens));
+  const end_y = Math.max(startY, gyroByte(mouse ? sens : max));
+  const start_x = Math.min(gyroByte(dead), end_x - 2);
+  const c = { start_x, start_y: startY, end_x, end_y, mid_points: [] };
+  const f = GYRO_ACCEL[accel];
+  if (f) c.mid_points.push({ x: Math.round((start_x + end_x) / 2), y: Math.round(startY + (end_y - startY) * f) });
+  return c;
+}
+// The simple controls a curve reads as. accel is null when the curve has mid points the simple
+// controls didn't make (bent by hand, or by the official Advanced page).
+export function gyroSimple(c, mode) {
+  const mouse = mode === "mouse";
+  const out = { sens: mouse ? gyroPct(c.end_y) : 100 - gyroPct(c.end_x), dead: gyroPct(c.start_x), max: gyroPct(c.end_y), accel: null };
+  const m = c.mid_points;
+  if (!m.length) out.accel = 0;
+  else if (m.length === 1 && m[0].x === Math.round((c.start_x + c.end_x) / 2)) {
+    // The nearest level within a byte; on a very small rise levels meet and the lowest wins.
+    let best = 2;
+    for (let a = 1; a < GYRO_ACCEL.length; a++) {
+      const d = Math.abs(m[0].y - Math.round(c.start_y + (c.end_y - c.start_y) * GYRO_ACCEL[a]));
+      if (d < best) [best, out.accel] = [d, a];
+    }
+  }
+  return out;
+}
+
 // A curve is written whole, as the official encoder writes curve11: start_x start_y end_x
 // end_y n, two (x, y) mid points (unused ones 0, 0), two zero pad bytes.
 export const GYRO_MIDS_MAX = 2;

@@ -1,6 +1,6 @@
 import { Apex6, RAM, hex, crc32 } from "./protocol.js";
 import { decodeMapping } from "./mapping.js";
-import { unwrapMapping, applyEdits, sameBytes, deadzoneMax, curveEndMin, curveStartMax, MACRO_STEPS_MAX, motorCmd, motorMode, FEEDBACK_MODE, gyroByte, gyroPct, GYRO_MIDS_MAX } from "./mapping-edit.js";
+import { unwrapMapping, applyEdits, sameBytes, deadzoneMax, curveEndMin, curveStartMax, MACRO_STEPS_MAX, motorCmd, motorMode, FEEDBACK_MODE, gyroByte, gyroPct, gyroSimple, gyroFromSimple, GYRO_MIDS_MAX } from "./mapping-edit.js";
 import { Drafts, meta, esc, resolveNames, resolveMacros, macroPlan, writeEdits, macroUses, openMacro, layerMoves, nameId, evalCurve, layerKey, layerList, nextLayerId, LAYER_NAME, btnName, useLayerNames, slotLayerNames, layerNameId } from "./model.js";
 import { Names, SlotSeen, fit } from "./names.js";
 import { Library } from "./macros.js";
@@ -754,6 +754,19 @@ function setGyroMode(mode) {
   setDraft("gyro.curve", c);
 }
 
+// One of the Gyro page's simple controls ("sens", "dead", "max" in percent, "accel" 0–3): the
+// curve is rebuilt from all four. A hand-bent curve's mid points give way to the accel level
+// (off when none matched). Returns the value as the rebuilt curve reads it.
+function setGyroSimple(part, val) {
+  const mode = D.get("gyro.mode");
+  const c = D.get("gyro.curve");
+  const v = gyroSimple(c, mode);
+  v.accel ??= 0;
+  v[part] = val;
+  setDraft("gyro.curve", gyroFromSimple(v, mode, c.start_y));
+  return gyroSimple(D.get("gyro.curve"), mode)[part];
+}
+
 // Gyro activation as the official Advanced page sets it: one hold/toggle for every button, a
 // primary button and an optional secondary one. Slots past the second are kept as they are.
 function setGyroButton(i, button) {
@@ -1217,6 +1230,20 @@ const ACTIONS = {
     setDraft("gyro.curve", c);
     render();
   },
+  "gyro-accel": (el) => {
+    setGyroSimple("accel", Number(el.dataset.val));
+    render();
+  },
+  // Gyro response tab: simple controls (0) or the curve itself (1).
+  "gyro-view": (el) => {
+    S.ui.gyroAdv = el.dataset.val === "1";
+    render();
+  },
+  // Gyro axes: show the full selects instead of the Yaw / Roll choice.
+  "gyro-axes": () => {
+    S.ui.gyroAxes = true;
+    render();
+  },
   "gyro-curve-reset": () => {
     setDraft("gyro.curve", { start_x: 0, start_y: 0, end_x: 255, end_y: 255, mid_points: [] });
     render();
@@ -1623,6 +1650,16 @@ document.addEventListener("input", (e) => {
     renderChrome();
     return;
   }
+  if (el.dataset.gsimple) {
+    // Gyro simple slider: rebuild the curve, then update the label and the preview in place.
+    const v = setGyroSimple(el.dataset.gsimple, Number(el.value));
+    el.closest(".slider").querySelector(".num").textContent = `${v}%`;
+    el.style.setProperty("--p", `${v}%`);
+    const chart = document.querySelector("[data-gyro-preview]");
+    if (chart) chart.innerHTML = V.gyroChart(D.get("gyro.curve"), D.has("gyro.curve"), true);
+    renderChrome();
+    return;
+  }
   if (el.dataset.ui) {
     // Page settings that are not part of any draft (the macro step builder's timing).
     S.ui[el.dataset.ui] = Number(el.value);
@@ -1677,7 +1714,7 @@ document.addEventListener("change", (e) => {
   if (el.id === "lib-in") return importLibrary(el);
   if (el.id === "vault-in") return importVault(el);
   if (el.dataset.libName != null) return render();
-  if (el.dataset.curve) return render();
+  if (el.dataset.curve || el.dataset.gsimple) return render();
   if (el.dataset.mid != null) {
     setCurvePart(`mid_${el.dataset.axis}`, Number(el.value) || 0, Number(el.dataset.mid));
     return render();
