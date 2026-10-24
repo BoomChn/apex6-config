@@ -1966,10 +1966,13 @@ const KEY_EVENT = {
   C: "C", Z: "Z", M1: "M1", M2: "M2", M3: "M3", M4: "M4", "LT (active)": "LT", "RT (active)": "RT",
 };
 
-// Whether the gyro would be on now: no activation buttons = always; otherwise any hold button
-// held or toggle button switched on. A button whose event name is unknown counts as on.
+// Whether the gyro would be on now: never with the mode off on the controller; no activation
+// buttons = always; otherwise any hold button held or toggle button switched on. A button whose
+// event name is unknown counts as on.
 function gyroOn() {
-  const acts = S.current?.cfg.gyroscope?.activation ?? [];
+  const g = S.current?.cfg.gyroscope;
+  if (!g || g.mode === "disable") return false;
+  const acts = g.activation ?? [];
   if (!acts.length) return true;
   return acts.some((a) => {
     const k = KEY_EVENT[a.button];
@@ -2056,7 +2059,8 @@ function tick() {
     setLive(`[data-live="imu"]`, V.liveImu(st && LIVE.imu && { imu: st.imu, tail: st.tail, move: LIVE.imu.move, peak: LIVE.imu.peak }));
     // What the gyro drives. 0xEF carries the physical sticks only (found on hardware), so this reads
     // the XInput pad Windows sees, where the gyro's part is mixed in. Standard mapping: axes 0/1 left, 2/3 right.
-    if (mode === "left_joystick" || mode === "right_joystick") {
+    // With the gyro off it shows the right stick, to see that tilting no longer moves it.
+    if (mode === "left_joystick" || mode === "right_joystick" || mode === "disable") {
       const gp = Array.from(navigator.getGamepads?.() ?? []).find((g) => g?.mapping === "standard");
       const ax = mode === "left_joystick" ? 0 : 2;
       const v = gp && { x: Number((gp.axes[ax] ?? 0).toFixed(2)), y: Number((gp.axes[ax + 1] ?? 0).toFixed(2)) };
