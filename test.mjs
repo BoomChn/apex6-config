@@ -1499,3 +1499,27 @@ console.log("layer names ok");
   assert.equal(await new Folder(st, { picker: null }).init(), null);
 }
 console.log("vault ok");
+
+// Gyro page aim box: with the mode off on the controller it must not say the gyro is on, even
+// while the activation button is held (the owner saw it "on" with LT after turning the gyro off).
+{
+  const { liveAim } = await import("./views.js");
+  const g = { mode: "disable", activation: [{ activation: "hold", button: "LT (active)" }] };
+  const html = liveAim(g, { x: 0, y: 0, on: false });
+  assert.ok(html.includes("gyro ปิดอยู่บนจอย"), "off mode says so");
+  assert.ok(!html.includes("gyro ทำงาน"), "off mode never says on");
+  assert.ok(liveAim({ ...g, mode: "right_joystick" }, { x: 0, y: 0, on: true }).includes("gyro ทำงาน"));
+}
+console.log("gyro aim ok");
+
+// Gyro page "ผลบนจอยตอนนี้": the stick box stays with the gyro off (the owner lost it), showing the
+// right stick, so they can see tilting no longer moves it.
+{
+  const { gyroStick } = await import("./views.js");
+  const g = { mode: "disable", activation: [{ activation: "hold", button: "LT (active)" }] };
+  const html = gyroStick(g, { x: 0, y: 0 });
+  assert.ok(html.includes("<svg"), "off mode still draws the stick box");
+  assert.ok(html.includes("Stick ขวา") && html.includes("จุดต้องไม่ขยับ"));
+  assert.ok(!gyroStick(g, null).includes("undefined"));
+}
+console.log("gyro off stick ok");

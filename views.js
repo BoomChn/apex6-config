@@ -1339,7 +1339,6 @@ export function gyroChart(c, pending) {
 function gyroOut(g) {
   const act = g.activation[0];
   const when = act ? `${act.activation === "hold" ? "กดค้าง" : "กดสลับ"} ${esc(btnName(act.button))} แล้ว` : "";
-  if (g.mode === "disable") return `<p class="muted" style="margin:12px 0 0">gyro ปิดอยู่บนจอย · เลือกหน้าที่ด้านขวา แล้วเขียนลงจอยก่อน จึงจะเห็นผลตรงนี้</p>`;
   if (g.mode === "mouse") return `<p style="margin:12px 0 0"><b>${when}เอียงจอย แล้วดูว่าเคอร์เซอร์บนจอขยับตาม</b></p>`;
   return `<div data-live="gyro-out" style="margin-top:12px">${gyroStick(g, null)}</div>`;
 }
@@ -1350,13 +1349,17 @@ export function gyroStick(g, v) {
   const act = g.activation[0];
   const when = act ? `${act.activation === "hold" ? "กดค้าง" : "กดสลับ"} ${esc(btnName(act.button))} แล้ว` : "";
   const axes = g.mode === "left_joystick" ? "X Axis / Y Axis (เครื่องหมาย +)" : "X Rotation / Y Rotation";
-  if (!v) return `<p style="margin:0"><b style="font-size:18px">${when}เอียงจอย แล้วดูใน joy.cpl</b></p>
-    <p class="muted" style="margin:4px 0 0">Win+R → joy.cpl → เลือกจอย → Properties · ${esc(GYRO_MODE[g.mode])} คือแกน ${axes}</p>
+  // Off: the right stick, to check that tilting with the old activation button moves nothing.
+  const off = g.mode === "disable";
+  const stick = off ? "Stick ขวา" : GYRO_MODE[g.mode];
+  const title = off ? `gyro ปิดอยู่บนจอย · ${when}เอียงจอย จุดต้องไม่ขยับ` : `${when}เอียงจอย`;
+  if (!v) return `<p style="margin:0"><b style="font-size:18px">${title} แล้วดูใน joy.cpl</b></p>
+    <p class="muted" style="margin:4px 0 0">Win+R → joy.cpl → เลือกจอย → Properties · ${esc(stick)} คือแกน ${axes}</p>
     <p class="meta" style="margin:4px 0 0">แอปแสดงตำแหน่งสติ๊กที่ gyro ขยับให้ไม่ได้ เพราะ Chrome ในเครื่องนี้มองไม่เห็นจอยแบบเกมแพด และค่าที่อ่านจากจอยโดยตรงมีแค่สติ๊กที่นิ้วโยก</p>`;
   return `<div style="display:flex;gap:28px;align-items:center">
     <div class="live" style="flex:none;padding-top:0">${liveStick(v)}</div>
-    <div><b style="font-size:18px">${when}เอียงจอย</b>
-      <p class="muted" style="margin:4px 0 0">จุดคือ ${esc(GYRO_MODE[g.mode])} ที่ Windows เห็น รวมส่วนที่ gyro ขยับให้แล้ว</p></div>
+    <div><b style="font-size:18px">${title}</b>
+      <p class="muted" style="margin:4px 0 0">จุดคือ ${esc(stick)} ที่ Windows เห็น${off ? " · ขยับได้เฉพาะตอนโยกสติ๊กด้วยนิ้ว" : " รวมส่วนที่ gyro ขยับให้แล้ว"}</p></div>
   </div>`;
 }
 
@@ -1367,10 +1370,11 @@ export function liveAim(g, a) {
   const acts = g?.activation ?? [];
   const how = acts.map((x) => `${x.activation === "hold" ? "กดค้าง" : "กดสลับ"} ${esc(btnName(x.button))}`).join(" หรือ ");
   const dot = a ? `<circle cx="${Math.round(a.x * 100)}" cy="${Math.round(a.y * 100)}" r="7" fill="${a.on ? "#2140D9" : "#BDBDBD"}"/>` : "";
-  const title = !a ? "ยังไม่ได้รับค่าจากจอย" : a.on ? "gyro ทำงาน · เอียงจอยเพื่อเล็ง" : `gyro ยังไม่ทำงาน · ${how}`;
+  const off = g?.mode === "disable";
+  const title = !a ? "ยังไม่ได้รับค่าจากจอย" : off ? "gyro ปิดอยู่บนจอย · กดปุ่มไหนก็ไม่เล็ง" : a.on ? "gyro ทำงาน · เอียงจอยเพื่อเล็ง" : `gyro ยังไม่ทำงาน · ${how}`;
   return `<svg width="200" height="200" viewBox="-102 -102 204 204" style="flex:none" aria-hidden="true">${frame}${dot}</svg>
     <div><b style="font-size:18px">${title}</b>
-      <p class="muted" style="margin:4px 0 0">จุดคือทิศที่เล็ง · หมุนแบบพวงมาลัย หรือ เอียงซ้าย–ขวา = ซ้าย–ขวา · ก้ม–เงย = บน–ล่าง${acts.length ? ` · จุดขยับเฉพาะตอน${how}` : " · ไม่ได้ตั้งปุ่ม จึงทำงานตลอด"}</p>
+      <p class="muted" style="margin:4px 0 0">${off ? "เลือกโหมดด้านขวาแล้วเขียนลงจอย จุดจึงจะขยับ · " : ""}จุดคือทิศที่เล็ง · หมุนแบบพวงมาลัย หรือ เอียงซ้าย–ขวา = ซ้าย–ขวา · ก้ม–เงย = บน–ล่าง${acts.length ? ` · จุดขยับเฉพาะตอน${how}` : " · ไม่ได้ตั้งปุ่ม จึงทำงานตลอด"}</p>
       <p class="meta" style="margin:4px 0 0">คำนวณจาก gyro ในแอป ใช้ดูว่าเซนเซอร์กับปุ่มเปิดทำงาน ความไวไม่ตรงกับในเกม</p></div>`;
 }
 
