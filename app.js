@@ -33,7 +33,7 @@ const S = {
   connectError: null,
   tab: tabFromHash(),
   // ui.macro: uid of the library macro the Macros page has open; macroQ/pickQ: list filters.
-  ui: { layer: 0, layerMode: "hold", sel: "M1", press: "simple", outType: null, dpad: "D-pad ↑", renaming: null, slotMenu: null, layerMenu: null, pressMenu: false, addedPress: [], macro: null, step: 0, macroQ: "", pickQ: "", ledPick: 0, picker: null },
+  ui: { layer: 0, focus: null, layerMode: "hold", sel: "M1", press: "simple", outType: null, dpad: "D-pad ↑", renaming: null, slotMenu: null, layerMenu: null, pressMenu: false, addedPress: [], macro: null, step: 0, macroQ: "", pickQ: "", ledPick: 0, picker: null },
   log: [],
   backups: [],
   dump: null,
@@ -609,6 +609,7 @@ async function runWrite({ edits = null, drafts = null, links = null, data = null
     if (edits) for (const k of drafts ?? Object.keys(edits)) D.map.delete(k);
     const moved = (id) => moves.find((m) => m.from === id)?.to ?? id;
     S.ui.layer = moved(S.ui.layer);
+    if (S.ui.focus != null) S.ui.focus = moved(S.ui.focus);
     for (const [k, v] of [...D.map]) {
       const m = k.match(/^map\.(\d+)\.(.+)$/);
       if (!m || moved(Number(m[1])) === Number(m[1])) continue;
@@ -848,10 +849,23 @@ function selectSource(src) {
   // A long or double press row added but left unused goes when the button changes (owner, 2026-10-23).
   S.ui.addedPress = [];
   S.ui.pressMenu = false;
-  // Variant B: a newly picked button starts on its Base cell, never on the last layer used.
-  S.ui.layer = 0;
+  // Variant B: a newly picked button starts on its Base cell, never on the last layer used. With a
+  // layer focused it starts in that layer, the only column the matrix shows.
+  S.ui.layer = V.focusOf(S, D) ?? 0;
   S.ui.press = "simple";
   S.ui.outType = null;
+}
+
+function focusLayer(id) {
+  S.ui.focus = S.ui.focus === id ? null : id;
+  // A picked button stays picked and shows its cell in the focused layer.
+  if (S.ui.focus != null && S.ui.sel) {
+    S.ui.layer = id;
+    S.ui.press = "simple";
+    S.ui.outType = null;
+  }
+  render();
+  document.querySelector(`.layer-group[data-layer="${id}"]`)?.focus({ preventScroll: true });
 }
 
 function pick(id) {
@@ -1000,6 +1014,8 @@ const ACTIONS = {
     S.ui.layer = Number(el.dataset.layer);
     render();
   },
+  // A click on a layer row focuses that layer (owner, 2026-10-24); a second click lets go.
+  "layer-focus": (el) => focusLayer(Number(el.dataset.layer)),
   // Variant B: a matrix cell picks the layer and the kind of press together.
   cell: (el) => {
     S.ui.layer = Number(el.dataset.layer);
@@ -1014,6 +1030,7 @@ const ACTIONS = {
     // A name left from a layer that had this id and was never written doesn't carry over.
     S.names.put(S.uuid, layerNameId(S.current.slot, id), "", null);
     S.ui.layer = id;
+    if (S.ui.focus != null) S.ui.focus = id;
     render();
     toast(`เพิ่ม ${LAYER_NAME(id)} แล้ว · ยังไม่ได้เขียนลงจอย`);
   },
@@ -1068,6 +1085,7 @@ const ACTIONS = {
     else D.set(layerKey(id, "delete"), true);
     S.ui.layer = 0;
     S.ui.press = "simple";
+    if (S.ui.focus === id) S.ui.focus = null;
     if (sheet.open) sheet.close();
     render();
     toast(isNew ? `เอา ${LAYER_NAME(id)} ออกแล้ว` : `ลบ ${LAYER_NAME(id)} แล้ว · ยังไม่ได้เขียนลงจอย`);
@@ -1117,6 +1135,8 @@ const ACTIONS = {
     if (src.startsWith("D-pad")) S.ui.dpad = src;
     selectSource(src);
     S.ui.layer = Number(el.dataset.layer);
+    // A button picked from another layer's row moves the focus there, so the matrix shows its cell.
+    if (S.ui.focus != null) S.ui.focus = S.ui.layer;
     render();
   },
   "led-color": (el) => {
@@ -1480,9 +1500,14 @@ document.addEventListener("click", (e) => {
 });
 
 const isEmptyClick = (t) =>
-  S.tab === "buttons" && S.ui.sel && !sheet.open && t.isConnected !== false && !t.closest(".btn-panel, button, input, select, textarea, a, label, dialog, [contenteditable]");
+  S.tab === "buttons" && (S.ui.sel || V.focusOf(S, D) != null) && !sheet.open && t.isConnected !== false && !t.closest(".btn-panel, button, input, select, textarea, a, label, dialog, [contenteditable]");
 
+// Lets go one step at a time: the picked button first, then the focused layer.
 function unpick() {
+  if (!S.ui.sel) {
+    S.ui.focus = null;
+    return render();
+  }
   S.ui.sel = null;
   S.ui.addedPress = [];
   S.ui.pressMenu = false;
@@ -1528,7 +1553,11 @@ document.addEventListener("keydown", (e) => {
     document.querySelector(`[data-act="layer-menu"][data-layer="${id}"]`)?.focus();
     return;
   }
-  if (e.key === "Escape" && S.tab === "buttons" && S.ui.sel && !sheet.open && !e.target.closest?.("input, select, textarea, [contenteditable]")) return unpick();
+  if (e.key === "Escape" && S.tab === "buttons" && (S.ui.sel || V.focusOf(S, D) != null) && !sheet.open && !e.target.closest?.("input, select, textarea, [contenteditable]")) return unpick();
+  if ((e.key === "Enter" || e.key === " ") && e.target.matches?.(".layer-group[data-act=layer-focus]")) {
+    e.preventDefault();
+    return focusLayer(Number(e.target.dataset.layer));
+  }
   const co = e.target.closest?.("[data-pick]");
   if (co && (e.key === "Enter" || e.key === " ")) {
     e.preventDefault();

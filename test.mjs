@@ -1236,6 +1236,41 @@ console.log("layer switch from Base only ok");
 }
 console.log("press rows ok");
 
+// Layer focus (owner, 2026-10-24): a click on a layer row shows that layer alone on the photo, in the
+// overview and in the matrix. A focus on a layer that is gone counts as no focus.
+{
+  const V = await import("./views.js");
+  const { Drafts } = await import("./model.js");
+  const cfg = {
+    name: "", links: {}, macro_names: [], runtime: { long_press_ms: 300, double_press_ms: 400 },
+    layers: [
+      { layer_id: 0, macros: [], mappings: [{ source: "M1", identity: false, activators: [{ type: "timing_single", target: { type: "btn_gamepad", button: "LS" } }] }] },
+      { layer_id: 1, macros: [], mappings: [{ source: "RB", identity: false, activators: [{ type: "timing_single", target: { type: "btn_gamepad", button: "LB" } }] }] },
+    ],
+  };
+  const S = { current: { cfg, slot: 0 }, ui: { layer: 0, focus: null, sel: null, press: "simple", dpad: "D-pad ↑", layerMenu: null, pressMenu: false, addedPress: [] }, lib: { list: () => [], get: () => null }, plan: null, slots: { activeSlot: 0 } };
+  const D = new Drafts(S);
+  let page = V.buttons(S, D);
+  assert.match(page, /<span class="ov-h">Base layer<\/span><span class="ov-h">Shift layer<\/span>/, "no focus: every layer");
+  assert.doesNotMatch(page, /layer-group (focus|dim)/);
+  S.ui.focus = 1;
+  page = V.buttons(S, D);
+  assert.match(page, /<h2>ทุกปุ่มใน Shift layer<\/h2>/);
+  assert.doesNotMatch(page, /<span class="ov-h">Base layer<\/span>/, "focus: the overview shows only the focused layer");
+  assert.match(page, /class="layer-group focus" data-act="layer-focus" data-layer="1"/);
+  assert.match(page, /class="layer-group dim" data-act="layer-focus" data-layer="0"/);
+  assert.doesNotMatch(page, /class="extra/, "focus: no other-layer lines on the photo");
+  S.ui.sel = "RB";
+  S.ui.layer = 1;
+  page = V.buttons(S, D);
+  assert.match(page, /data-act="cell" data-layer="1" data-press="simple"/);
+  assert.doesNotMatch(page, /data-act="cell" data-layer="0"/, "focus: the matrix shows only the focused layer");
+  S.ui.focus = 3; // a layer that isn't there
+  assert.equal(V.focusOf(S, D), null);
+  assert.match(V.buttons(S, D), /data-act="cell" data-layer="0" data-press="simple"/);
+}
+console.log("layer focus ok");
+
 // The write side of "layer switches only from Base": an editor write that sets one outside Base stops.
 {
   const { checkBaseSwitches } = await import("./mapping-edit.js");
