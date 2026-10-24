@@ -417,6 +417,10 @@ function shownTarget(D, layer, src, press) {
   return kept ? undefined : { type: "btn_gamepad", button: src };
 }
 const liveLayers = (S, D) => layerList(S, D).filter((l) => !l.deleted);
+// The layer focused from its row under the photo (owner, 2026-10-24): the photo, the overview and
+// the matrix show only that layer. null when nothing is focused or the layer is gone.
+export const focusOf = (S, D) => (S.ui.focus != null && liveLayers(S, D).some((l) => l.id === S.ui.focus) ? S.ui.focus : null);
+const shownLayers = (S, D) => liveLayers(S, D).filter((l) => focusOf(S, D) == null || l.id === focusOf(S, D));
 
 function buttonState(S, D, layer, src) {
   const cfg = S.current.cfg;
@@ -443,9 +447,11 @@ export function buttons(S, D) {
       items[id] = { name: id, value: "ยังไม่รู้ ID", state: "nomap", sel: ui.sel === id };
       continue;
     }
-    // The photo always shows Base; each other layer that sets the button adds a line under it.
-    const st = buttonState(S, D, 0, src);
-    const others = live.filter((id) => id !== 0).map((l) => [l, buttonState(S, D, l, src)]).filter(([, s]) => s.changed || s.pend);
+    // The photo shows Base, and each other layer that sets the button adds a line under it. With a
+    // layer focused it shows that layer alone.
+    const focus = focusOf(S, D);
+    const st = buttonState(S, D, focus ?? 0, src);
+    const others = live.filter((id) => id !== 0 && focus == null).map((l) => [l, buttonState(S, D, l, src)]).filter(([, s]) => s.changed || s.pend);
     const extra = others.map(([l, s]) => ({ name: LAYER_NAME(l).replace(/ layer$/, ""), value: s.value, pend: s.pend, mapped: s.changed }));
     const pend = st.pend || others.some(([, s]) => s.pend);
     // mapped: not the default in some layer, on the controller or still a draft. Marked yellow.
@@ -463,7 +469,8 @@ export function buttons(S, D) {
 // No button picked (a click on empty space or Esc lets go): every button of the slot in every
 // layer, numbered like the photo. A row picks its button.
 function overview(S, D, items) {
-  const cols = liveLayers(S, D);
+  const cols = shownLayers(S, D);
+  const f = focusOf(S, D);
   const head = `<span class="ov-k">ปุ่ม</span>${cols.map((l) => `<span class="ov-h">${LAYER_NAME(l.id)}</span>`).join("")}`;
   const rows = ALL.callouts.map((c, i) => {
     const it = items[c.id];
@@ -475,8 +482,10 @@ function overview(S, D, items) {
     }).join("");
     return `<button class="ov-row" data-pick="${c.id}" style="grid-template-columns:var(--ov-cols)" aria-label="${esc(`แก้ ${it.name}`)}"><span class="ov-k"><span class="ov-n">${i + 1}</span><b>${nameHtml(it.name)}</b></span>${cells}</button>`;
   }).join("");
-  return `<div class="head-inset ov-head"><div class="t"><h2>ทุกปุ่มใน Slot ${S.slots.activeSlot + 1}</h2>
-      <div class="status">คลิกปุ่มบนรูป หรือคลิกแถวด้านล่าง เพื่อแก้ปุ่มนั้น</div></div></div>
+  const title = f == null ? `ทุกปุ่มใน Slot ${S.slots.activeSlot + 1}` : `ทุกปุ่มใน ${esc(LAYER_NAME(f))}`;
+  const hint = f == null ? "คลิกปุ่มบนรูป หรือคลิกแถวด้านล่าง เพื่อแก้ปุ่มนั้น" : "คลิกปุ่มบนรูปหรือแถวด้านล่างเพื่อแก้ · คลิกที่ว่างเพื่อกลับไปดูทุก layer";
+  return `<div class="head-inset ov-head"><div class="t"><h2>${title}</h2>
+      <div class="status">${hint}</div></div></div>
     <div class="ov" style="--ov-cols:150px repeat(${cols.length}, minmax(0, 1fr))"><div class="ov-row ov-top" style="grid-template-columns:var(--ov-cols)">${head}</div>${rows}</div>`;
 }
 
@@ -514,13 +523,19 @@ function changedList(S, D) {
         <span style="font-weight:700" class="${st.pend ? "pending" : ""}">${nameHtml(st.value)}</span>
       </button>`);
   }
+  // A click on a row, anywhere but its buttons, focuses that layer; a click on empty space lets go.
+  const f = focusOf(S, D);
   const rows = list
     .map((l) => {
       const ways = layerWays(S, D, l.id);
-      const how = l.id === 0 ? "รูปจอยแสดง layer นี้" : ways.length ? nameHtml(ways.join(", ")) : "ยังไม่มีปุ่มพาไป";
+      const reach = l.id === 0 ? (f == null ? "" : "ตอนจอยเริ่มต้น") : ways.length ? nameHtml(ways.join(", ")) : "ยังไม่มีปุ่มพาไป";
+      const shows = (f ?? 0) === l.id ? `<b class="lg-shows">รูปจอยแสดง layer นี้</b>` : "";
+      const how = [shows, reach].filter(Boolean).join("<br>");
       const items = groups.get(l.id).join("") || `<span class="lg-none">ทุกปุ่มเป็นค่าเดิม</span>`;
-      const name = `<span class="lg-title"><span class="${l.id === S.ui.layer ? "chip" : "lg-plain"}">${esc(LAYER_NAME(l.id))}</span><button class="icon-btn sm" data-act="layer-rename" data-layer="${l.id}" aria-label="เปลี่ยนชื่อ ${esc(LAYER_NAME(l.id))}">${ICON.pencil}</button></span>`;
-      return `<div class="layer-group"><span class="lg-name">${name}<span class="lg-how">${how}${l.isNew ? " · เพิ่มใหม่" : ""}</span></span>
+      const chip = f == null ? l.id === S.ui.layer : l.id === f;
+      const cls = f == null ? "" : l.id === f ? " focus" : " dim";
+      const name = `<span class="lg-title"><span class="${chip ? "chip" : "lg-plain"}">${esc(LAYER_NAME(l.id))}</span><button class="icon-btn sm" data-act="layer-rename" data-layer="${l.id}" aria-label="เปลี่ยนชื่อ ${esc(LAYER_NAME(l.id))}">${ICON.pencil}</button></span>`;
+      return `<div class="layer-group${cls}" data-act="layer-focus" data-layer="${l.id}" role="button" tabindex="0" aria-pressed="${l.id === f}" aria-label="${esc(`ดูเฉพาะ ${LAYER_NAME(l.id)}`)}"><span class="lg-name">${name}<span class="lg-how">${how}${l.isNew ? " · เพิ่มใหม่" : ""}</span></span>
         <div class="lg-items">${items}</div><span class="lg-act">${l.id === 0 ? "" : layerMenu(S, l)}</span></div>`;
     })
     .join("");
@@ -708,8 +723,10 @@ function buttonEditor(S, D) {
   // Variant B: every layer side by side. A cell is one layer × one kind of press, and the cell you
   // click is what the controls below edit, so the layer is chosen on every edit.
   // Adding and deleting layers is on the layer rows under the photo (changedList).
-  const cols = liveLayers(S, D);
-  const head = cols.map((l) => `<span class="mx-h"><b>${LAYER_NAME(l.id)}</b></span>`).join("");
+  // With a layer focused, only its column.
+  const cols = shownLayers(S, D);
+  const focused = focusOf(S, D) != null;
+  const head = cols.map((l) => `<span class="mx-h"><b${focused ? ' class="chip"' : ""}>${LAYER_NAME(l.id)}</b></span>`).join("");
   const shown = pressRows(S, D);
   const cells = PRESS.filter((p) => p.id === "simple" || shown.includes(p.id)).map((p) => `<span class="mx-k">${p.label}</span>${cols.map((l) => {
     const k = mapKey(l.id, src, p.id);
@@ -777,7 +794,7 @@ function buttonEditor(S, D) {
       </span>
     </div>
     ${src.startsWith("D-pad") ? `<div class="seg" style="margin-top:16px">${["D-pad ↑", "D-pad ↓", "D-pad ←", "D-pad →"].map((d) => `<button class="${src === d ? "on" : ""}" data-act="dpad" data-dir="${esc(d)}">${nameHtml(btnName(d))}</button>`).join("")}</div>` : ""}
-    <div style="padding-top:20px"><div class="label" style="padding-bottom:8px">กด ${nameHtml(btnName(src))} แบบไหน ในแต่ละ layer · คลิกช่องที่จะแก้</div>${rows}${pressAdd(S, D, shown)}${leak}</div>
+    <div style="padding-top:20px"><div class="label" style="padding-bottom:8px">กด ${nameHtml(btnName(src))} แบบไหน ${focused ? `ใน ${esc(LAYER_NAME(cols[0].id))}` : "ในแต่ละ layer"} · คลิกช่องที่จะแก้</div>${rows}${pressAdd(S, D, shown)}${leak}</div>
     <div style="padding-top:28px;display:grid;gap:14px">
       <div class="label">${LAYER_NAME(layer)} · ${pl} ส่งเป็น</div>
       <div class="utabs" style="gap:20px">${types}</div>
