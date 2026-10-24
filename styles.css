@@ -395,6 +395,8 @@ select.field { appearance: none; padding-right: 36px; background: #fff url("data
 /* Lists */
 .list-row { display: flex; align-items: center; gap: 16px; padding: 18px 0; border-bottom: 1px solid var(--hairline); }
 .empty-note { padding: 20px 0; color: var(--ink-2); font-size: 14px; }
+.vault-bar { display: flex; gap: 16px; align-items: center; justify-content: space-between; margin-bottom: 20px; padding: 12px 16px; border: 1px solid currentColor; border-radius: 6px; font-size: 14px; line-height: 20px; font-weight: 500; }
+.vault-bar .link { color: inherit; font-weight: 700; white-space: nowrap; }
 .tag { font-size: 12px; font-weight: 600; color: var(--ink-2); }
 .tag.unsup { color: var(--warn); }
 .tag.untested { display: inline-block; padding: 1px 8px; border: 1px solid currentColor; border-radius: 6px; background: var(--ground); color: var(--warn); font-size: 12px; font-weight: 700; line-height: 18px; white-space: nowrap; vertical-align: 1px; cursor: help; }

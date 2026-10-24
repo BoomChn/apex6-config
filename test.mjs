@@ -1292,3 +1292,200 @@ console.log("base switches ok");
   useLayerNames({});
 }
 console.log("layer names ok");
+
+// --- App data outside the browser (vault.js) ---
+{
+  const { Tracked, Folder, snapshot, parseSnapshot, replaceAll, hasData, summary, FILE } = await import("./vault.js");
+  const { Library } = await import("./macros.js");
+  const { Names } = await import("./names.js");
+  const memStore = (init = {}) => {
+    const m = new Map(Object.entries(init));
+    return {
+      m,
+      full: false,
+      get length() { return m.size; },
+      key: (i) => [...m.keys()][i] ?? null,
+      getItem: (k) => (m.has(k) ? m.get(k) : null),
+      setItem(k, v) { if (this.full) throw new Error("quota"); m.set(k, String(v)); },
+      removeItem: (k) => m.delete(k),
+    };
+  };
+  const err = (name) => Object.assign(new Error(name), { name });
+  // A folder as the File System Access API gives it.
+  const memDir = (name = "Apex6") => {
+    const files = new Map(), dirs = new Map();
+    const d = {
+      name, files, dirs, perm: "granted", gone: false,
+      async getFileHandle(n, { create } = {}) {
+        if (d.gone) throw err("NotFoundError");
+        if (!files.has(n) && !create) throw err("NotFoundError");
+        if (d.perm !== "granted") throw err("NotAllowedError");
+        return {
+          getFile: async () => ({ text: async () => files.get(n) }),
+          createWritable: async () => {
+            let buf = "";
+            return { write: async (t) => (buf += t), close: async () => files.set(n, buf) };
+          },
+        };
+      },
+      async getDirectoryHandle(n, { create } = {}) {
+        if (!dirs.has(n)) {
+          if (!create) throw err("NotFoundError");
+          dirs.set(n, memDir(n));
+        }
+        return dirs.get(n);
+      },
+      async *keys() { yield* [...files.keys()]; },
+      async removeEntry(n) { files.delete(n); },
+      queryPermission: async () => d.perm,
+      requestPermission: async () => (d.perm = "granted"),
+    };
+    return d;
+  };
+  const handles = (dir = null) => ({ h: dir, async get() { return this.h; }, async set(x) { this.h = x; }, async clear() { this.h = null; } });
+  const folder = (st, dir, picked = dir) => new Folder(st, { handles: handles(dir), picker: async () => picked, delay: 5 });
+  const tick = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  // Changes to the app's keys are marked and reported; nothing else is.
+  const st = memStore();
+  let calls = 0;
+  const tr = new Tracked(st, () => calls++);
+  tr.setItem("apex6.names", "{}");
+  assert.equal(calls, 1);
+  assert.ok(Number(st.getItem("apex6.vault.at")) > 0, "a change marks the time");
+  tr.setItem("apex6.names", "{}");
+  tr.setItem("other", "x");
+  tr.removeItem("apex6.nothing");
+  assert.equal(calls, 1, "same value, other keys and removing what isn't there are not changes");
+  st.full = true;
+  assert.throws(() => tr.setItem("apex6.backups", "[1]"), /quota/, "a full localStorage still throws (saveBackups drops old backups on it)");
+  st.full = false;
+  assert.equal(calls, 1);
+  new Library(tr).add({ name: "M", actions: [] });
+  assert.equal(calls, 2, "the libraries save through it");
+
+  // A snapshot carries the app's keys and nothing else, and comes back from its file.
+  const snap = snapshot(st);
+  assert.deepEqual(Object.keys(snap.data), ["apex6.macros", "apex6.names"]);
+  assert.deepEqual(parseSnapshot(JSON.stringify(snap)).data, snap.data);
+  assert.throws(() => parseSnapshot("not json"), /JSON/);
+  assert.throws(() => parseSnapshot(JSON.stringify({ kind: "names", names: {} })), /ไม่ใช่ไฟล์ข้อมูล/, "a names file is not a data file");
+  assert.throws(() => parseSnapshot(JSON.stringify({ ...snap, data: { evil: "x" } })), /ไฟล์เสีย/);
+  assert.throws(() => parseSnapshot(JSON.stringify({ ...snap, data: { "apex6.names": {} } })), /ไฟล์เสีย/);
+  assert.throws(() => parseSnapshot(JSON.stringify({ ...snap, v: 2 })), /ใหม่กว่า/);
+  assert.match(summary(snap), /macro 1/);
+  assert.equal(summary({ data: {} }), "ไม่มีข้อมูล");
+
+  // What the app writes on its own at start (no backups yet) is not data.
+  assert.equal(hasData(memStore({ "apex6.backups": "[]", "apex6.vault.at": "5" })), false);
+  assert.equal(hasData(st), true);
+  const other = memStore({ "apex6.old": "1", keep: "x" });
+  replaceAll(other, snap);
+  assert.deepEqual([...other.m.keys()].filter((k) => k.startsWith("apex6.") && !k.startsWith("apex6.vault")).sort(), ["apex6.macros", "apex6.names"]);
+  assert.equal(other.getItem("keep"), "x", "keys that are not the app's are left alone");
+
+  // First folder: this browser's data is written there, with a dated copy.
+  const dir = memDir();
+  const f1 = folder(st, null, dir);
+  assert.equal(await f1.link(), null);
+  assert.equal(f1.state, "ok");
+  assert.deepEqual(parseSnapshot(dir.files.get(FILE)).data, snapshot(st).data);
+  assert.equal(dir.dirs.get("daily").files.size, 1);
+
+  // Changes are written once for a burst of them.
+  const tr1 = new Tracked(st, () => f1.schedule());
+  let writes = 0;
+  const w0 = f1.writeNow.bind(f1);
+  f1.writeNow = () => (writes++, w0());
+  new Names(tr1).put("U", "slot.0", "Racing", "Racing");
+  tr1.setItem("apex6.customColors", '["#ff0000"]');
+  await tick(30);
+  await f1.chain;
+  assert.equal(writes, 1);
+  assert.equal(parseSnapshot(dir.files.get(FILE)).data["apex6.customColors"], '["#ff0000"]');
+
+  // The browser is cleared: picking the same folder brings everything back without asking.
+  const cleared = memStore({ "apex6.backups": "[]" });
+  const res = await folder(cleared, null, dir).link();
+  assert.ok(res?.restore, "a cleared browser takes the folder's data");
+  replaceAll(cleared, res.restore, { fromFolder: true });
+  assert.deepEqual(snapshot(cleared).data, snapshot(st).data);
+  const f2 = folder(cleared, dir);
+  assert.equal(await f2.init(), null, "after taking it, the next start just writes");
+  assert.equal(f2.state, "ok");
+
+  // Another PC wrote the folder since this browser last did: the owner chooses.
+  const pcB = memStore();
+  replaceAll(pcB, parseSnapshot(dir.files.get(FILE)), { fromFolder: true });
+  const fB = folder(pcB, dir);
+  await fB.init();
+  await tick(2);
+  new Tracked(pcB, () => {}).setItem("apex6.customColors", '["#00ff00"]');
+  await fB.write();
+  const fA = folder(st, dir);
+  const ask = await fA.init();
+  assert.ok(ask?.ask, "the folder holds data this browser has not seen");
+  await fA.keepLocal(ask.ask);
+  assert.equal(parseSnapshot(dir.files.get(FILE)).data["apex6.customColors"], '["#ff0000"]', "keeping this browser's data writes it");
+  const aside = [...dir.files.keys()].find((n) => n.startsWith("apex6-data-before-"));
+  assert.ok(aside && dir.files.get(aside).includes("00ff00"), "the folder's data is kept aside first");
+  // …and this browser's own later change is just written, with no question.
+  new Tracked(st, () => {}).setItem("apex6.customColors", '["#0000ff"]');
+  assert.equal(await folder(st, dir).init(), null);
+  assert.match(dir.files.get(FILE), /0000ff/);
+
+  // A different folder that already holds other data: never written over without asking.
+  const dir2 = memDir("Other");
+  dir2.files.set(FILE, JSON.stringify({ ...snapshot(pcB), at: 1 }));
+  assert.ok((await folder(st, dir, dir2).link())?.ask, "a newly picked folder is asked about even when its file is older");
+
+  // A file that is not ours is kept aside, not just written over.
+  const dir3 = memDir();
+  dir3.files.set(FILE, "garbage");
+  await folder(st, null, dir3).link();
+  assert.ok([...dir3.files.keys()].some((n) => n.startsWith("apex6-data-broken-")));
+  assert.equal(parseSnapshot(dir3.files.get(FILE)).data["apex6.customColors"], '["#0000ff"]');
+
+  // The browser wants a click again after a restart: nothing is written until then.
+  const dir4 = memDir();
+  dir4.perm = "prompt";
+  const f4 = folder(st, dir4);
+  assert.equal(await f4.init(), null);
+  assert.equal(f4.state, "permission");
+  f4.schedule();
+  await tick(20);
+  assert.equal(dir4.files.size, 0);
+  await f4.allow();
+  assert.equal(f4.state, "ok");
+  assert.ok(dir4.files.has(FILE));
+  // Permission taken back, or the folder gone: the state says so.
+  dir4.perm = "denied";
+  await f4.write();
+  assert.equal(f4.state, "permission");
+  dir4.perm = "granted";
+  dir4.gone = true;
+  await f4.write();
+  assert.equal(f4.state, "error");
+  assert.match(f4.error, /หาโฟลเดอร์ไม่เจอ/);
+
+  // Dated copies: 30 days are kept.
+  f1.writeNow = w0;
+  const daily = await dir.getDirectoryHandle("daily");
+  for (let i = 0; i < 40; i++) daily.files.set(`apex6-data-2025${String(1 + Math.floor(i / 28)).padStart(2, "0")}${String((i % 28) + 1).padStart(2, "0")}.json`, "{}");
+  daily.files.set("notes.txt", "mine");
+  await f1.write();
+  assert.equal([...daily.files.keys()].filter((n) => n.startsWith("apex6-data-")).length, 30);
+  assert.ok(daily.files.has("notes.txt"), "files that are not the app's copies are left alone");
+  assert.ok(daily.files.has(`apex6-data-${(await import("./vault.js")).stamp(Date.now())}.json`), "today's copy is kept");
+
+  // Unlinking forgets the folder; a browser without folder access says so.
+  await f1.unlink();
+  assert.equal(f1.state, "none");
+  const before = dir.files.get(FILE);
+  new Tracked(st, () => f1.schedule()).setItem("apex6.customColors", "[]");
+  await tick(20);
+  assert.equal(dir.files.get(FILE), before, "nothing is written to a folder after unlinking");
+  assert.equal(new Folder(st, { picker: null }).state, "unsupported");
+  assert.equal(await new Folder(st, { picker: null }).init(), null);
+}
+console.log("vault ok");

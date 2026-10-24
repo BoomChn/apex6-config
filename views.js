@@ -151,6 +151,53 @@ function head(title, sub, right = "") {
   return `<div class="page-head"><div><h1>${title}</h1>${sub ? `<p class="sub">${sub}</p>` : ""}</div>${right}</div>`;
 }
 
+// ---------------- App data outside the browser (vault.js) ----------------
+
+const savedWhen = (t) => (t ? new Date(t).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" }) : "");
+
+// The folder's state in one line, with what can be done about it.
+function folderLine(f) {
+  const name = `<b>${esc(f.name)}</b>`;
+  switch (f.state) {
+    case "unsupported":
+      return `<p class="warn">เบราว์เซอร์นี้บันทึกลงโฟลเดอร์ไม่ได้ ใช้ Chrome หรือ Edge · ระหว่างนี้ดาวน์โหลดไฟล์ข้อมูลเก็บไว้แทน</p>`;
+    case "none":
+      return `<p class="warn">ตอนนี้เก็บในเบราว์เซอร์นี้อย่างเดียว ถ้าล้างข้อมูลเบราว์เซอร์ ข้อมูลเหล่านี้จะหาย</p>
+        <p style="margin-top:14px"><button class="btn primary" data-act="vault-link">เลือกโฟลเดอร์เก็บข้อมูล</button></p>
+        <p class="meta" style="margin-top:10px">เลือกครั้งเดียว แอปจะบันทึกลงโฟลเดอร์นั้นให้ทุกครั้งที่แก้ เช่น Documents\\Apex6 · ถ้าเคยเลือกโฟลเดอร์ไว้ก่อนล้างเบราว์เซอร์ เลือกโฟลเดอร์เดิมเพื่อดึงข้อมูลกลับมา</p>`;
+    case "permission":
+      return `<p class="warn">ยังไม่ได้บันทึกลงโฟลเดอร์ ${name} · เบราว์เซอร์ขอให้กดอนุญาตอีกครั้ง</p>
+        <p style="margin-top:14px;display:flex;gap:20px;align-items:center"><button class="btn primary" data-act="vault-allow">อนุญาตให้บันทึกลงโฟลเดอร์</button><button class="link" data-act="vault-link">เลือกโฟลเดอร์อื่น</button></p>`;
+    case "error":
+      return `<p class="err">บันทึกลงโฟลเดอร์ ${name} ไม่สำเร็จ: ${esc(f.error)}</p>
+        <p style="margin-top:14px;display:flex;gap:20px;align-items:center"><button class="btn" data-act="vault-allow">ลองอีกครั้ง</button><button class="link" data-act="vault-link">เลือกโฟลเดอร์อื่น</button></p>`;
+    default:
+      return `<p class="ok">บันทึกลงโฟลเดอร์ ${name} ให้อัตโนมัติ${f.savedAt ? ` · ล่าสุด ${savedWhen(f.savedAt)}` : ""}</p>
+        <p class="meta" style="margin-top:6px">ไฟล์ apex6-data.json และสำเนารายวันในโฟลเดอร์ daily (เก็บ 30 วัน) · <button class="link" data-act="vault-link">เปลี่ยนโฟลเดอร์</button> · <button class="link muted" data-act="vault-unlink">เลิกบันทึกลงโฟลเดอร์</button></p>`;
+  }
+}
+
+// Device & backup, and the connect page (a browser just cleared has to get its data back there).
+export function vault(S) {
+  return `<div class="rule-head" style="align-items:flex-end"><div><h2>ข้อมูลในแอป</h2><span class="meta">macro · profile ในคลัง · ชื่อ · สีที่สร้างเอง · ไฟล์สำรอง slot · ค่าบนจอยอยู่ในจอยเองไม่เกี่ยวกับส่วนนี้</span></div>
+      <span style="display:flex;gap:20px;white-space:nowrap"><button class="link" data-act="vault-import">นำเข้าไฟล์ข้อมูล</button><button class="link" data-act="vault-export">ดาวน์โหลดไฟล์ข้อมูล</button></span></div>
+    <div style="padding:16px 0 4px;font-size:15px;line-height:22px">${folderLine(S.folder)}</div>
+    <p class="meta" style="margin-top:8px">ในเบราว์เซอร์นี้: ${esc(S.dataSummary())}</p>`;
+}
+
+// Where the app keeps its data, for the notes beside each library.
+const kept = (S) => (S.folder?.state === "ok" ? `เก็บในเบราว์เซอร์นี้และโฟลเดอร์ ${esc(S.folder.name)}` : "เก็บในเบราว์เซอร์นี้");
+
+// A strip above every page while the folder is not being written.
+export function vaultBar(S) {
+  const f = S.folder;
+  if (f.state === "permission")
+    return `<div class="vault-bar warn"><span>ยังไม่ได้บันทึกลงโฟลเดอร์ <b>${esc(f.name)}</b> · เบราว์เซอร์ขอให้กดอนุญาตอีกครั้ง</span><button class="link" data-act="vault-allow">อนุญาต</button></div>`;
+  if (f.state === "error")
+    return `<div class="vault-bar err"><span>บันทึกลงโฟลเดอร์ <b>${esc(f.name)}</b> ไม่สำเร็จ: ${esc(f.error)}</span><button class="link" data-act="vault-allow">ลองอีกครั้ง</button></div>`;
+  return "";
+}
+
 // ---------------- Connect ----------------
 
 export function connect(S) {
@@ -176,7 +223,8 @@ export function connect(S) {
       ${S.connectError ? `<p class="err" style="margin-top:20px;font-size:14px">${esc(S.connectError)}</p>` : ""}
       <p class="meta" style="margin-top:40px">แอปนี้ไม่ใช่ของ Flydigi และไม่อัปเดต firmware</p>
     </div>
-  </div>`;
+  </div>
+  <section style="margin-top:40px;max-width:780px">${vault(S)}</section>`;
 }
 
 // ---------------- 00 Profiles ----------------
@@ -270,7 +318,7 @@ function profileLibrary(S, D, cfg, active) {
     })
     .join("");
   return `<section style="margin-top:56px">
-    <div class="rule-head top" style="align-items:flex-end"><div><h2>คลัง profile</h2><span class="meta">เก็บในเบราว์เซอร์นี้ · ค่าทุกอย่างอยู่กับ profile slot เป็นแค่ช่องบนจอย · แก้ค่าใน slot แล้วเขียนลงจอย profile ใน slot นั้นจะอัปเดตตาม</span></div></div>
+    <div class="rule-head top" style="align-items:flex-end"><div><h2>คลัง profile</h2><span class="meta">${kept(S)} · ค่าทุกอย่างอยู่กับ profile slot เป็นแค่ช่องบนจอย · แก้ค่าใน slot แล้วเขียนลงจอย profile ใน slot นั้นจะอัปเดตตาม</span></div></div>
     ${rows || `<p class="empty-note">ยังไม่มี profile ในคลัง · กด ⋯ ที่แถว slot แล้วเลือก “ย้ายเข้าคลัง”</p>`}
   </section>`;
 }
@@ -953,7 +1001,7 @@ export function macros(S, D) {
     <div class="rule-head" style="margin-top:20px"><h2>คลัง macro</h2><span class="meta">${lib.length} ตัว${q ? ` · ตรงกับที่ค้น ${list.length}` : ""}</span></div>
     ${list.map(row).join("") || `<p class="empty-note">${lib.length ? "ไม่มี macro ที่ตรงกับที่ค้น" : "ยังไม่มี macro · กด + Macro ใหม่"}</p>`}
     <p class="meta" style="margin-top:20px;line-height:20px">จอยจะมีเฉพาะ macro ที่ผูกกับปุ่ม เก็บได้ ${MACRO_MAX} ตัวต่อ layer · Slot ${S.slots.activeSlot + 1} ใช้อยู่ ${usage}</p>
-    <p class="meta" style="margin-top:8px;line-height:20px">คลังเก็บในเบราว์เซอร์นี้ ใช้ได้กับทุก slot · <button class="link" data-act="lib-export">ส่งออก</button> · <button class="link" data-act="lib-import">นำเข้า</button></p>
+    <p class="meta" style="margin-top:8px;line-height:20px">คลัง${kept(S)} ใช้ได้กับทุก slot · <button class="link" data-act="lib-export">ส่งออก</button> · <button class="link" data-act="lib-import">นำเข้า</button></p>
     ${uses[0] ? boundFigure(uses[0].source, sel.name) : ""}
   </div>`;
   const sub = "macro ทั้งหมดอยู่ในคลังเดียว ปุ่มใน layer ไหนก็เลือกใช้ได้";
@@ -1510,8 +1558,9 @@ export function device(S, D) {
       </section>
     </div>
     <div>
-      <section>
-        <div class="rule-head" style="align-items:flex-end"><div><h2>ไฟล์สำรอง</h2><span class="meta">สำรองอัตโนมัติทุกครั้งก่อนเขียนลงจอย · เก็บในเบราว์เซอร์นี้และดาวน์โหลดเป็นไฟล์</span></div>
+      <section>${vault(S)}</section>
+      <section style="margin-top:40px">
+        <div class="rule-head" style="align-items:flex-end"><div><h2>ไฟล์สำรอง</h2><span class="meta">สำรองอัตโนมัติทุกครั้งก่อนเขียนลงจอย · ${kept(S)} และดาวน์โหลดเป็นไฟล์</span></div>
           <span style="display:flex;gap:20px;white-space:nowrap"><button class="link" data-act="import">นำเข้าไฟล์</button><button class="link" data-act="backup-now">สำรอง slot ${S.slots.activeSlot + 1} ตอนนี้</button></span></div>
         ${backups || `<p class="empty-note">ยังไม่มีไฟล์สำรองในเบราว์เซอร์นี้ · จะสร้างให้อัตโนมัติก่อนเขียนครั้งแรก</p>`}
         <p class="meta" style="margin-top:12px">กู้คืนได้เฉพาะ slot ที่ใช้อยู่บนจอย · นำเข้าไฟล์จะเขียนลง slot ${S.slots.activeSlot + 1}</p>
@@ -1519,7 +1568,7 @@ export function device(S, D) {
       <section style="margin-top:40px">
         <div class="rule-head" style="align-items:flex-end"><div><h2>ชื่อที่เก็บในแอป</h2><span class="meta">ชื่อเต็มของ slot ของจอยตัวนี้ จอยเก็บได้แค่ ${NAME_MAX} ไบต์ต่อชื่อ · ไฟล์ .bin ไม่มีชื่อเหล่านี้ · ชื่อ macro อยู่ในคลังที่หน้า Macros</span></div>
           <span style="display:flex;gap:20px;white-space:nowrap"><button class="link" data-act="names-import">นำเข้าชื่อ</button><button class="link" data-act="names-export">ส่งออกชื่อ</button></span></div>
-        <p class="meta" style="margin-top:12px">${Object.keys(S.names.export(S.uuid).names).length} ชื่อเก็บในเบราว์เซอร์นี้ · ส่งออกไว้ถ้าจะใช้แอปบนเครื่องอื่น</p>
+        <p class="meta" style="margin-top:12px">${Object.keys(S.names.export(S.uuid).names).length} ชื่อ${kept(S)} · ส่งออกไว้ถ้าจะใช้แอปบนเครื่องอื่น</p>
       </section>
       <section style="margin-top:40px">
         <div class="rule-head" style="align-items:flex-end"><div><h2>Packet log</h2><span class="meta">คัดลอกไปวางตอนแจ้งปัญหา</span></div>

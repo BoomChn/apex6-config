@@ -9,9 +9,14 @@ import { DEFAULT_PROFILE } from "./defaults.js";
 import { decodeLighting, encodeLighting, LIGHT_COLORS_MAX, CustomColors, CUSTOM_MAX, hexToHsv, hsvToHex, normHex, GOLD } from "./lighting.js";
 import { MOD_ONLY, MOD_CODE, keyOfCode, modsOfEvent } from "./keys.js";
 import * as V from "./views.js";
+import { Tracked, Folder, snapshot, parseSnapshot, replaceAll, summary, stamp, hasData } from "./vault.js";
 
 const $ = (s) => document.querySelector(s);
 const params = new URLSearchParams(location.search);
+
+// localStorage as the libraries see it: every change is also written to the folder the owner
+// picked (vault.js), so the data outlives the browser.
+const STORE = new Tracked(localStorage, () => S.folder.schedule());
 
 const S = {
   pad: null,
@@ -34,11 +39,14 @@ const S = {
   dump: null,
   dumpStatus: "",
   writing: false,
-  names: new Names(), // full names kept by the app, see names.js
-  seen: new SlotSeen(), // each slot's name when last read, see names.js
-  lib: new Library(), // the macro library, see macros.js
-  profiles: new Profiles(), // the profile library, see profiles.js
-  colors: new CustomColors(), // colors made with "สร้างสีเอง" on Lighting, see lighting.js
+  names: new Names(STORE), // full names kept by the app, see names.js
+  seen: new SlotSeen(STORE), // each slot's name when last read, see names.js
+  lib: new Library(STORE), // the macro library, see macros.js
+  profiles: new Profiles(STORE), // the profile library, see profiles.js
+  colors: new CustomColors(STORE), // colors made with "สร้างสีเอง" on Lighting, see lighting.js
+  folder: new Folder(localStorage, { onState: () => render() }), // the folder outside the browser, see vault.js
+  dataSummary: () => summary(snapshot(localStorage)),
+  dataSummary: () => summary(snapshot(localStorage)),
   plan: null, // what the next write does to the slot's macros, see macroPlan
 };
 const D = new Drafts(S);
@@ -79,9 +87,10 @@ function render() {
   const focusSig = active && active !== document.body ? sig(active) : null;
   renderChrome();
   const view = $("#view");
-  if (!S.pad) view.innerHTML = V.connect(S);
-  else if (!S.current) view.innerHTML = loadingView();
-  else view.innerHTML = PAGES[S.tab](S, D);
+  const bar = V.vaultBar(S);
+  if (!S.pad) view.innerHTML = bar + V.connect(S);
+  else if (!S.current) view.innerHTML = bar + loadingView();
+  else view.innerHTML = bar + PAGES[S.tab](S, D);
   liveCache.clear();
   fitStages();
   syncLive();
@@ -468,15 +477,15 @@ const unb64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 function loadBackups() {
   let list = [];
   try {
-    list = JSON.parse(localStorage.getItem(BK_KEY) ?? "[]");
+    list = JSON.parse(STORE.getItem(BK_KEY) ?? "[]");
   } catch {}
   // Migrate the single-per-slot backups written by the first version of the app.
   for (let s = 0; s < 4; s++) {
     const k = `apex6.backup.mapping.slot${s}`;
     try {
-      const b = JSON.parse(localStorage.getItem(k) ?? "null");
+      const b = JSON.parse(STORE.getItem(k) ?? "null");
       if (b && !list.some((x) => x.at === b.at)) list.push({ id: `m${b.at}`, at: b.at, slot: s, name: "", reason: "ก่อนเขียน", data: b.data });
-      localStorage.removeItem(k);
+      STORE.removeItem(k);
     } catch {}
   }
   S.backups = list.filter((b) => b && b.data).sort((a, b) => b.at - a.at);
@@ -486,7 +495,7 @@ function loadBackups() {
 function saveBackups() {
   while (S.backups.length) {
     try {
-      localStorage.setItem(BK_KEY, JSON.stringify(S.backups.slice(0, 16)));
+      STORE.setItem(BK_KEY, JSON.stringify(S.backups.slice(0, 16)));
       return;
     } catch {
       S.backups.pop();
@@ -1356,6 +1365,32 @@ const ACTIONS = {
     download(data, `apex6-names-${(S.uuid ?? "unknown").slice(-6)}.json`);
   },
   "names-import": () => $("#names-in").click(),
+  "vault-link": async () => {
+    try {
+      await folderResult(await S.folder.link());
+    } catch (e) {
+      if (e?.name !== "AbortError") toast(`ใช้โฟลเดอร์นี้ไม่ได้: ${e.message}`, true);
+    }
+  },
+  "vault-allow": async () => {
+    try {
+      const res = await S.folder.allow();
+      if (S.folder.state === "permission") return toast("เบราว์เซอร์ยังไม่อนุญาต กดอีกครั้งแล้วเลือก “อนุญาต”", true);
+      await folderResult(res);
+    } catch (e) {
+      toast(`บันทึกลงโฟลเดอร์ไม่ได้: ${e.message}`, true);
+    }
+  },
+  "vault-unlink": async () => {
+    if (!confirm(`เลิกบันทึกลงโฟลเดอร์ "${S.folder.name}"?\n\nไฟล์ที่บันทึกไว้แล้วยังอยู่ในโฟลเดอร์ ข้อมูลในแอปยังอยู่ในเบราว์เซอร์นี้`)) return;
+    await S.folder.unlink();
+    toast("เลิกบันทึกลงโฟลเดอร์แล้ว ข้อมูลเก็บในเบราว์เซอร์นี้อย่างเดียว");
+  },
+  "vault-export": () => {
+    downloadData("apex6-data");
+    toast("ดาวน์โหลดไฟล์ข้อมูลแล้ว เก็บไว้ในที่ปลอดภัย เช่น Google Drive");
+  },
+  "vault-import": () => $("#vault-in").click(),
   "log-clear": () => {
     S.log = [];
     scheduleLog();
@@ -1598,6 +1633,7 @@ document.addEventListener("change", (e) => {
   if (el.id === "file-in") return importFile(el);
   if (el.id === "names-in") return importNames(el);
   if (el.id === "lib-in") return importLibrary(el);
+  if (el.id === "vault-in") return importVault(el);
   if (el.dataset.libName != null) return render();
   if (el.dataset.curve) return render();
   if (el.dataset.mid != null) {
@@ -1660,6 +1696,83 @@ async function importNames(el) {
   } catch (err) {
     toast(`ใช้ไฟล์นี้ไม่ได้: ${err.message}`, true);
   }
+}
+
+// ---------------- App data outside the browser (vault.js) ----------------
+
+const AFTER_LOAD = "apex6.afterLoad"; // sessionStorage: a message for when the page is back
+
+// The libraries read their data once, when the app starts, so new data needs the page loaded again.
+function reloadWith(msg) {
+  sessionStorage.setItem(AFTER_LOAD, msg);
+  location.reload();
+}
+
+function downloadData(name) {
+  const text = JSON.stringify(snapshot(localStorage), null, 1);
+  download(new TextEncoder().encode(text), `${name}-${stamp(Date.now(), true)}.json`);
+}
+
+// Asks before data in the app is replaced. The data it replaces is downloaded first, as the slot
+// backups are before a write.
+// cancel: what Cancel does, when it does more than leave things as they are.
+function okToReplace(lines, cancel = "ยกเลิก = ไม่เปลี่ยนอะไร") {
+  if (S.writing) {
+    toast("รอให้เขียนลงจอยเสร็จก่อน", true);
+    return false;
+  }
+  const n = D.count();
+  const ok = ["ตกลง = ใช้ข้อมูลนี้แทน ข้อมูลตอนนี้ในแอปดาวน์โหลดเก็บเป็นไฟล์ไว้ให้ก่อน แล้วหน้าจะโหลดใหม่", ...(n ? [`(การแก้ ${n} จุดที่ยังไม่ได้เขียนลงจอยจะหาย)`] : [])];
+  if (!confirm([...lines, "", ...ok, cancel].join("\n"))) return false;
+  if (hasData(localStorage)) downloadData("apex6-data-before");
+  return true;
+}
+
+const savedOn = (t) => (t ? new Date(t).toLocaleString("th-TH", { dateStyle: "medium", timeStyle: "short" }) : "ไม่ทราบเวลา");
+
+// What the folder found (Folder.sync): its data for a browser that has none, or a choice.
+async function folderResult(res) {
+  if (res?.restore) {
+    if (D.count() && !okToReplace([`ดึงข้อมูลจากโฟลเดอร์ "${S.folder.name}": ${summary(res.restore)}`])) return render();
+    replaceAll(localStorage, res.restore, { fromFolder: true });
+    return reloadWith(`ดึงข้อมูลกลับจากโฟลเดอร์ ${S.folder.name} แล้ว: ${summary(res.restore)}`);
+  }
+  if (res?.ask) {
+    const there = summary(res.ask), here = S.dataSummary();
+    const take = okToReplace(
+      [
+        `โฟลเดอร์ "${S.folder.name}" มีข้อมูลที่ต่างจากในแอปตอนนี้ (อาจบันทึกจากเครื่องหรือเบราว์เซอร์อื่น) ใช้ข้อมูลจากโฟลเดอร์ไหม?`,
+        "",
+        `ในโฟลเดอร์ (บันทึก ${savedOn(res.ask.at)}): ${there}`,
+        `ในแอปตอนนี้: ${here}`,
+        ...(there === here ? ["จำนวนเท่ากัน แต่รายละเอียดข้างในไม่ตรงกัน"] : []),
+      ],
+      "ยกเลิก = ใช้ข้อมูลในแอปตอนนี้ และบันทึกทับไฟล์ในโฟลเดอร์ ข้อมูลเดิมในโฟลเดอร์เก็บแยกไว้เป็นไฟล์ apex6-data-before-…",
+    );
+    if (take) {
+      replaceAll(localStorage, res.ask, { fromFolder: true });
+      return reloadWith(`ใช้ข้อมูลจากโฟลเดอร์ ${S.folder.name} แล้ว`);
+    }
+    await S.folder.keepLocal(res.ask);
+  }
+  render();
+}
+
+async function importVault(el) {
+  const file = el.files[0];
+  el.value = "";
+  if (!file) return;
+  let snap;
+  try {
+    snap = parseSnapshot(await file.text());
+  } catch (err) {
+    return toast(`ใช้ไฟล์นี้ไม่ได้: ${err.message}`, true);
+  }
+  if (!okToReplace([`ใช้ข้อมูลจากไฟล์ "${file.name}" แทนข้อมูลทั้งหมดในแอปตอนนี้?`, "", `ในไฟล์ (บันทึก ${savedOn(snap.at)}): ${summary(snap)}`, `ในแอปตอนนี้: ${S.dataSummary()}`])) return;
+  replaceAll(localStorage, snap);
+  // The folder follows the app: it gets the file's data before the page loads again.
+  if (S.folder.state === "ok") await S.folder.write();
+  reloadWith(`นำเข้าข้อมูลจาก ${file.name} แล้ว: ${summary(snap)}`);
 }
 
 async function importLibrary(el) {
@@ -1989,6 +2102,15 @@ requestAnimationFrame(tick);
 
 loadBackups();
 render();
+
+// Asks the browser not to clear the app's data on its own when the disk runs low.
+navigator.storage?.persist?.().catch(() => {});
+const afterLoad = sessionStorage.getItem(AFTER_LOAD);
+if (afterLoad) {
+  sessionStorage.removeItem(AFTER_LOAD);
+  toast(afterLoad);
+}
+S.folder.init().then(folderResult).catch((e) => console.warn(e));
 
 if (S.demo) {
   import("./mock-device.js")
