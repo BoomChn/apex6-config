@@ -1485,6 +1485,16 @@ console.log("layer names ok");
   new Tracked(st, () => f1.schedule()).setItem("apex6.customColors", "[]");
   await tick(20);
   assert.equal(dir.files.get(FILE), before, "nothing is written to a folder after unlinking");
+  // Chrome's showDirectoryPicker only runs with window as `this` ("Illegal invocation" otherwise),
+  // which the owner hit on the first click.
+  globalThis.showDirectoryPicker = function () {
+    if (this !== globalThis) throw new TypeError("Failed to execute 'showDirectoryPicker' on 'Window': Illegal invocation");
+    return Promise.resolve(memDir("Real"));
+  };
+  const real = new Folder(st, { handles: handles() });
+  assert.equal(await real.link(), null);
+  assert.equal(real.state, "ok", "the browser's own picker is called on window");
+  delete globalThis.showDirectoryPicker;
   assert.equal(new Folder(st, { picker: null }).state, "unsupported");
   assert.equal(await new Folder(st, { picker: null }).init(), null);
 }
