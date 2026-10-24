@@ -172,7 +172,9 @@ async function writeFile(dir, name, text) {
 // browser's data), { restore: snap } (this browser has nothing, the folder has it: take it), or
 // { ask: snap } (the folder holds other data this browser has not seen: the owner picks).
 export class Folder {
-  constructor(st, { handles = idbHandles, picker = globalThis.showDirectoryPicker, onState = () => {}, delay = 600 } = {}) {
+  // The picker is bound: called as this.picker() it would run on the Folder, and Chrome refuses that
+  // ("Illegal invocation").
+  constructor(st, { handles = idbHandles, picker = globalThis.showDirectoryPicker?.bind(globalThis), onState = () => {}, delay = 600 } = {}) {
     this.st = st;
     this.handles = handles;
     this.picker = picker;
