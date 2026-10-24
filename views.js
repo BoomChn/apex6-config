@@ -509,6 +509,13 @@ function layerWays(S, D, to) {
   });
 }
 
+// A layer row lists its buttons in the order of the table on the right (owner, 2026-10-24).
+const DPAD_DIRS = ["D-pad ↑", "D-pad ↓", "D-pad ←", "D-pad →"];
+export function srcOrder(src) {
+  const i = ALL.callouts.findIndex((c) => (c.id === "DPAD" ? src.startsWith("D-pad") : ALL_SRC[c.id] === src));
+  return (i < 0 ? ALL.callouts.length : i) * 10 + Math.max(0, DPAD_DIRS.indexOf(src));
+}
+
 function changedList(S, D) {
   const cfg = S.current.cfg;
   const set = new Map();
@@ -527,10 +534,10 @@ function changedList(S, D) {
     const st = buttonState(S, D, layer, src);
     // On the controller but back to its default once the write drops a switch to a deleted layer.
     if (!st.changed && !st.pend) continue;
-    groups.get(layer).push(`<button class="list-row" style="border:0;background:none;padding:0;text-align:left;gap:12px" data-act="pick-src" data-src="${esc(src)}" data-layer="${layer}">
+    groups.get(layer).push({ src, html: `<button class="list-row" style="border:0;background:none;padding:0;text-align:left;gap:12px" data-act="pick-src" data-src="${esc(src)}" data-layer="${layer}">
         <span class="keytag${st.pend ? " pending" : ""}${st.pend && S.ui.sel === src && S.ui.layer === layer ? " fill" : ""}">${nameHtml(btnName(src))}</span>
         <span style="font-weight:700" class="${st.pend ? "pending" : ""}">${nameHtml(st.value)}</span>
-      </button>`);
+      </button>` });
   }
   // A click on a row, anywhere but its buttons, focuses that layer; a click on empty space lets go.
   const f = focusOf(S, D);
@@ -540,7 +547,7 @@ function changedList(S, D) {
       const reach = l.id === 0 ? (f == null ? "" : "ตอนจอยเริ่มต้น") : ways.length ? nameHtml(ways.join(", ")) : "ยังไม่มีปุ่มพาไป";
       const shows = (f ?? 0) === l.id ? `<b class="lg-shows">รูปจอยแสดง layer นี้</b>` : "";
       const how = [shows, reach].filter(Boolean).join("<br>");
-      const items = groups.get(l.id).join("") || `<span class="lg-none">ทุกปุ่มเป็นค่าเดิม</span>`;
+      const items = groups.get(l.id).sort((a, b) => srcOrder(a.src) - srcOrder(b.src)).map((g) => g.html).join("") || `<span class="lg-none">ทุกปุ่มเป็นค่าเดิม</span>`;
       const chip = f == null ? l.id === S.ui.layer : l.id === f;
       const cls = f == null ? "" : l.id === f ? " focus" : " dim";
       const name = `<span class="lg-title"><span class="${chip ? "chip" : "lg-plain"}">${esc(LAYER_NAME(l.id))}</span><button class="icon-btn sm" data-act="layer-rename" data-layer="${l.id}" aria-label="เปลี่ยนชื่อ ${esc(LAYER_NAME(l.id))}">${ICON.pencil}</button></span>`;

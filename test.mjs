@@ -1276,6 +1276,27 @@ console.log("press rows ok");
 }
 console.log("layer focus ok");
 
+// A layer row lists its buttons in the table's order, not the order they were set (owner, 2026-10-24).
+{
+  const V = await import("./views.js");
+  const { Drafts } = await import("./model.js");
+  const m = (source) => ({ source, identity: false, activators: [{ type: "timing_single", target: { type: "btn_gamepad", button: "B" } }] });
+  const srcs = ["D-pad →", "A", "D-pad ↑", "Start", "RB", "M1"];
+  const cfg = { name: "", links: {}, macro_names: [], runtime: { long_press_ms: 300, double_press_ms: 400 }, layers: [{ layer_id: 0, macros: [], mappings: srcs.map(m) }] };
+  const S = { current: { cfg, slot: 0 }, ui: { layer: 0, focus: null, sel: null, press: "simple", dpad: "D-pad ↑", layerMenu: null, pressMenu: false, addedPress: [] }, lib: { list: () => [], get: () => null }, plan: null, slots: { activeSlot: 0 } };
+  const D = new Drafts(S);
+  const page = V.buttons(S, D);
+  const shown = [...page.matchAll(/data-act="pick-src" data-src="([^"]+)"/g)].map((x) => x[1]);
+  const table = [...page.matchAll(/class="ov-row" data-pick="([^"]+)"/g)].map((x) => x[1]);
+  const want = [...srcs].sort((a, b) => V.srcOrder(a) - V.srcOrder(b));
+  assert.deepEqual(shown, want);
+  assert.notDeepEqual(want, srcs);
+  assert.ok(shown.indexOf("D-pad ↑") === shown.indexOf("D-pad →") - 1, "D-pad: up before right");
+  const pos = (src) => table.findIndex((id) => (id === "DPAD" ? src.startsWith("D-pad") : id === src));
+  for (let i = 1; i < shown.length; i++) assert.ok(pos(shown[i - 1]) <= pos(shown[i]), `${shown[i - 1]} before ${shown[i]} as in the table`);
+}
+console.log("layer row order ok");
+
 // The write side of "layer switches only from Base": an editor write that sets one outside Base stops.
 {
   const { checkBaseSwitches } = await import("./mapping-edit.js");
