@@ -1317,9 +1317,9 @@ function gyroSettings(S, D, g, modes, sel) {
     `${plain ? `<div class="utabs" style="gap:28px">${turn}</div>` : `<div style="display:grid;gap:16px">
       <label><span class="slider-head"><b>เล็งซ้าย–ขวาด้วย</b></span><span style="display:block;margin-top:8px">${sel("gyro.axisX", AXIS)}</span></label>
       <label><span class="slider-head"><b>เล็งบน–ล่างด้วย</b></span><span style="display:block;margin-top:8px">${sel("gyro.axisY", AXIS)}</span></label></div>`}
-    <div class="checks" style="margin-top:16px">${check("gyro.invertX", "กลับซ้าย–ขวา", D)}${check("gyro.invertY", "กลับบน–ล่าง", D)}</div>
+    <div class="checks" style="margin-top:16px">${check("gyro.invertX", "กลับซ้าย–ขวา", D)}${check("gyro.invertY", "กลับบน–ล่าง", D)}${checksTag("gyro.invertX", "gyro.invertY")}</div>
     ${plain ? `<p style="margin:12px 0 0"><button class="link" data-act="gyro-axes">ตั้งแกนเอง</button></p>` : ""}`,
-    { fold: foldIf("gyro.axisX", "gyro.axisY", "gyro.invertX", "gyro.invertY"), tag: untested("gyro.axisX") });
+    { fold: foldIf("gyro.axisX", "gyro.axisY", "gyro.invertX", "gyro.invertY"), tag: plain ? "" : untested("gyro.axisY") });
 
   // 3. The response: simple controls (Steam-like) that build the curve, or the curve itself as on
   // the official Advanced page. Opens on the curve when it was bent in a way the simple controls can't make.

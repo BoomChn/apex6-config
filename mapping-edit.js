@@ -263,6 +263,10 @@ export const HW_TESTED = new Set([
   "trigger.left.start", "trigger.right.start", "trigger.left.end", "trigger.right.end",
   // Right stick + "hold LT" confirmed in joy.cpl; the other modes write the same byte.
   "gyro.mode",
+  // Owner 2026-10-24, in a game with gyro → right stick, hold LB: the simple controls' curves (sensitivity
+  // 20% vs 80%, acceleration "มาก") and turning with roll (axis_x imu_z). Yaw (imu_x) is the default
+  // the earlier tests ran on. Invert, axis_y and the other activation settings are not tried yet.
+  "gyro.curve", "gyro.axisX",
   // Lighting (RAM 0x04), owner 2026-10-23: solid red at 100%, breathing with 2 colors at speed 2
   // and 9, off, and each slot keeping its own light across a switch. The other modes write the same
   // bytes. Vibration sync not tried yet.
