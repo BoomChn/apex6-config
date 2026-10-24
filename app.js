@@ -864,11 +864,15 @@ function selectSource(src) {
 
 function focusLayer(id) {
   S.ui.focus = S.ui.focus === id ? null : id;
-  // A picked button stays picked and shows its cell in the focused layer.
-  if (S.ui.focus != null && S.ui.sel) {
+  // Focusing lets go of the picked button, so the right-hand side shows every button of that layer
+  // (owner, 2026-10-24; Buttons opens with M1 picked). A button picked next edits that layer.
+  if (S.ui.focus != null) {
+    S.ui.sel = null;
+    S.ui.addedPress = [];
+    S.ui.pressMenu = false;
+    S.ui.outType = null;
     S.ui.layer = id;
     S.ui.press = "simple";
-    S.ui.outType = null;
   }
   render();
   document.querySelector(`.layer-group[data-layer="${id}"]`)?.focus({ preventScroll: true });
