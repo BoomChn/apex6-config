@@ -1141,6 +1141,9 @@ const ACTIONS = {
     render();
   },
   "pick-src": (el) => {
+    // In a row that isn't focused, a click anywhere, its mapped buttons included, focuses the layer
+    // (owner, 2026-10-24: the whole row selects). Once focused, a mapped button picks that button.
+    if (S.ui.focus !== Number(el.dataset.layer)) return focusLayer(Number(el.dataset.layer));
     const src = el.dataset.src;
     if (src.startsWith("D-pad")) S.ui.dpad = src;
     selectSource(src);
