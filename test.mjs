@@ -1145,6 +1145,10 @@ console.log("keyboard ok");
   assert.equal(hwTested("macro.1.0.name"), false);
   assert.equal(hwTested("map.0.M1.simple", undefined), false);
   assert.equal(hwTested("gyro.mode"), true);
+  // Owner 2026-10-24: curve and roll/yaw axis in a game; invert, axis_y and activation not yet.
+  assert.equal(hwTested("gyro.curve"), true);
+  assert.equal(hwTested("gyro.axisX"), true);
+  for (const k of ["gyro.invertX", "gyro.invertY", "gyro.axisY", "gyro.activation", "gyro.mouseRadius"]) assert.equal(hwTested(k), false, k);
   assert.equal(hwTested("runtime.long", { type: "btn_keyboard" }), false, "only button presses go by type");
 }
 console.log("hw tested ok");

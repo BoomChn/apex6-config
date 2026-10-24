@@ -87,10 +87,14 @@ TLV until (0xFF,0x00):
   5 gyro (24B: curve11, flags, mode, 4×(activation, btn), axis_x, axis_y, mouse_radius)
     axis values 0 none, 1 imu_x, 2 imu_y, 3 imu_z. imu_x = yaw (steering-wheel turn), imu_y = pitch: with axis_x=imu_x, axis_y=imu_y
     and gyro → right stick, yaw moved only Rx and pitch only Ry in joy.cpl (hardware, 2026-10-22). Roll moved both, so the
-    firmware may mix roll in; imu_z = roll is inferred, not tested. Same order as the 0xEF rate channels.
+    firmware may mix roll in. Same order as the 0xEF rate channels.
+    Owner, in a game, 2026-10-24: axis_x=imu_z turns the aim left–right with roll (so imu_z = roll). With axis_x=imu_x,
+    roll also turns the aim left–right, but less than yaw: the firmware mixes some roll into yaw by itself. There is no
+    axis value for "yaw + roll" (only 0–3 are known; others are refused by checkProfile).
     Offsets in the 24 bytes: curve 0–10 (start_x 0, end_x 2), flags 11, mode 12, activation 13–20 as 4 × (0 hold | 1 toggle,
     button id), an empty slot is (0, 0xFF), axis_x 21, axis_y 22, mouse_window_radius 23 (sample profile: 32). The app writes all
-    of them; only mode is confirmed on hardware.
+    of them. Confirmed on hardware: mode, the curve (2026-10-24: sensitivity 20% vs 80% and the acceleration mid point
+    of the app's simple controls, in a game) and axis_x imu_x / imu_z. Invert, axis_y, activation edits and mouse radius not yet.
     The official web app (GyroBody-*.js, 2026-10-22) shows these as percents, p = round(byte / 2.55), byte = round(p * 2.55):
     stick modes: sensitivity = 100 − end_x%, dead zone = start_x% (start_y set to 0), end_y kept at 255;
     mouse mode: sensitivity = end_y%, "Mouse Dead Zone" = mouse_window_radius%, end_x kept at 255.
