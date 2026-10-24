@@ -110,7 +110,8 @@ function fitStages() {
     const [x, y, w, h] = svg.dataset.view.split(/\s+/).map(Number);
     let extra = 0;
     // D-pad arrows in a label: an 11px icon in the gap stage.js left, in the label's own colour.
-    for (const t of svg.querySelectorAll("tspan.arw-gap")) {
+    // Ghost labels (measured, never drawn) get none.
+    for (const t of svg.querySelectorAll("text:not(.ghost) tspan.arw-gap")) {
       const e = t.getExtentOfChar(0), cx = e.x + e.width / 2, cy = e.y + e.height / 2;
       const d = { "↑": `M${cx} ${cy + 5.5}V${cy - 5.5}M${cx - 4.5} ${cy - 1}L${cx} ${cy - 5.5}L${cx + 4.5} ${cy - 1}`, "↓": `M${cx} ${cy - 5.5}V${cy + 5.5}M${cx - 4.5} ${cy + 1}L${cx} ${cy + 5.5}L${cx + 4.5} ${cy + 1}`, "←": `M${cx + 5.5} ${cy}H${cx - 5.5}M${cx - 1} ${cy - 4.5}L${cx - 5.5} ${cy}L${cx - 1} ${cy + 4.5}`, "→": `M${cx - 5.5} ${cy}H${cx + 5.5}M${cx + 1} ${cy - 4.5}L${cx + 5.5} ${cy}L${cx + 1} ${cy + 4.5}` }[t.dataset.arw];
       const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
@@ -131,11 +132,16 @@ function fitStages() {
       const b = t.getBBox();
       extra = Math.max(extra, x - (b.x - 8), b.x + b.width + 8 - (x + w));
     }
+    // A page that keeps label room (Buttons) is that wide from the start on a wide screen.
+    if (svg.dataset.room && matchMedia("(min-width: 1700px)").matches) extra = Math.max(extra, Number(svg.dataset.room));
     svg.setAttribute("viewBox", `${x - extra} ${y} ${w + 2 * extra} ${h}`);
     grow = Math.max(grow, (w + 2 * extra) / w);
   }
   $("#view").style.setProperty("--stage-grow", grow.toFixed(3));
 }
+
+// The label room (Buttons) applies only on a wide screen, so crossing that width draws the page again.
+matchMedia("(min-width: 1700px)").addEventListener("change", () => render());
 
 function sig(el) {
   for (const a of ["data-key", "data-pick", "data-act"]) {

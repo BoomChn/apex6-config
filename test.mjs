@@ -1253,6 +1253,10 @@ console.log("press rows ok");
   let page = V.buttons(S, D);
   assert.match(page, /<span class="ov-h">Base layer<\/span><span class="ov-h">Shift layer<\/span>/, "no focus: every layer");
   assert.doesNotMatch(page, /layer-group (focus|dim)/);
+  // Every layer's label is measured on the photo, so switching the focus keeps the page as wide.
+  const ghosts = (p) => [...p.matchAll(/<text class="ghost"[^>]*>.*?<\/text>/g)].length;
+  assert.match(page, /<text class="ghost"[^>]*><tspan class="name">RB<\/tspan><tspan class="val" dx="6">LB<\/tspan>/);
+  const nGhosts = ghosts(page);
   S.ui.focus = 1;
   page = V.buttons(S, D);
   assert.match(page, /<h2>ทุกปุ่มใน Shift layer<\/h2>/);
@@ -1260,6 +1264,7 @@ console.log("press rows ok");
   assert.match(page, /class="layer-group focus" data-act="layer-focus" data-layer="1"/);
   assert.match(page, /class="layer-group dim" data-act="layer-focus" data-layer="0"/);
   assert.doesNotMatch(page, /class="extra/, "focus: no other-layer lines on the photo");
+  assert.equal(ghosts(page), nGhosts, "focus: the same labels are measured");
   S.ui.sel = "RB";
   S.ui.layer = 1;
   page = V.buttons(S, D);
